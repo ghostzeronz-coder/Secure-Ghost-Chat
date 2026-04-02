@@ -9,7 +9,6 @@ import {
   ShareTechMono_400Regular,
 } from "@expo-google-fonts/share-tech-mono";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Slot, router, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { AppState, AppStateStatus, View } from "react-native";
@@ -19,6 +18,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useApp } from "@/context/AppContext";
+import LockScreen from "@/app/lock";
+import OnboardingScreen from "@/app/onboarding";
+import TabLayout from "@/app/(tabs)/_layout";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -27,29 +29,6 @@ const queryClient = new QueryClient();
 function RootNavigator() {
   const { isOnboarded, isLocked, loaded, setLocked } = useApp();
   const appState = useRef(AppState.currentState);
-  const pathname = usePathname();
-
-  useEffect(() => {
-    if (!loaded) return;
-
-    if (isLocked) {
-      if (pathname !== "/lock") {
-        router.replace("/lock");
-      }
-      return;
-    }
-
-    if (!isOnboarded) {
-      if (pathname !== "/onboarding") {
-        router.replace("/onboarding");
-      }
-      return;
-    }
-
-    if (pathname === "/lock" || pathname === "/onboarding") {
-      router.replace("/(tabs)");
-    }
-  }, [loaded, isLocked, isOnboarded, pathname]);
 
   useEffect(() => {
     if (!loaded || !isOnboarded) return;
@@ -74,7 +53,15 @@ function RootNavigator() {
     return <View style={{ flex: 1, backgroundColor: "#000000" }} />;
   }
 
-  return <Slot />;
+  if (isLocked) {
+    return <LockScreen />;
+  }
+
+  if (!isOnboarded) {
+    return <OnboardingScreen />;
+  }
+
+  return <TabLayout />;
 }
 
 export default function RootLayout() {
