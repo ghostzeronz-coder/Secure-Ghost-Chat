@@ -197,17 +197,27 @@ export default function ChatScreen() {
         <View style={styles.headerActions}>
           <Pressable
             style={styles.callBtn}
-            onPress={() =>
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            }
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({
+                pathname: "/call",
+                params: { alias: conv.alias, mode: "voice" },
+              });
+            }}
+            testID="voice-call-btn"
           >
             <Ionicons name="call-outline" size={20} color={colors.primary} />
           </Pressable>
           <Pressable
             style={styles.callBtn}
-            onPress={() =>
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            }
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({
+                pathname: "/call",
+                params: { alias: conv.alias, mode: "video" },
+              });
+            }}
+            testID="video-call-btn"
           >
             <Ionicons name="videocam-outline" size={20} color={colors.primary} />
           </Pressable>

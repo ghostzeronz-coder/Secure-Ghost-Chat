@@ -8,7 +8,8 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Slot, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -21,7 +22,8 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootNavigator() {
-  const { isOnboarded, isLocked, loaded } = useApp();
+  const { isOnboarded, isLocked, loaded, hasPin, biometricEnabled, setLocked } = useApp();
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
     if (!loaded) return;
@@ -33,6 +35,25 @@ function RootNavigator() {
       router.replace("/(tabs)");
     }
   }, [loaded, isOnboarded, isLocked]);
+
+  useEffect(() => {
+    if (!loaded || !isOnboarded) return;
+
+    const subscription = AppState.addEventListener(
+      "change",
+      (nextAppState: AppStateStatus) => {
+        const wasActive = appState.current === "active";
+        const isBackground =
+          nextAppState === "background" || nextAppState === "inactive";
+        if (wasActive && isBackground && (hasPin || biometricEnabled)) {
+          setLocked(true);
+        }
+        appState.current = nextAppState;
+      }
+    );
+
+    return () => subscription.remove();
+  }, [loaded, isOnboarded, hasPin, biometricEnabled, setLocked]);
 
   return <Slot />;
 }

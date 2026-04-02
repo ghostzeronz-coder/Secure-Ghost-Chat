@@ -1,9 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import React, {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -44,7 +47,6 @@ export interface VPNServer {
 
 interface AppState {
   alias: string | null;
-  pin: string | null;
   biometricEnabled: boolean;
   isLocked: boolean;
   isOnboarded: boolean;
@@ -60,8 +62,10 @@ interface AppState {
 }
 
 interface AppContextType extends AppState {
+  hasPin: boolean;
   setAlias: (alias: string) => Promise<void>;
   setPin: (pin: string) => Promise<void>;
+  checkPin: (input: string) => Promise<boolean>;
   setBiometricEnabled: (enabled: boolean) => Promise<void>;
   setLocked: (locked: boolean) => void;
   connectVPN: (server: VPNServer) => void;
@@ -232,13 +236,39 @@ const VPN_SERVERS: VPNServer[] = [
 
 export { VPN_SERVERS };
 
+const SECURE_PIN_KEY = "ghostface_pin";
+const CONVERSATIONS_KEY = "ghostface_conversations";
+
+async function secureGet(key: string): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return AsyncStorage.getItem(key);
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+async function secureSet(key: string, value: string): Promise<void> {
+  if (Platform.OS === "web") {
+    await AsyncStorage.setItem(key, value);
+    return;
+  }
+  await SecureStore.setItemAsync(key, value);
+}
+
+async function secureDelete(key: string): Promise<void> {
+  if (Platform.OS === "web") {
+    await AsyncStorage.removeItem(key);
+    return;
+  }
+  await SecureStore.deleteItemAsync(key);
+}
+
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
+  const [hasPin, setHasPin] = useState(false);
   const [state, setState] = useState<AppState>({
     alias: null,
-    pin: null,
     biometricEnabled: false,
     isLocked: false,
     isOnboarded: false,
@@ -256,19 +286,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pin, biometric, onboarded] = await Promise.all([
-          AsyncStorage.getItem("alias"),
-          AsyncStorage.getItem("pin"),
-          AsyncStorage.getItem("biometricEnabled"),
-          AsyncStorage.getItem("isOnboarded"),
-        ]);
+        const [alias, pinExists, biometric, onboarded, convData] =
+          await Promise.all([
+            AsyncStorage.getItem("alias"),
+            secureGet(SECURE_PIN_KEY),
+            AsyncStorage.getItem("biometricEnabled"),
+            AsyncStorage.getItem("isOnboarded"),
+            AsyncStorage.getItem(CONVERSATIONS_KEY),
+          ]);
+
+        const hasPinValue = !!pinExists;
+        const biometricOn = biometric === "true";
+        let conversations = DEFAULT_CONVERSATIONS;
+        if (convData) {
+          try {
+            conversations = JSON.parse(convData);
+          } catch (_) {}
+        }
+
+        setHasPin(hasPinValue);
         setState((prev) => ({
           ...prev,
           alias,
-          pin,
-          biometricEnabled: biometric === "true",
+          biometricEnabled: biometricOn,
           isOnboarded: onboarded === "true",
-          isLocked: !!pin || biometric === "true",
+          isLocked: hasPinValue || biometricOn,
+          conversations,
         }));
       } catch (e) {
       } finally {
@@ -278,6 +321,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     load();
   }, []);
 
+  const persistConversations = useCallback(
+    async (convs: Conversation[]) => {
+      try {
+        await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
+      } catch (_) {}
+    },
+    []
+  );
+
   const setAlias = useCallback(async (alias: string) => {
     await AsyncStorage.setItem("alias", alias);
     await AsyncStorage.setItem("isOnboarded", "true");
@@ -285,8 +337,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setPin = useCallback(async (pin: string) => {
-    await AsyncStorage.setItem("pin", pin);
-    setState((prev) => ({ ...prev, pin }));
+    await secureSet(SECURE_PIN_KEY, pin);
+    setHasPin(true);
+  }, []);
+
+  const checkPin = useCallback(async (input: string): Promise<boolean> => {
+    const stored = await secureGet(SECURE_PIN_KEY);
+    return stored === input;
   }, []);
 
   const setBiometricEnabled = useCallback(async (enabled: boolean) => {
@@ -324,9 +381,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         timestamp: Date.now(),
         encrypted: true,
       };
-      setState((prev) => ({
-        ...prev,
-        conversations: prev.conversations.map((c) =>
+      setState((prev) => {
+        const updated = prev.conversations.map((c) =>
           c.id === conversationId
             ? {
                 ...c,
@@ -336,8 +392,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 unread: 0,
               }
             : c
-        ),
-      }));
+        );
+        persistConversations(updated);
+        return { ...prev, conversations: updated };
+      });
 
       setTimeout(() => {
         const replies = [
@@ -356,9 +414,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           timestamp: Date.now(),
           encrypted: true,
         };
-        setState((prev) => ({
-          ...prev,
-          conversations: prev.conversations.map((c) =>
+        setState((prev) => {
+          const updated = prev.conversations.map((c) =>
             c.id === conversationId
               ? {
                   ...c,
@@ -367,41 +424,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   timestamp: Date.now(),
                 }
               : c
-          ),
-        }));
+          );
+          persistConversations(updated);
+          return { ...prev, conversations: updated };
+        });
       }, 1500 + Math.random() * 1000);
     },
-    []
+    [persistConversations]
   );
 
-  const addConversation = useCallback((alias: string) => {
-    const newConv: Conversation = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-      alias: alias.toUpperCase(),
-      lastMessage: "E2EE channel established.",
-      timestamp: Date.now(),
-      unread: 0,
-      messages: [
-        {
-          id: Date.now().toString(),
-          text: "E2EE channel established. X3DH key exchange complete.",
-          fromMe: false,
-          timestamp: Date.now(),
-          encrypted: true,
-        },
-      ],
-    };
-    setState((prev) => ({
-      ...prev,
-      conversations: [newConv, ...prev.conversations],
-    }));
-  }, []);
+  const addConversation = useCallback(
+    (alias: string) => {
+      const newConv: Conversation = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        alias: alias.toUpperCase(),
+        lastMessage: "E2EE channel established.",
+        timestamp: Date.now(),
+        unread: 0,
+        messages: [
+          {
+            id: Date.now().toString(),
+            text: "E2EE channel established. X3DH key exchange complete.",
+            fromMe: false,
+            timestamp: Date.now(),
+            encrypted: true,
+          },
+        ],
+      };
+      setState((prev) => {
+        const updated = [newConv, ...prev.conversations];
+        persistConversations(updated);
+        return { ...prev, conversations: updated };
+      });
+    },
+    [persistConversations]
+  );
 
   const panicWipe = useCallback(async () => {
     await AsyncStorage.clear();
+    await secureDelete(SECURE_PIN_KEY);
+    setHasPin(false);
     setState({
       alias: null,
-      pin: null,
       biometricEnabled: false,
       isLocked: false,
       isOnboarded: false,
@@ -421,8 +485,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider
       value={{
         ...state,
+        hasPin,
         setAlias,
         setPin,
+        checkPin,
         setBiometricEnabled,
         setLocked,
         connectVPN,

@@ -19,9 +19,10 @@ import { useColors } from "@/hooks/useColors";
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { pin, biometricEnabled, setLocked } = useApp();
+  const { hasPin, biometricEnabled, checkPin, setLocked } = useApp();
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
+  const [pinLength, setPinLength] = useState(4);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
   const shake = () => {
@@ -56,19 +57,28 @@ export default function LockScreen() {
     }
   }, []);
 
-  const handleKey = (key: string) => {
+  const handleKey = async (key: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (entered.length >= 8) return;
     const next = entered + key;
     setEntered(next);
     setError(false);
 
-    if (next.length >= (pin?.length ?? 4)) {
-      if (next === pin) {
+    if (!hasPin) {
+      if (next.length >= 4) {
+        setLocked(false);
+        router.replace("/(tabs)");
+      }
+      return;
+    }
+
+    if (next.length >= 4) {
+      const correct = await checkPin(next);
+      if (correct) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         setLocked(false);
         router.replace("/(tabs)");
-      } else {
+      } else if (next.length >= 8) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError(true);
         shake();
@@ -93,7 +103,7 @@ export default function LockScreen() {
     ["", "0", "del"],
   ];
 
-  const dotCount = pin?.length ?? 4;
+  const dotCount = 4;
 
   const styles = StyleSheet.create({
     container: {

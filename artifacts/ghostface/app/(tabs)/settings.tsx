@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import React, { useRef, useState } from "react";
+
 import {
   Alert,
   Animated,
@@ -372,16 +373,18 @@ export default function SettingsScreen() {
 
         <Text style={styles.sectionLabel}>PRIVACY</Text>
         <View>
-          {[
-            { icon: "eye-off-outline", label: "ANONYMOUS MODE", value: "ON" },
-            { icon: "lock-closed-outline", label: "E2EE MESSAGING", value: "ON" },
-            { icon: "globe-outline", label: "DNS LEAK PROTECTION", value: "ON" },
-            { icon: "analytics-outline", label: "TELEMETRY", value: "OFF" },
-          ].map((item, idx, arr) => (
+          {(
+            [
+              { icon: "eye-off-outline", label: "ANONYMOUS MODE", value: "ON" },
+              { icon: "lock-closed-outline", label: "E2EE MESSAGING", value: "ON" },
+              { icon: "globe-outline", label: "DNS LEAK PROTECTION", value: "ON" },
+              { icon: "analytics-outline", label: "TELEMETRY", value: "OFF" },
+            ] as Array<{ icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; value: string }>
+          ).map((item, idx, arr) => (
             <View key={item.label}>
               <View style={styles.settingRow}>
                 <View style={styles.settingIcon}>
-                  <Ionicons name={item.icon as any} size={18} color={colors.mutedForeground} />
+                  <Ionicons name={item.icon} size={18} color={colors.mutedForeground} />
                 </View>
                 <Text style={styles.settingLabel}>{item.label}</Text>
                 <Text

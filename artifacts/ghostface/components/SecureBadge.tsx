@@ -3,6 +3,8 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
+
 type BadgeType = "e2ee" | "vpn" | "no-trace" | "encrypted";
 
 interface SecureBadgeProps {
@@ -15,7 +17,7 @@ export function SecureBadge({ type, size = "sm" }: SecureBadgeProps) {
 
   const config: Record<
     BadgeType,
-    { label: string; icon: string; color: string }
+    { label: string; icon: IoniconName; color: string }
   > = {
     e2ee: {
       label: "E2EE",
@@ -55,7 +57,7 @@ export function SecureBadge({ type, size = "sm" }: SecureBadgeProps) {
       ]}
     >
       <Ionicons
-        name={icon as any}
+        name={icon}
         size={isSmall ? 9 : 12}
         color={color}
         style={{ marginRight: 3 }}
