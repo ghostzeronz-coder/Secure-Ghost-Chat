@@ -5,6 +5,9 @@ import {
   Inter_500Medium,
   useFonts,
 } from "@expo-google-fonts/inter";
+import {
+  ShareTechMono_400Regular,
+} from "@expo-google-fonts/share-tech-mono";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Slot, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -69,6 +72,7 @@ export default function RootLayout() {
     Inter_500Medium,
     Inter_600SemiBold,
     Inter_700Bold,
+    ShareTechMono_400Regular,
   });
 
   useEffect(() => {

@@ -28,18 +28,23 @@ const SUGGESTED_ALIASES = [
 export default function OnboardingScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { setAlias } = useApp();
+  const { setAlias, setPin } = useApp();
   const [alias, setAliasText] = useState("");
   const [step, setStep] = useState<"alias" | "pin">("alias");
   const [pin, setPinText] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
-  const { setPin } = useApp();
 
-  const handleAliasConfirm = () => {
+  const handleAliasConfirm = async () => {
     if (alias.trim().length < 3) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setStep("pin");
+  };
+
+  const handleSkipPin = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await setAlias(alias.trim().toUpperCase());
+    router.replace("/(tabs)");
   };
 
   const handlePinConfirm = async () => {
@@ -110,9 +115,6 @@ export default function OnboardingScreen() {
       paddingVertical: 14,
       marginBottom: 12,
     },
-    inputFocused: {
-      borderColor: colors.primary,
-    },
     suggestions: {
       flexDirection: "row",
       flexWrap: "wrap",
@@ -137,6 +139,7 @@ export default function OnboardingScreen() {
       borderRadius: colors.radius,
       paddingVertical: 16,
       alignItems: "center",
+      marginBottom: 12,
     },
     confirmBtnDisabled: {
       opacity: 0.3,
@@ -147,10 +150,20 @@ export default function OnboardingScreen() {
       fontWeight: "800" as const,
       letterSpacing: 3,
     },
+    skipBtn: {
+      alignItems: "center",
+      paddingVertical: 12,
+      marginBottom: 8,
+    },
+    skipText: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 2,
+    },
     disclaimerRow: {
       flexDirection: "row",
       alignItems: "center",
-      marginTop: 16,
+      marginTop: 8,
       gap: 6,
     },
     disclaimerText: {
@@ -174,6 +187,13 @@ export default function OnboardingScreen() {
       color: colors.mutedForeground,
       fontSize: 13,
       letterSpacing: 1,
+    },
+    pinOptionalLabel: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 2,
+      textAlign: "center",
+      marginBottom: 16,
     },
   });
 
@@ -250,7 +270,10 @@ export default function OnboardingScreen() {
               <Text style={styles.backText}>BACK</Text>
             </Pressable>
 
-            <Text style={styles.sectionTitle}>SET YOUR PIN</Text>
+            <Text style={styles.sectionTitle}>SECURE WITH PIN</Text>
+            <Text style={styles.pinOptionalLabel}>
+              OPTIONAL — YOU CAN SKIP
+            </Text>
             <TextInput
               style={styles.input}
               value={pin}
@@ -263,7 +286,7 @@ export default function OnboardingScreen() {
               testID="pin-input"
             />
             <TextInput
-              style={[styles.input, { marginBottom: pinError ? 8 : 24 }]}
+              style={[styles.input, { marginBottom: pinError ? 8 : 16 }]}
               value={pinConfirm}
               onChangeText={(t) => {
                 setPinConfirm(t);
@@ -289,7 +312,15 @@ export default function OnboardingScreen() {
               disabled={pin.length < 4}
               testID="pin-confirm-btn"
             >
-              <Text style={styles.confirmBtnText}>SECURE APP</Text>
+              <Text style={styles.confirmBtnText}>SET PIN & ENTER</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.skipBtn}
+              onPress={handleSkipPin}
+              testID="skip-pin-btn"
+            >
+              <Text style={styles.skipText}>SKIP — ENTER WITHOUT PIN</Text>
             </Pressable>
 
             <View style={styles.disclaimerRow}>
