@@ -18,7 +18,7 @@ import { useColors } from "@/hooks/useColors";
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { hasPin, biometricEnabled, checkPin, setLocked, isOnboarded } = useApp();
+  const { hasPin, biometricEnabled, checkPin, setLocked } = useApp();
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
   const [biometricError, setBiometricError] = useState("");
