@@ -82,10 +82,13 @@ function serveLandingPage(req, res, landingPageTemplate, appName) {
 }
 
 function serveStaticFile(urlPath, res) {
-  const safePath = path.normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, "");
+  const safePath = path
+    .normalize(urlPath)
+    .replace(/^(\.\.(\/|\\|$))+/, "")
+    .replace(/^\/+/, "");
   const filePath = path.join(STATIC_ROOT, safePath);
 
-  if (!filePath.startsWith(STATIC_ROOT)) {
+  if (!filePath.startsWith(STATIC_ROOT + path.sep) && filePath !== STATIC_ROOT) {
     res.writeHead(403);
     res.end("Forbidden");
     return;
