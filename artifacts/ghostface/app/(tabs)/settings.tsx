@@ -19,6 +19,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
+import { PanicButton } from "@/components/PanicButton";
 import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
@@ -33,12 +34,6 @@ export default function SettingsScreen() {
     setPin,
     panicWipe,
   } = useApp();
-
-  const [panicHeld, setPanicHeld] = useState(false);
-  const [panicProgress, setPanicProgress] = useState(0);
-  const panicTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const panicInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const panicAnim = useRef(new Animated.Value(0)).current;
 
   const [showPinChange, setShowPinChange] = useState(false);
   const [newPin, setNewPin] = useState("");
@@ -64,37 +59,9 @@ export default function SettingsScreen() {
     await setBiometricEnabled(val);
   };
 
-  const startPanic = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setPanicHeld(true);
-    setPanicProgress(0);
-    let p = 0;
-    panicInterval.current = setInterval(() => {
-      p += 2;
-      setPanicProgress(p);
-      if (p >= 100) {
-        clearInterval(panicInterval.current!);
-        panicInterval.current = null;
-      }
-    }, 60);
-    panicTimer.current = setTimeout(async () => {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      await panicWipe();
-      router.replace("/onboarding");
-    }, 3000);
-  };
-
-  const cancelPanic = () => {
-    setPanicHeld(false);
-    setPanicProgress(0);
-    if (panicTimer.current) {
-      clearTimeout(panicTimer.current);
-      panicTimer.current = null;
-    }
-    if (panicInterval.current) {
-      clearInterval(panicInterval.current);
-      panicInterval.current = null;
-    }
+  const handlePanicWipe = async () => {
+    await panicWipe();
+    router.replace("/onboarding");
   };
 
   const handlePinSave = async () => {
@@ -201,45 +168,6 @@ export default function SettingsScreen() {
       marginHorizontal: 20,
       marginTop: 32,
       marginBottom: 12,
-    },
-    panicLabel: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 3,
-      marginBottom: 12,
-      textAlign: "center",
-    },
-    panicBtn: {
-      borderWidth: 2,
-      borderColor: colors.destructive,
-      borderRadius: colors.radius,
-      padding: 20,
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-    },
-    panicBtnPressed: {
-      backgroundColor: `${colors.destructive}15`,
-    },
-    panicProgress: {
-      position: "absolute",
-      left: 0,
-      top: 0,
-      bottom: 0,
-      backgroundColor: `${colors.destructive}25`,
-    },
-    panicBtnText: {
-      color: colors.destructive,
-      fontSize: 14,
-      fontWeight: "800" as const,
-      letterSpacing: 4,
-    },
-    panicSubText: {
-      color: colors.destructive,
-      fontSize: 10,
-      letterSpacing: 2,
-      marginTop: 4,
-      opacity: 0.7,
     },
     versionSection: {
       alignItems: "center",
@@ -405,35 +333,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.panicSection}>
-          <Text style={styles.panicLabel}>
-            HOLD 3 SECONDS TO WIPE ALL DATA
-          </Text>
-          <Pressable
-            style={[styles.panicBtn, panicHeld && styles.panicBtnPressed]}
-            onPressIn={startPanic}
-            onPressOut={cancelPanic}
-            testID="panic-btn"
-          >
-            {panicHeld && (
-              <View
-                style={[
-                  styles.panicProgress,
-                  { width: `${panicProgress}%` },
-                ]}
-              />
-            )}
-            <Ionicons
-              name="nuclear-outline"
-              size={28}
-              color={colors.destructive}
-            />
-            <Text style={styles.panicBtnText}>PANIC WIPE</Text>
-            <Text style={styles.panicSubText}>
-              {panicHeld
-                ? "WIPING..."
-                : "HOLD TO CLEAR ALL DATA"}
-            </Text>
-          </Pressable>
+          <PanicButton onWipe={handlePanicWipe} />
         </View>
 
         <View style={styles.versionSection}>
