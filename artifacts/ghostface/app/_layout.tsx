@@ -51,12 +51,12 @@ function RootNavigator() {
     return <View style={{ flex: 1, backgroundColor: "#000000" }} />;
   }
 
-  if (!isOnboarded) {
-    return <Redirect href="/onboarding" />;
-  }
-
   if (isLocked) {
     return <Redirect href="/lock" />;
+  }
+
+  if (!isOnboarded) {
+    return <Redirect href="/onboarding" />;
   }
 
   return <Slot />;
