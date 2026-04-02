@@ -301,6 +301,36 @@ export default function SettingsScreen() {
           </View>
         </View>
 
+        <Text style={styles.sectionLabel}>APPEARANCE</Text>
+        <View>
+          {(
+            [
+              { icon: "moon-outline", label: "THEME", value: "DARK" },
+              { icon: "glasses-outline", label: "GHOST MODE", value: "ENABLED" },
+            ] as Array<{ icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; value: string }>
+          ).map((item, idx, arr) => (
+            <View key={item.label}>
+              <View style={styles.settingRow}>
+                <View style={styles.settingIcon}>
+                  <Ionicons name={item.icon} size={18} color={colors.mutedForeground} />
+                </View>
+                <Text style={styles.settingLabel}>{item.label}</Text>
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    fontWeight: "700" as const,
+                  }}
+                >
+                  {item.value}
+                </Text>
+              </View>
+              {idx < arr.length - 1 && <View style={styles.settingDivider} />}
+            </View>
+          ))}
+        </View>
+
         <Text style={styles.sectionLabel}>PRIVACY</Text>
         <View>
           {(
