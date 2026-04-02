@@ -6,7 +6,6 @@ import React, {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
 
@@ -63,6 +62,7 @@ interface AppState {
 
 interface AppContextType extends AppState {
   hasPin: boolean;
+  loadError: string | null;
   setAlias: (alias: string) => Promise<void>;
   setPin: (pin: string) => Promise<void>;
   checkPin: (input: string) => Promise<boolean>;
@@ -266,11 +266,12 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
   const [state, setState] = useState<AppState>({
     alias: null,
     biometricEnabled: false,
-    isLocked: false,
+    isLocked: true,
     isOnboarded: false,
     vpnConnected: false,
     vpnServer: null,
@@ -286,7 +287,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinExists, biometric, onboarded, convData] =
+        const [alias, pinValue, biometric, onboarded, convData] =
           await Promise.all([
             AsyncStorage.getItem("alias"),
             secureGet(SECURE_PIN_KEY),
@@ -295,13 +296,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             AsyncStorage.getItem(CONVERSATIONS_KEY),
           ]);
 
-        const hasPinValue = !!pinExists;
+        const hasPinValue = !!pinValue;
         const biometricOn = biometric === "true";
+        const isOnboarded = onboarded === "true";
+
         let conversations = DEFAULT_CONVERSATIONS;
         if (convData) {
           try {
-            conversations = JSON.parse(convData);
-          } catch (_) {}
+            const parsed = JSON.parse(convData);
+            if (Array.isArray(parsed)) {
+              conversations = parsed;
+            }
+          } catch (parseErr) {
+            console.warn("[AppContext] Failed to parse conversations:", parseErr);
+          }
         }
 
         setHasPin(hasPinValue);
@@ -309,11 +317,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...prev,
           alias,
           biometricEnabled: biometricOn,
-          isOnboarded: onboarded === "true",
-          isLocked: hasPinValue || biometricOn,
+          isOnboarded,
+          isLocked: isOnboarded,
           conversations,
         }));
-      } catch (e) {
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[AppContext] Failed to load persisted state:", msg);
+        setLoadError(msg);
       } finally {
         setLoaded(true);
       }
@@ -325,30 +336,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (convs: Conversation[]) => {
       try {
         await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
-      } catch (_) {}
+      } catch (err) {
+        console.warn("[AppContext] Failed to persist conversations:", err);
+      }
     },
     []
   );
 
   const setAlias = useCallback(async (alias: string) => {
-    await AsyncStorage.setItem("alias", alias);
-    await AsyncStorage.setItem("isOnboarded", "true");
-    setState((prev) => ({ ...prev, alias, isOnboarded: true }));
+    try {
+      await AsyncStorage.setItem("alias", alias);
+      await AsyncStorage.setItem("isOnboarded", "true");
+      setState((prev) => ({ ...prev, alias, isOnboarded: true }));
+    } catch (err) {
+      console.error("[AppContext] Failed to save alias:", err);
+      throw err;
+    }
   }, []);
 
   const setPin = useCallback(async (pin: string) => {
-    await secureSet(SECURE_PIN_KEY, pin);
-    setHasPin(true);
+    try {
+      await secureSet(SECURE_PIN_KEY, pin);
+      setHasPin(true);
+    } catch (err) {
+      console.error("[AppContext] Failed to save PIN:", err);
+      throw err;
+    }
   }, []);
 
   const checkPin = useCallback(async (input: string): Promise<boolean> => {
-    const stored = await secureGet(SECURE_PIN_KEY);
-    return stored === input;
+    try {
+      const stored = await secureGet(SECURE_PIN_KEY);
+      return stored === input;
+    } catch (err) {
+      console.error("[AppContext] Failed to check PIN:", err);
+      return false;
+    }
   }, []);
 
   const setBiometricEnabled = useCallback(async (enabled: boolean) => {
-    await AsyncStorage.setItem("biometricEnabled", String(enabled));
-    setState((prev) => ({ ...prev, biometricEnabled: enabled }));
+    try {
+      await AsyncStorage.setItem("biometricEnabled", String(enabled));
+      setState((prev) => ({ ...prev, biometricEnabled: enabled }));
+    } catch (err) {
+      console.error("[AppContext] Failed to save biometric setting:", err);
+      throw err;
+    }
   }, []);
 
   const setLocked = useCallback((locked: boolean) => {
@@ -374,8 +407,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sendMessage = useCallback(
     (conversationId: string, text: string) => {
       const newMsg: Message = {
-        id:
-          Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
         text,
         fromMe: true,
         timestamp: Date.now(),
@@ -407,8 +439,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ];
         const replyText = replies[Math.floor(Math.random() * replies.length)];
         const replyMsg: Message = {
-          id:
-            Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
           text: replyText,
           fromMe: false,
           timestamp: Date.now(),
@@ -461,8 +492,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const panicWipe = useCallback(async () => {
-    await AsyncStorage.clear();
-    await secureDelete(SECURE_PIN_KEY);
+    try {
+      await AsyncStorage.clear();
+      await secureDelete(SECURE_PIN_KEY);
+    } catch (err) {
+      console.error("[AppContext] Panic wipe storage error:", err);
+    }
     setHasPin(false);
     setState({
       alias: null,
@@ -486,6 +521,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         ...state,
         hasPin,
+        loadError,
         setAlias,
         setPin,
         checkPin,

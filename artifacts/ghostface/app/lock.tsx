@@ -22,7 +22,7 @@ export default function LockScreen() {
   const { hasPin, biometricEnabled, checkPin, setLocked } = useApp();
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
-  const [pinLength, setPinLength] = useState(4);
+  const [biometricError, setBiometricError] = useState("");
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
   const shake = () => {
@@ -35,6 +35,11 @@ export default function LockScreen() {
     ]).start();
   };
 
+  const unlock = () => {
+    setLocked(false);
+    router.replace("/(tabs)");
+  };
+
   const tryBiometric = async () => {
     if (Platform.OS === "web") return;
     if (!biometricEnabled) return;
@@ -45,10 +50,15 @@ export default function LockScreen() {
         disableDeviceFallback: false,
       });
       if (result.success) {
-        setLocked(false);
-        router.replace("/(tabs)");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        unlock();
+      } else {
+        setBiometricError("Biometric failed — use PIN");
       }
-    } catch (e) {}
+    } catch (err) {
+      console.warn("[LockScreen] Biometric error:", err);
+      setBiometricError("Biometric unavailable — use PIN");
+    }
   };
 
   useEffect(() => {
@@ -63,29 +73,32 @@ export default function LockScreen() {
     const next = entered + key;
     setEntered(next);
     setError(false);
+    setBiometricError("");
 
     if (!hasPin) {
-      if (next.length >= 4) {
-        setLocked(false);
-        router.replace("/(tabs)");
-      }
       return;
     }
 
     if (next.length >= 4) {
-      const correct = await checkPin(next);
-      if (correct) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setLocked(false);
-        router.replace("/(tabs)");
-      } else if (next.length >= 8) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      try {
+        const correct = await checkPin(next);
+        if (correct) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          unlock();
+        } else if (next.length >= 8) {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          setError(true);
+          shake();
+          setTimeout(() => {
+            setEntered("");
+            setError(false);
+          }, 600);
+        }
+      } catch (err) {
+        console.error("[LockScreen] PIN check failed:", err);
         setError(true);
         shake();
-        setTimeout(() => {
-          setEntered("");
-          setError(false);
-        }, 600);
+        setTimeout(() => setEntered(""), 600);
       }
     }
   };
@@ -148,28 +161,59 @@ export default function LockScreen() {
       flexDirection: "row",
       gap: 24,
     },
-    key: {
+    keyBtn: {
       width: 72,
       height: 72,
       borderRadius: 36,
+      backgroundColor: colors.card,
       alignItems: "center",
       justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     keyText: {
       color: colors.foreground,
       fontSize: 22,
-      fontWeight: "400" as const,
+      fontWeight: "600" as const,
     },
-    bioBtn: {
-      marginTop: 32,
+    errorText: {
+      color: colors.destructive,
+      fontSize: 11,
+      letterSpacing: 2,
+      marginTop: 16,
+    },
+    biometricBtn: {
+      marginTop: 28,
       flexDirection: "row",
       alignItems: "center",
       gap: 8,
+      padding: 12,
     },
-    bioBtnText: {
-      color: colors.mutedForeground,
+    biometricText: {
+      color: colors.primary,
+      fontSize: 12,
+      letterSpacing: 2,
+    },
+    continueBtn: {
+      marginTop: 32,
+      backgroundColor: colors.primary,
+      paddingHorizontal: 40,
+      paddingVertical: 14,
+      borderRadius: colors.radius,
+      alignItems: "center",
+    },
+    continueBtnText: {
+      color: colors.primaryForeground,
       fontSize: 13,
-      letterSpacing: 1,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    noPinHint: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 2,
+      marginTop: 16,
+      textAlign: "center",
     },
   });
 
@@ -181,65 +225,89 @@ export default function LockScreen() {
       <Text style={styles.appName}>GHOSTFACE</Text>
       <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
 
-      <Animated.View
-        style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
-      >
-        {Array.from({ length: dotCount }).map((_, i) => (
-          <View
-            key={i}
-            style={[
-              styles.dot,
-              {
-                backgroundColor:
-                  i < entered.length
-                    ? error
-                      ? colors.destructive
-                      : colors.primary
-                    : "transparent",
-                borderColor: error ? colors.destructive : colors.border,
-              },
-            ]}
-          />
-        ))}
-      </Animated.View>
-
-      <View style={styles.keypad}>
-        {KEYS.map((row, ri) => (
-          <View key={ri} style={styles.keyRow}>
-            {row.map((k, ki) => (
-              <Pressable
-                key={ki}
-                style={({ pressed }) => [
-                  styles.key,
-                  k
-                    ? { backgroundColor: pressed ? colors.muted : colors.card }
-                    : {},
+      {hasPin ? (
+        <>
+          <Animated.View
+            style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
+          >
+            {Array.from({ length: dotCount }).map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  {
+                    backgroundColor:
+                      i < entered.length
+                        ? error
+                          ? colors.destructive
+                          : colors.primary
+                        : "transparent",
+                    borderColor: error ? colors.destructive : colors.border,
+                  },
                 ]}
-                onPress={() => {
-                  if (k === "del") handleDelete();
-                  else if (k) handleKey(k);
-                }}
-                disabled={!k}
-              >
-                {k === "del" ? (
-                  <Ionicons
-                    name="backspace-outline"
-                    size={22}
-                    color={colors.foreground}
-                  />
-                ) : k ? (
-                  <Text style={styles.keyText}>{k}</Text>
-                ) : null}
-              </Pressable>
+              />
+            ))}
+          </Animated.View>
+
+          <View style={styles.keypad} testID="keypad">
+            {KEYS.map((row, ri) => (
+              <View key={ri} style={styles.keyRow}>
+                {row.map((k, ki) => {
+                  if (k === "") {
+                    return <View key={ki} style={styles.keyBtn} />;
+                  }
+                  if (k === "del") {
+                    return (
+                      <Pressable
+                        key={ki}
+                        style={styles.keyBtn}
+                        onPress={handleDelete}
+                      >
+                        <Ionicons
+                          name="backspace-outline"
+                          size={22}
+                          color={colors.foreground}
+                        />
+                      </Pressable>
+                    );
+                  }
+                  return (
+                    <Pressable
+                      key={ki}
+                      style={styles.keyBtn}
+                      onPress={() => handleKey(k)}
+                      testID={`key-${k}`}
+                    >
+                      <Text style={styles.keyText}>{k}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             ))}
           </View>
-        ))}
-      </View>
 
-      {biometricEnabled && Platform.OS !== "web" && (
-        <Pressable style={styles.bioBtn} onPress={tryBiometric}>
-          <Ionicons name="finger-print" size={20} color={colors.mutedForeground} />
-          <Text style={styles.bioBtnText}>USE BIOMETRIC</Text>
+          {error && (
+            <Text style={styles.errorText}>INCORRECT PIN</Text>
+          )}
+          {biometricError ? (
+            <Text style={styles.errorText}>{biometricError}</Text>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Text style={styles.noPinHint}>
+            NO PIN CONFIGURED
+          </Text>
+          <Pressable style={styles.continueBtn} onPress={unlock} testID="no-pin-continue">
+            <Text style={styles.continueBtnText}>TAP TO CONTINUE</Text>
+          </Pressable>
+        </>
+      )}
+
+      {biometricEnabled && hasPin && (
+        <Pressable style={styles.biometricBtn} onPress={tryBiometric}>
+          <Ionicons name="finger-print" size={22} color={colors.primary} />
+          <Text style={styles.biometricText}>USE BIOMETRIC</Text>
         </Pressable>
       )}
     </View>

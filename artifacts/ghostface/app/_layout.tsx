@@ -25,8 +25,8 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootNavigator() {
-  const { isOnboarded, isLocked, loaded, hasPin, biometricEnabled, setLocked } =
-    useApp();
+  const { isOnboarded, isLocked, loaded } = useApp();
+  const { setLocked } = useApp();
   const appState = useRef(AppState.currentState);
 
   useEffect(() => {
@@ -49,7 +49,7 @@ function RootNavigator() {
         const wasActive = appState.current === "active";
         const isBackground =
           nextAppState === "background" || nextAppState === "inactive";
-        if (wasActive && isBackground && (hasPin || biometricEnabled)) {
+        if (wasActive && isBackground) {
           setLocked(true);
         }
         appState.current = nextAppState;
@@ -57,7 +57,7 @@ function RootNavigator() {
     );
 
     return () => subscription.remove();
-  }, [loaded, isOnboarded, hasPin, biometricEnabled, setLocked]);
+  }, [loaded, isOnboarded, setLocked]);
 
   if (!loaded) {
     return <View style={{ flex: 1, backgroundColor: "#000000" }} />;
