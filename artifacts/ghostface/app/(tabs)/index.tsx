@@ -310,6 +310,22 @@ export default function HomeScreen() {
               ]}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({
+                  pathname: "/call",
+                  params: { alias: "SECURE_LINE", mode: "voice" },
+                });
+              }}
+            >
+              <Ionicons name="call" size={22} color={colors.primary} />
+              <Text style={styles.quickActionText}>CALL</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.quickAction,
+                pressed && { opacity: 0.7 },
+              ]}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 router.push("/(tabs)/vpn");
               }}
             >
