@@ -324,7 +324,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           alias,
           biometricEnabled: biometricOn,
           isOnboarded,
-          isLocked: isOnboarded,
+          isLocked: true,
           conversations,
         }));
       } catch (err) {
