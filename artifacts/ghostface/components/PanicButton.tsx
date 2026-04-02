@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 
@@ -16,6 +16,23 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
   const panicTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panicInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const flashAnim = useRef(new Animated.Value(0)).current;
+
+  const clearTimers = () => {
+    if (panicTimer.current) {
+      clearTimeout(panicTimer.current);
+      panicTimer.current = null;
+    }
+    if (panicInterval.current) {
+      clearInterval(panicInterval.current);
+      panicInterval.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      clearTimers();
+    };
+  }, []);
 
   const startPanic = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -46,14 +63,7 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
   const cancelPanic = () => {
     setPanicHeld(false);
     setPanicProgress(0);
-    if (panicTimer.current) {
-      clearTimeout(panicTimer.current);
-      panicTimer.current = null;
-    }
-    if (panicInterval.current) {
-      clearInterval(panicInterval.current);
-      panicInterval.current = null;
-    }
+    clearTimers();
   };
 
   if (wiped) {
