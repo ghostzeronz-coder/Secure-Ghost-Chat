@@ -347,7 +347,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await AsyncStorage.setItem("alias", alias);
       await AsyncStorage.setItem("isOnboarded", "true");
-      setState((prev) => ({ ...prev, alias, isOnboarded: true }));
+      setState((prev) => ({
+        ...prev,
+        alias,
+        isOnboarded: true,
+        isLocked: false,
+      }));
     } catch (err) {
       console.error("[AppContext] Failed to save alias:", err);
       throw err;

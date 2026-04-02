@@ -53,7 +53,9 @@ export default function SettingsScreen() {
           );
           return;
         }
-      } catch (e) {}
+      } catch (err) {
+        console.warn("[Settings] Could not check biometric enrollment:", err);
+      }
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     await setBiometricEnabled(val);
