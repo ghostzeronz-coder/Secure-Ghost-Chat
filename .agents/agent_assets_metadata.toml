@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "Zh6fh3Ewc0QX12NAzI05L"
+uri = "file://artifacts/ghostface/assets/images/icon.png"
+type = "image"
+title = "generated_image"

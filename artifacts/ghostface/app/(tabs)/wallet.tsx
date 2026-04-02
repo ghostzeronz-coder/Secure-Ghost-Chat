@@ -1,0 +1,613 @@
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import * as Clipboard from "expo-clipboard";
+import React, { useState } from "react";
+import {
+  FlatList,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SecureBadge } from "@/components/SecureBadge";
+import { useApp } from "@/context/AppContext";
+import { useColors } from "@/hooks/useColors";
+
+function formatDate(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+}
+
+export default function WalletScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { fdBalance, casperBalance, walletAddress, transactions } = useApp();
+  const [copied, setCopied] = useState(false);
+  const [activeToken, setActiveToken] = useState<"FD" | "CASPER">("FD");
+  const [showSend, setShowSend] = useState(false);
+  const [showReceive, setShowReceive] = useState(false);
+  const [sendAmount, setSendAmount] = useState("");
+  const [sendAddress, setSendAddress] = useState("");
+  const [sent, setSent] = useState(false);
+
+  const handleCopy = async () => {
+    await Clipboard.setStringAsync(walletAddress);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSend = () => {
+    if (!sendAmount || !sendAddress) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setSent(true);
+    setTimeout(() => {
+      setSent(false);
+      setShowSend(false);
+      setSendAmount("");
+      setSendAddress("");
+    }, 2000);
+  };
+
+  const balance = activeToken === "FD" ? fdBalance : casperBalance;
+
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      paddingHorizontal: 20,
+      paddingTop: insets.top + (Platform.OS === "web" ? 67 : 16),
+      paddingBottom: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    headerTitle: {
+      color: colors.foreground,
+      fontSize: 16,
+      fontWeight: "800" as const,
+      letterSpacing: 4,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: colors.border,
+    },
+    tokenSelector: {
+      flexDirection: "row",
+      margin: 20,
+      gap: 12,
+    },
+    tokenTab: {
+      flex: 1,
+      paddingVertical: 10,
+      borderRadius: colors.radius,
+      alignItems: "center",
+      borderWidth: 1,
+    },
+    tokenTabActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    tokenTabInactive: {
+      backgroundColor: colors.card,
+      borderColor: colors.border,
+    },
+    tokenTabText: {
+      fontSize: 11,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    balanceCard: {
+      marginHorizontal: 20,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 24,
+      alignItems: "center",
+    },
+    balanceLabel: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 4,
+      marginBottom: 8,
+    },
+    balanceAmount: {
+      color: colors.foreground,
+      fontSize: 40,
+      fontWeight: "800" as const,
+      letterSpacing: 1,
+    },
+    balanceToken: {
+      color: colors.primary,
+      fontSize: 16,
+      fontWeight: "700" as const,
+      letterSpacing: 3,
+      marginTop: 4,
+    },
+    solBadge: {
+      marginTop: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    solText: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 2,
+    },
+    addressBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginHorizontal: 20,
+      marginTop: 12,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 12,
+      gap: 8,
+    },
+    addressLabel: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 2,
+    },
+    addressText: {
+      color: colors.foreground,
+      fontSize: 12,
+      fontWeight: "600" as const,
+      letterSpacing: 1,
+      flex: 1,
+    },
+    actions: {
+      flexDirection: "row",
+      marginHorizontal: 20,
+      marginTop: 16,
+      gap: 12,
+    },
+    actionBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 14,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+    },
+    actionBtnText: {
+      fontSize: 12,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    sectionLabel: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 3,
+      fontWeight: "700" as const,
+      paddingHorizontal: 20,
+      marginTop: 24,
+      marginBottom: 12,
+    },
+    txItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      gap: 14,
+    },
+    txIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    txContent: {
+      flex: 1,
+    },
+    txType: {
+      color: colors.foreground,
+      fontSize: 12,
+      fontWeight: "700" as const,
+      letterSpacing: 2,
+    },
+    txAddress: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    txAmount: {
+      fontSize: 14,
+      fontWeight: "800" as const,
+    },
+    txDate: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 1,
+    },
+    txDivider: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginLeft: 74,
+    },
+    padBottom: { height: 120 },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.85)",
+      justifyContent: "flex-end",
+    },
+    modalContent: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      borderTopWidth: 1,
+      borderColor: colors.border,
+      padding: 24,
+      paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 24),
+    },
+    modalTitle: {
+      color: colors.foreground,
+      fontSize: 13,
+      fontWeight: "800" as const,
+      letterSpacing: 4,
+      marginBottom: 20,
+    },
+    modalInput: {
+      backgroundColor: colors.muted,
+      color: colors.foreground,
+      fontSize: 14,
+      letterSpacing: 2,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: colors.radius,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginBottom: 12,
+    },
+    modalBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: colors.radius,
+      paddingVertical: 14,
+      alignItems: "center",
+      marginBottom: 8,
+    },
+    modalBtnText: {
+      color: colors.primaryForeground,
+      fontSize: 12,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    cancelBtn: {
+      alignItems: "center",
+      paddingVertical: 12,
+    },
+    cancelText: {
+      color: colors.mutedForeground,
+      fontSize: 12,
+      letterSpacing: 2,
+    },
+    successText: {
+      color: colors.success,
+      fontSize: 16,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+      textAlign: "center",
+      marginBottom: 8,
+    },
+    qrPlaceholder: {
+      width: 160,
+      height: 160,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: colors.radius,
+      alignSelf: "center",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 16,
+      backgroundColor: colors.muted,
+    },
+    qrText: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 2,
+    },
+  });
+
+  const filteredTx = transactions.filter((t) => t.token === activeToken);
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>WALLET</Text>
+        <SecureBadge type="encrypted" />
+      </View>
+      <View style={styles.divider} />
+
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.tokenSelector}>
+          <Pressable
+            style={[
+              styles.tokenTab,
+              activeToken === "FD"
+                ? styles.tokenTabActive
+                : styles.tokenTabInactive,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveToken("FD");
+            }}
+          >
+            <Text
+              style={[
+                styles.tokenTabText,
+                {
+                  color:
+                    activeToken === "FD"
+                      ? colors.primaryForeground
+                      : colors.mutedForeground,
+                },
+              ]}
+            >
+              FD
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.tokenTab,
+              activeToken === "CASPER"
+                ? styles.tokenTabActive
+                : styles.tokenTabInactive,
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveToken("CASPER");
+            }}
+          >
+            <Text
+              style={[
+                styles.tokenTabText,
+                {
+                  color:
+                    activeToken === "CASPER"
+                      ? colors.primaryForeground
+                      : colors.mutedForeground,
+                },
+              ]}
+            >
+              CASPER
+            </Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.balanceCard}>
+          <Text style={styles.balanceLabel}>BALANCE</Text>
+          <Text style={styles.balanceAmount}>
+            {balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </Text>
+          <Text style={styles.balanceToken}>{activeToken}</Text>
+          <View style={styles.solBadge}>
+            <Ionicons name="radio-button-on" size={10} color="#9945FF" />
+            <Text style={styles.solText}>SOLANA NETWORK</Text>
+          </View>
+        </View>
+
+        <Pressable style={styles.addressBar} onPress={handleCopy}>
+          <Ionicons name="wallet-outline" size={14} color={colors.mutedForeground} />
+          <Text style={styles.addressLabel}>ADDR</Text>
+          <Text style={styles.addressText} numberOfLines={1}>
+            {walletAddress}
+          </Text>
+          <Ionicons
+            name={copied ? "checkmark" : "copy-outline"}
+            size={16}
+            color={copied ? colors.success : colors.mutedForeground}
+          />
+        </Pressable>
+
+        <View style={styles.actions}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionBtn,
+              {
+                backgroundColor: pressed ? colors.muted : colors.card,
+                borderColor: colors.primary,
+              },
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowSend(true);
+            }}
+          >
+            <Ionicons name="arrow-up" size={16} color={colors.primary} />
+            <Text style={[styles.actionBtnText, { color: colors.primary }]}>
+              SEND
+            </Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionBtn,
+              {
+                backgroundColor: pressed ? colors.muted : colors.card,
+                borderColor: colors.success,
+              },
+            ]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowReceive(true);
+            }}
+          >
+            <Ionicons name="arrow-down" size={16} color={colors.success} />
+            <Text style={[styles.actionBtnText, { color: colors.success }]}>
+              RECEIVE
+            </Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionLabel}>TRANSACTIONS</Text>
+        {filteredTx.map((tx, idx) => (
+          <View key={tx.id}>
+            <View style={styles.txItem}>
+              <View
+                style={[
+                  styles.txIcon,
+                  {
+                    borderColor:
+                      tx.type === "receive" ? colors.success : colors.primary,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={tx.type === "receive" ? "arrow-down" : "arrow-up"}
+                  size={18}
+                  color={tx.type === "receive" ? colors.success : colors.primary}
+                />
+              </View>
+              <View style={styles.txContent}>
+                <Text style={styles.txType}>
+                  {tx.type === "receive" ? "RECEIVED" : "SENT"}
+                </Text>
+                <Text style={styles.txAddress}>{tx.address}</Text>
+                <Text style={styles.txDate}>{formatDate(tx.timestamp)}</Text>
+              </View>
+              <Text
+                style={[
+                  styles.txAmount,
+                  {
+                    color:
+                      tx.type === "receive" ? colors.success : colors.primary,
+                  },
+                ]}
+              >
+                {tx.type === "receive" ? "+" : "-"}
+                {tx.amount}
+              </Text>
+            </View>
+            {idx < filteredTx.length - 1 && (
+              <View style={styles.txDivider} />
+            )}
+          </View>
+        ))}
+
+        <View style={styles.padBottom} />
+      </ScrollView>
+
+      <Modal
+        visible={showSend}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSend(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowSend(false)}
+        >
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              {sent ? (
+                <>
+                  <Text style={styles.successText}>TRANSMITTED</Text>
+                  <Text
+                    style={{
+                      color: colors.mutedForeground,
+                      textAlign: "center",
+                      fontSize: 11,
+                      letterSpacing: 2,
+                    }}
+                  >
+                    TRANSACTION ENCRYPTED & BROADCAST
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalTitle}>
+                    SEND {activeToken}
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={sendAddress}
+                    onChangeText={setSendAddress}
+                    placeholder="RECIPIENT ADDRESS"
+                    placeholderTextColor={colors.mutedForeground}
+                    autoCorrect={false}
+                  />
+                  <TextInput
+                    style={styles.modalInput}
+                    value={sendAmount}
+                    onChangeText={setSendAmount}
+                    placeholder="AMOUNT"
+                    placeholderTextColor={colors.mutedForeground}
+                    keyboardType="decimal-pad"
+                  />
+                  <Pressable
+                    style={[
+                      styles.modalBtn,
+                      (!sendAmount || !sendAddress) && { opacity: 0.4 },
+                    ]}
+                    onPress={handleSend}
+                    disabled={!sendAmount || !sendAddress}
+                  >
+                    <Text style={styles.modalBtnText}>CONFIRM SEND</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.cancelBtn}
+                    onPress={() => setShowSend(false)}
+                  >
+                    <Text style={styles.cancelText}>CANCEL</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showReceive}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowReceive(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setShowReceive(false)}
+        >
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>RECEIVE {activeToken}</Text>
+              <View style={styles.qrPlaceholder}>
+                <Ionicons name="qr-code" size={80} color={colors.primary} />
+              </View>
+              <Pressable style={styles.addressBar} onPress={handleCopy}>
+                <Text style={styles.addressText} numberOfLines={1}>
+                  {walletAddress}
+                </Text>
+                <Ionicons
+                  name={copied ? "checkmark" : "copy-outline"}
+                  size={16}
+                  color={copied ? colors.success : colors.mutedForeground}
+                />
+              </Pressable>
+              <Pressable
+                style={[styles.cancelBtn, { marginTop: 8 }]}
+                onPress={() => setShowReceive(false)}
+              >
+                <Text style={styles.cancelText}>CLOSE</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
