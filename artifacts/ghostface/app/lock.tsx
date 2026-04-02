@@ -79,13 +79,14 @@ export default function LockScreen() {
       return;
     }
 
-    if (next.length >= 4) {
+    const PIN_LENGTH = 4;
+    if (next.length >= PIN_LENGTH) {
       try {
         const correct = await checkPin(next);
         if (correct) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           unlock();
-        } else if (next.length >= 8) {
+        } else {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           setError(true);
           shake();

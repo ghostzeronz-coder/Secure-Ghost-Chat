@@ -238,6 +238,12 @@ export { VPN_SERVERS };
 
 const SECURE_PIN_KEY = "ghostface_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
+const APP_STORAGE_KEYS = [
+  "alias",
+  "isOnboarded",
+  "biometricEnabled",
+  CONVERSATIONS_KEY,
+] as const;
 
 async function secureGet(key: string): Promise<string | null> {
   if (Platform.OS === "web") {
@@ -498,8 +504,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const panicWipe = useCallback(async () => {
     try {
-      await AsyncStorage.clear();
-      await secureDelete(SECURE_PIN_KEY);
+      await Promise.all([
+        ...APP_STORAGE_KEYS.map((k) => AsyncStorage.removeItem(k)),
+        secureDelete(SECURE_PIN_KEY),
+      ]);
     } catch (err) {
       console.error("[AppContext] Panic wipe storage error:", err);
     }
