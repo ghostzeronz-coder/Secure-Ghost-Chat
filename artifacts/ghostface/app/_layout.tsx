@@ -9,8 +9,9 @@ import {
   ShareTechMono_400Regular,
 } from "@expo-google-fonts/share-tech-mono";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AppState, AppStateStatus, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -20,7 +21,6 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useApp } from "@/context/AppContext";
 import LockScreen from "@/app/lock";
 import OnboardingScreen from "@/app/onboarding";
-import TabLayout from "@/app/(tabs)/_layout";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -61,7 +61,13 @@ function RootNavigator() {
     return <OnboardingScreen />;
   }
 
-  return <TabLayout />;
+  return (
+    <Stack screenOptions={{ headerShown: false, animation: "none" }}>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="chat/[id]" />
+      <Stack.Screen name="call" />
+    </Stack>
+  );
 }
 
 export default function RootLayout() {
