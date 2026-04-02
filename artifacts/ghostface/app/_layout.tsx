@@ -9,7 +9,7 @@ import {
   ShareTechMono_400Regular,
 } from "@expo-google-fonts/share-tech-mono";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Slot, router } from "expo-router";
+import { Redirect, Slot } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef } from "react";
 import { AppState, AppStateStatus, View } from "react-native";
@@ -25,20 +25,8 @@ SplashScreen.preventAutoHideAsync();
 const queryClient = new QueryClient();
 
 function RootNavigator() {
-  const { isOnboarded, isLocked, loaded } = useApp();
-  const { setLocked } = useApp();
+  const { isOnboarded, isLocked, loaded, setLocked } = useApp();
   const appState = useRef(AppState.currentState);
-
-  useEffect(() => {
-    if (!loaded) return;
-    if (!isOnboarded) {
-      router.replace("/onboarding");
-    } else if (isLocked) {
-      router.replace("/lock");
-    } else {
-      router.replace("/(tabs)");
-    }
-  }, [loaded, isOnboarded, isLocked]);
 
   useEffect(() => {
     if (!loaded || !isOnboarded) return;
@@ -61,6 +49,14 @@ function RootNavigator() {
 
   if (!loaded) {
     return <View style={{ flex: 1, backgroundColor: "#000000" }} />;
+  }
+
+  if (!isOnboarded) {
+    return <Redirect href="/onboarding" />;
+  }
+
+  if (isLocked) {
+    return <Redirect href="/lock" />;
   }
 
   return <Slot />;
