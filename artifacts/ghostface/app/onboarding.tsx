@@ -282,7 +282,7 @@ export default function OnboardingScreen() {
               placeholderTextColor={colors.mutedForeground}
               keyboardType="numeric"
               secureTextEntry
-              maxLength={8}
+              maxLength={4}
               testID="pin-input"
             />
             <TextInput
@@ -296,7 +296,7 @@ export default function OnboardingScreen() {
               placeholderTextColor={colors.mutedForeground}
               keyboardType="numeric"
               secureTextEntry
-              maxLength={8}
+              maxLength={4}
               testID="pin-confirm-input"
             />
             {pinError ? (

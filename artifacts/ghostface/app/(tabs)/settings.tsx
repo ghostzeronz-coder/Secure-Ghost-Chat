@@ -372,7 +372,7 @@ export default function SettingsScreen() {
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="numeric"
                     secureTextEntry
-                    maxLength={8}
+                    maxLength={4}
                   />
                   <TextInput
                     style={styles.input}
@@ -385,7 +385,7 @@ export default function SettingsScreen() {
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="numeric"
                     secureTextEntry
-                    maxLength={8}
+                    maxLength={4}
                   />
                   {pinError ? (
                     <Text style={styles.errorText}>{pinError}</Text>
