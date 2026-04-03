@@ -87,6 +87,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="tools"
+        options={{
+          title: "TOOLS",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="lock-closed-outline" size={20} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: "SETTINGS",
