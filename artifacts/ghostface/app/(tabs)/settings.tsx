@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
+import { router } from "expo-router";
 import React, { useRef, useState } from "react";
 
 import {
@@ -267,6 +268,23 @@ export default function SettingsScreen() {
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
           <Text style={styles.aliasLabel}>ANONYMOUS IDENTITY</Text>
         </View>
+
+        <Text style={styles.sectionLabel}>SUBSCRIPTION</Text>
+        <Pressable
+          style={[styles.settingRow, { borderWidth: 1, borderColor: colors.primary, borderRadius: 10, marginHorizontal: 16, backgroundColor: `${colors.primary}11` }]}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/paywall"); }}
+        >
+          <View style={styles.settingIcon}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.settingLabel}>CURRENT PLAN</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>GHOST — FREE</Text>
+          </View>
+          <View style={{ backgroundColor: colors.primary, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ color: "#000", fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>UPGRADE</Text>
+          </View>
+        </Pressable>
 
         <Text style={styles.sectionLabel}>SECURITY</Text>
         <View>

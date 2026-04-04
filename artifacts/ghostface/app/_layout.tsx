@@ -66,6 +66,7 @@ function RootNavigator() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="chat/[id]" />
       <Stack.Screen name="call" />
+      <Stack.Screen name="paywall" />
     </Stack>
   );
 }
