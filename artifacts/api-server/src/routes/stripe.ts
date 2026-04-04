@@ -14,6 +14,88 @@ router.get("/stripe/plans", async (_req, res) => {
   }
 });
 
+// POST /api/stripe/seed — create GHOSTFACE products if they don't exist (dev only)
+router.post("/stripe/seed", async (_req, res) => {
+  if (process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Not available in production" });
+  }
+  try {
+    const stripe = await (await import("../stripeClient")).getUncachableStripeClient();
+
+    const PLANS = [
+      {
+        name: "SPECTER",
+        description: "Encrypted messaging, VPN, voice changer, and more.",
+        monthly: 999,
+        yearly: 9900,
+      },
+      {
+        name: "PHANTOM",
+        description: "Full GHOSTFACE suite: crypto wallet, panic button, and elite privacy.",
+        monthly: 1999,
+        yearly: 19900,
+      },
+    ];
+
+    const results: any[] = [];
+
+    for (const plan of PLANS) {
+      const existing = await stripe.products.search({
+        query: `name:"${plan.name}" AND active:"true"`,
+      });
+
+      let product;
+      if (existing.data.length > 0) {
+        product = existing.data[0];
+      } else {
+        product = await stripe.products.create({
+          name: plan.name,
+          description: plan.description,
+          metadata: { ghostface: "true" },
+        });
+      }
+
+      const existingPrices = await stripe.prices.list({ product: product.id, active: true });
+      const prices: any[] = [];
+
+      const hasMonthly = existingPrices.data.find(
+        (p) => p.recurring?.interval === "month" && p.unit_amount === plan.monthly
+      );
+      const hasYearly = existingPrices.data.find(
+        (p) => p.recurring?.interval === "year" && p.unit_amount === plan.yearly
+      );
+
+      const monthlyPrice = hasMonthly || await stripe.prices.create({
+        product: product.id,
+        unit_amount: plan.monthly,
+        currency: "usd",
+        recurring: { interval: "month" },
+        metadata: { ghostface: "true", tier: plan.name.toLowerCase() },
+      });
+
+      const yearlyPrice = hasYearly || await stripe.prices.create({
+        product: product.id,
+        unit_amount: plan.yearly,
+        currency: "usd",
+        recurring: { interval: "year" },
+        metadata: { ghostface: "true", tier: plan.name.toLowerCase() },
+      });
+
+      prices.push(
+        { id: monthlyPrice.id, interval: "month", amount: plan.monthly },
+        { id: yearlyPrice.id, interval: "year", amount: plan.yearly }
+      );
+
+      results.push({ product: { id: product.id, name: product.name }, prices });
+    }
+
+    res.json({ success: true, data: results });
+  } catch (err: any) {
+    console.error("[stripe/seed]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/stripe/checkout — create a Stripe Checkout Session
 router.post("/stripe/checkout", async (req, res) => {
   try {
@@ -22,9 +104,10 @@ router.post("/stripe/checkout", async (req, res) => {
       return res.status(400).json({ error: "priceId is required" });
     }
 
-    const domain = process.env.REPLIT_DOMAINS?.split(",")[0]
-      || process.env.REPLIT_DEV_DOMAIN
-      || "localhost";
+    const domain =
+      process.env.REPLIT_DOMAINS?.split(",")[0] ||
+      process.env.REPLIT_DEV_DOMAIN ||
+      "localhost";
 
     const baseUrl = `https://${domain}`;
 

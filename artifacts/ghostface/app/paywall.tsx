@@ -55,7 +55,7 @@ const PLANS: Plan[] = [
     price: "$9.99",
     interval: "/mo",
     color: "#00C8FF",
-    stripePriceId: "SPECTER_PRICE_ID",
+    stripePriceId: "price_1TIJXg88Vhf4WcZqOGvGNLk5",
     cta: "GET SPECTER",
     recommended: true,
     features: [
@@ -74,7 +74,7 @@ const PLANS: Plan[] = [
     price: "$19.99",
     interval: "/mo",
     color: "#D4AF37",
-    stripePriceId: "PHANTOM_PRICE_ID",
+    stripePriceId: "price_1TIJXh88Vhf4WcZqgs3zxbxP",
     cta: "GET PHANTOM",
     features: [
       "Everything in SPECTER",

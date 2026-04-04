@@ -20,8 +20,10 @@ export class StripeService {
 
   async listActiveProducts() {
     const stripe = await getUncachableStripeClient();
-    const products = await stripe.products.list({ active: true, limit: 20 });
-    const prices = await stripe.prices.list({ active: true, limit: 100 });
+    const [products, prices] = await Promise.all([
+      stripe.products.list({ active: true, limit: 20 }),
+      stripe.prices.list({ active: true, limit: 100 }),
+    ]);
 
     return products.data.map((product) => ({
       ...product,

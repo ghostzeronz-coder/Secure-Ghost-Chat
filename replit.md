@@ -24,9 +24,25 @@ GHOSTFACE is a privacy-first mobile communications platform built with Expo + Re
 - `artifacts/ghostface/app/(tabs)/settings.tsx` — Settings, biometric toggle, panic wipe
 - `artifacts/ghostface/context/AppContext.tsx` — Global state
 - `artifacts/ghostface/constants/colors.ts` — Dark theme (#000000 bg, #F0F0F0 fg, #00C8FF accent)
-- `artifacts/ghostface/components/GhostLogo.tsx` — SVG ghost logo
+- `artifacts/ghostface/components/GhostLogo.tsx` — Ghost logo (renders ghostlogo.png asset)
 - `artifacts/ghostface/components/SecureBadge.tsx` — E2EE/VPN/encrypted badges
 - `artifacts/ghostface/components/StatusDot.tsx` — Animated status indicator
+- `artifacts/ghostface/app/paywall.tsx` — Subscription plan selection (GHOST/SPECTER/PHANTOM)
+
+## API Server (`artifacts/api-server/`)
+- Express + TypeScript, port via `$PORT`, path prefix `/api`
+- **Stripe integration**: Uses Replit Stripe connector (no hardcoded keys)
+  - `src/stripeClient.ts` — Replit connector-based Stripe client + StripeSync singleton
+  - `src/stripeService.ts` — Products listing, checkout session creation
+  - `src/routes/stripe.ts` — `/api/stripe/plans`, `/api/stripe/checkout`, `/api/stripe/seed`, success/cancel pages
+  - `src/routes/index.ts` — Route aggregator
+  - `build.mjs` — `stripe-replit-sync` externalized so migration path resolution works
+- **Stripe DB**: `stripe` schema in PostgreSQL, migrated via `runMigrations` on startup
+- **Webhook**: `/api/stripe/webhook` registered before `express.json()`, managed via `findOrCreateManagedWebhook`
+
+## Stripe Products (Sandbox)
+- SPECTER: `prod_UGrG7BejTEHhfT`, monthly `price_1TIJXg88Vhf4WcZqOGvGNLk5` ($9.99), yearly `price_1TIJXg88Vhf4WcZqUiAHyinH` ($99)
+- PHANTOM: `prod_UGrGy18baF4LjU`, monthly `price_1TIJXh88Vhf4WcZqgs3zxbxP` ($19.99), yearly `price_1TIJXh88Vhf4WcZqZ9P4jvyr` ($199)
 
 ## Design System
 - Background: #000000
