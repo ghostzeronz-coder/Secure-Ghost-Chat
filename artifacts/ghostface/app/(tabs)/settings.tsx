@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
-import { router } from "expo-router";
 import React, { useRef, useState } from "react";
 
 import {
@@ -63,7 +62,8 @@ export default function SettingsScreen() {
 
   const handlePanicWipe = async () => {
     await panicWipe();
-    router.replace("/onboarding");
+    // Navigation handled automatically — panicWipe sets isOnboarded: false
+    // which causes RootNavigator to render OnboardingScreen
   };
 
   const handlePinSave = async () => {
