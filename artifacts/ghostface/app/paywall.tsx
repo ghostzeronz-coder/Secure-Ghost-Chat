@@ -1,10 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -12,6 +14,7 @@ import {
   Text,
   View,
 } from "react-native";
+import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
 import { useColors } from "@/hooks/useColors";
@@ -26,7 +29,7 @@ interface Plan {
   interval: string | null;
   color: string;
   features: string[];
-  cta: string;
+  ctaStripe: string;
   recommended?: boolean;
   stripePriceId: string | null;
 }
@@ -40,7 +43,7 @@ const PLANS: Plan[] = [
     interval: null,
     color: "#555555",
     stripePriceId: null,
-    cta: "CONTINUE FREE",
+    ctaStripe: "CONTINUE FREE",
     features: [
       "Anonymous alias identity",
       "Basic encrypted messaging",
@@ -56,7 +59,7 @@ const PLANS: Plan[] = [
     interval: "/mo",
     color: "#00C8FF",
     stripePriceId: "price_1TIJXg88Vhf4WcZqOGvGNLk5",
-    cta: "GET SPECTER",
+    ctaStripe: "PAY WITH CARD",
     recommended: true,
     features: [
       "Everything in GHOST",
@@ -75,7 +78,7 @@ const PLANS: Plan[] = [
     interval: "/mo",
     color: "#D4AF37",
     stripePriceId: "price_1TIJXh88Vhf4WcZqgs3zxbxP",
-    cta: "GET PHANTOM",
+    ctaStripe: "PAY WITH CARD",
     features: [
       "Everything in SPECTER",
       "Crypto wallet (FD + CASPER)",
@@ -88,36 +91,45 @@ const PLANS: Plan[] = [
   },
 ];
 
+interface CryptoInfo {
+  wallet: string;
+  usdc: number;
+  currency: string;
+  network: string;
+  solanaPayUrl: string;
+  label: string;
+}
+
 export default function PaywallScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const [loading, setLoading] = useState<string | null>(null);
+
+  const [stripeLoading, setStripeLoading] = useState<string | null>(null);
+  const [cryptoLoading, setCryptoLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cryptoModal, setCryptoModal] = useState<{
+    plan: Plan;
+    info: CryptoInfo;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [paymentSent, setPaymentSent] = useState(false);
 
-  const handleSelect = async (plan: Plan) => {
+  const handleStripe = async (plan: Plan) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
     if (!plan.stripePriceId || plan.id === "ghost") {
       router.back();
       return;
     }
-
     try {
-      setLoading(plan.id);
+      setStripeLoading(plan.id);
       setError(null);
-
       const res = await fetch(`${API_BASE}/stripe/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ priceId: plan.stripePriceId }),
       });
-
       const data = await res.json();
-
-      if (!res.ok || !data.url) {
-        throw new Error(data.error || "Failed to create checkout session");
-      }
-
+      if (!res.ok || !data.url) throw new Error(data.error || "Checkout failed");
       if (Platform.OS === "web") {
         window.open(data.url, "_blank");
       } else {
@@ -129,9 +141,36 @@ export default function PaywallScreen() {
       setError(err.message || "Payment unavailable. Try again.");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
-      setLoading(null);
+      setStripeLoading(null);
     }
   };
+
+  const handleCrypto = async (plan: Plan) => {
+    if (!plan.stripePriceId || plan.id === "ghost") return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    try {
+      setCryptoLoading(plan.id);
+      setError(null);
+      const res = await fetch(`${API_BASE}/crypto/payment-info?plan=${plan.id}`);
+      const data: CryptoInfo = await res.json();
+      if (!res.ok) throw new Error((data as any).error || "Could not load crypto info");
+      setCryptoModal({ plan, info: data });
+      setPaymentSent(false);
+      setCopied(false);
+    } catch (err: any) {
+      setError(err.message || "Crypto payment unavailable.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setCryptoLoading(null);
+    }
+  };
+
+  const copyAddress = useCallback(async (addr: string) => {
+    await Clipboard.setStringAsync(addr);
+    setCopied(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setCopied(false), 2500);
+  }, []);
 
   const s = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -152,11 +191,7 @@ export default function PaywallScreen() {
       fontWeight: "800",
       letterSpacing: 6,
     },
-    sub: {
-      color: colors.mutedForeground,
-      fontSize: 11,
-      letterSpacing: 3,
-    },
+    sub: { color: colors.mutedForeground, fontSize: 11, letterSpacing: 3 },
     divider: { height: 1, backgroundColor: colors.border, marginHorizontal: 20 },
     scroll: { flex: 1 },
     plans: { padding: 16, gap: 14, paddingBottom: 40 },
@@ -167,7 +202,7 @@ export default function PaywallScreen() {
       backgroundColor: colors.card,
       overflow: "hidden",
     },
-    cardRecommended: { borderWidth: 2 },
+    cardRec: { borderWidth: 2 },
     cardHeader: {
       flexDirection: "row",
       alignItems: "center",
@@ -175,21 +210,9 @@ export default function PaywallScreen() {
       padding: 16,
       paddingBottom: 12,
     },
-    planName: {
-      fontSize: 18,
-      fontWeight: "800",
-      letterSpacing: 4,
-    },
-    badge: {
-      borderRadius: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-    },
-    badgeTxt: {
-      fontSize: 9,
-      fontWeight: "800",
-      letterSpacing: 2,
-    },
+    planName: { fontSize: 18, fontWeight: "800", letterSpacing: 4 },
+    badge: { borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 },
+    badgeTxt: { fontSize: 9, fontWeight: "800", letterSpacing: 2 },
     priceRow: {
       flexDirection: "row",
       alignItems: "baseline",
@@ -197,16 +220,8 @@ export default function PaywallScreen() {
       gap: 2,
       marginBottom: 14,
     },
-    price: {
-      fontSize: 32,
-      fontWeight: "800",
-      letterSpacing: -1,
-    },
-    interval: {
-      fontSize: 13,
-      fontWeight: "600",
-      color: colors.mutedForeground,
-    },
+    price: { fontSize: 32, fontWeight: "800", letterSpacing: -1 },
+    interval: { fontSize: 13, fontWeight: "600", color: colors.mutedForeground },
     freeTxt: {
       fontSize: 28,
       fontWeight: "800",
@@ -215,37 +230,42 @@ export default function PaywallScreen() {
       marginBottom: 14,
       color: colors.mutedForeground,
     },
-    featureList: {
-      paddingHorizontal: 16,
-      paddingBottom: 16,
-      gap: 8,
-    },
-    featureRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    featureTxt: {
-      color: colors.mutedForeground,
-      fontSize: 12,
-      letterSpacing: 1,
-      flex: 1,
-    },
+    featureList: { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
+    featureRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+    featureTxt: { color: colors.mutedForeground, fontSize: 12, letterSpacing: 1, flex: 1 },
     ctaBtn: {
-      margin: 16,
+      marginHorizontal: 16,
       marginTop: 8,
       borderRadius: colors.radius,
-      paddingVertical: 14,
+      paddingVertical: 13,
       alignItems: "center",
       justifyContent: "center",
       flexDirection: "row",
       gap: 8,
     },
-    ctaTxt: {
-      fontSize: 13,
-      fontWeight: "800",
-      letterSpacing: 3,
+    ctaTxt: { fontSize: 12, fontWeight: "800", letterSpacing: 3 },
+    cryptoBtn: {
+      marginHorizontal: 16,
+      marginTop: 8,
+      marginBottom: 16,
+      borderRadius: colors.radius,
+      paddingVertical: 11,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: 8,
+      borderWidth: 1,
     },
+    cryptoTxt: { fontSize: 11, fontWeight: "800", letterSpacing: 3 },
+    orRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginHorizontal: 16,
+      marginTop: 10,
+      gap: 8,
+    },
+    orLine: { flex: 1, height: 1 },
+    orTxt: { fontSize: 9, letterSpacing: 2 },
     errorBox: {
       marginHorizontal: 16,
       marginBottom: 8,
@@ -268,6 +288,161 @@ export default function PaywallScreen() {
       textAlign: "center",
       paddingBottom: insets.bottom + 24,
       opacity: 0.5,
+    },
+
+    // Modal
+    overlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.92)",
+      justifyContent: "flex-end",
+    },
+    sheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      borderWidth: 1,
+      borderBottomWidth: 0,
+      borderColor: colors.border,
+      paddingBottom: insets.bottom + 24,
+    },
+    sheetHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+      alignSelf: "center",
+      marginTop: 12,
+      marginBottom: 4,
+    },
+    sheetHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    sheetTitle: {
+      color: colors.foreground,
+      fontSize: 14,
+      fontWeight: "800",
+      letterSpacing: 4,
+    },
+    sheetBody: { padding: 20, gap: 16, alignItems: "center" },
+    networkBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      borderRadius: 20,
+      paddingHorizontal: 14,
+      paddingVertical: 6,
+      backgroundColor: "rgba(153,69,255,0.15)",
+      borderWidth: 1,
+      borderColor: "rgba(153,69,255,0.4)",
+    },
+    networkTxt: {
+      color: "#9945FF",
+      fontSize: 11,
+      fontWeight: "800",
+      letterSpacing: 2,
+    },
+    planBadge: {
+      alignItems: "center",
+      gap: 4,
+    },
+    planBadgeName: {
+      fontSize: 16,
+      fontWeight: "800",
+      letterSpacing: 4,
+    },
+    planBadgePrice: {
+      fontSize: 28,
+      fontWeight: "800",
+      letterSpacing: -1,
+    },
+    planBadgeSub: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 2,
+    },
+    qrWrap: {
+      padding: 14,
+      backgroundColor: "#FFFFFF",
+      borderRadius: 12,
+    },
+    addrRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      width: "100%",
+      backgroundColor: colors.background,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 12,
+    },
+    addrTxt: {
+      flex: 1,
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 1,
+      fontFamily: "monospace",
+    },
+    copyBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: colors.primary,
+      borderRadius: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    copyTxt: { color: "#000", fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+    instructions: {
+      width: "100%",
+      backgroundColor: "rgba(153,69,255,0.08)",
+      borderRadius: 10,
+      padding: 14,
+      gap: 8,
+    },
+    instrRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+    instrNum: {
+      color: "#9945FF",
+      fontSize: 11,
+      fontWeight: "800",
+      width: 18,
+    },
+    instrTxt: { color: colors.mutedForeground, fontSize: 11, letterSpacing: 1, flex: 1 },
+    sentBtn: {
+      width: "100%",
+      borderRadius: colors.radius,
+      paddingVertical: 14,
+      alignItems: "center",
+      backgroundColor: "#9945FF",
+    },
+    sentBtnTxt: { color: "#fff", fontSize: 13, fontWeight: "800", letterSpacing: 3 },
+    confirmedBox: {
+      width: "100%",
+      borderRadius: colors.radius,
+      padding: 16,
+      backgroundColor: "rgba(0,255,136,0.08)",
+      borderWidth: 1,
+      borderColor: colors.success,
+      alignItems: "center",
+      gap: 6,
+    },
+    confirmedTxt: {
+      color: colors.success,
+      fontSize: 13,
+      fontWeight: "800",
+      letterSpacing: 3,
+    },
+    confirmedSub: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 2,
+      textAlign: "center",
     },
   });
 
@@ -294,13 +469,17 @@ export default function PaywallScreen() {
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
         <View style={s.plans}>
           {PLANS.map((plan) => {
-            const isLoading = loading === plan.id;
+            const isStripeLoading = stripeLoading === plan.id;
+            const isCryptoLoading = cryptoLoading === plan.id;
+            const isPaid = plan.id !== "ghost";
+            const isAnyLoading = stripeLoading !== null || cryptoLoading !== null;
+
             return (
               <View
                 key={plan.id}
                 style={[
                   s.card,
-                  plan.recommended && { ...s.cardRecommended, borderColor: plan.color },
+                  plan.recommended && { ...s.cardRec, borderColor: plan.color },
                 ]}
               >
                 {/* Plan header */}
@@ -325,28 +504,24 @@ export default function PaywallScreen() {
                 <View style={s.featureList}>
                   {plan.features.map((f) => (
                     <View key={f} style={s.featureRow}>
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={14}
-                        color={plan.color}
-                      />
+                      <Ionicons name="checkmark-circle" size={14} color={plan.color} />
                       <Text style={s.featureTxt}>{f}</Text>
                     </View>
                   ))}
                 </View>
 
-                {/* CTA */}
+                {/* Stripe CTA */}
                 <Pressable
                   style={({ pressed }) => [
                     s.ctaBtn,
                     { backgroundColor: plan.recommended ? plan.color : `${plan.color}22` },
                     pressed && { opacity: 0.8 },
-                    isLoading && { opacity: 0.6 },
+                    isAnyLoading && { opacity: 0.6 },
                   ]}
-                  onPress={() => handleSelect(plan)}
-                  disabled={isLoading || loading !== null}
+                  onPress={() => handleStripe(plan)}
+                  disabled={isAnyLoading}
                 >
-                  {isLoading ? (
+                  {isStripeLoading ? (
                     <ActivityIndicator
                       size="small"
                       color={plan.recommended ? "#000" : plan.color}
@@ -354,8 +529,8 @@ export default function PaywallScreen() {
                   ) : (
                     <>
                       <Ionicons
-                        name={plan.id === "ghost" ? "arrow-forward" : "lock-open-outline"}
-                        size={16}
+                        name={isPaid ? "card-outline" : "arrow-forward"}
+                        size={15}
                         color={plan.recommended ? "#000000" : plan.color}
                       />
                       <Text
@@ -364,18 +539,162 @@ export default function PaywallScreen() {
                           { color: plan.recommended ? "#000000" : plan.color },
                         ]}
                       >
-                        {plan.cta}
+                        {plan.ctaStripe}
                       </Text>
                     </>
                   )}
                 </Pressable>
+
+                {/* Crypto CTA — only for paid plans */}
+                {isPaid && (
+                  <>
+                    <View style={s.orRow}>
+                      <View style={[s.orLine, { backgroundColor: colors.border }]} />
+                      <Text style={[s.orTxt, { color: colors.mutedForeground }]}>OR</Text>
+                      <View style={[s.orLine, { backgroundColor: colors.border }]} />
+                    </View>
+
+                    <Pressable
+                      style={({ pressed }) => [
+                        s.cryptoBtn,
+                        { borderColor: "#9945FF" },
+                        pressed && { opacity: 0.8 },
+                        isAnyLoading && { opacity: 0.6 },
+                      ]}
+                      onPress={() => handleCrypto(plan)}
+                      disabled={isAnyLoading}
+                    >
+                      {isCryptoLoading ? (
+                        <ActivityIndicator size="small" color="#9945FF" />
+                      ) : (
+                        <>
+                          <Text style={{ fontSize: 14 }}>◎</Text>
+                          <Text style={[s.cryptoTxt, { color: "#9945FF" }]}>
+                            PAY WITH CRYPTO
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </>
+                )}
               </View>
             );
           })}
         </View>
 
-        <Text style={s.stripe}>SECURED BY STRIPE · CANCEL ANYTIME</Text>
+        <Text style={s.stripe}>SECURED BY STRIPE · USDC ON SOLANA · CANCEL ANYTIME</Text>
       </ScrollView>
+
+      {/* Crypto Payment Modal */}
+      <Modal
+        visible={cryptoModal !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCryptoModal(null)}
+      >
+        <Pressable style={s.overlay} onPress={() => setCryptoModal(null)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={s.sheet}>
+              <View style={s.sheetHandle} />
+
+              <View style={s.sheetHeader}>
+                <Text style={s.sheetTitle}>PAY WITH CRYPTO</Text>
+                <Pressable onPress={() => setCryptoModal(null)}>
+                  <Ionicons name="close" size={20} color={colors.mutedForeground} />
+                </Pressable>
+              </View>
+
+              {cryptoModal && (
+                <View style={s.sheetBody}>
+                  {/* Network badge */}
+                  <View style={s.networkBadge}>
+                    <Text style={{ fontSize: 14 }}>◎</Text>
+                    <Text style={s.networkTxt}>SOLANA NETWORK · USDC</Text>
+                  </View>
+
+                  {/* Plan + amount */}
+                  <View style={s.planBadge}>
+                    <Text
+                      style={[s.planBadgeName, { color: cryptoModal.plan.color }]}
+                    >
+                      {cryptoModal.plan.name}
+                    </Text>
+                    <Text style={[s.planBadgePrice, { color: colors.foreground }]}>
+                      {cryptoModal.info.usdc} USDC
+                    </Text>
+                    <Text style={s.planBadgeSub}>≈ ${cryptoModal.info.usdc} USD · MONTHLY</Text>
+                  </View>
+
+                  {/* QR code */}
+                  <View style={s.qrWrap}>
+                    <QRCode
+                      value={cryptoModal.info.solanaPayUrl}
+                      size={180}
+                      backgroundColor="#FFFFFF"
+                      color="#000000"
+                    />
+                  </View>
+
+                  {/* Wallet address */}
+                  <View style={s.addrRow}>
+                    <Text style={s.addrTxt} numberOfLines={1} ellipsizeMode="middle">
+                      {cryptoModal.info.wallet}
+                    </Text>
+                    <Pressable
+                      style={s.copyBtn}
+                      onPress={() => copyAddress(cryptoModal.info.wallet)}
+                    >
+                      <Ionicons
+                        name={copied ? "checkmark" : "copy-outline"}
+                        size={12}
+                        color="#000"
+                      />
+                      <Text style={s.copyTxt}>{copied ? "COPIED" : "COPY"}</Text>
+                    </Pressable>
+                  </View>
+
+                  {/* Instructions */}
+                  <View style={s.instructions}>
+                    {[
+                      "Open your Solana wallet (Phantom, Backpack, etc.)",
+                      `Send exactly ${cryptoModal.info.usdc} USDC to the address above`,
+                      "Scan the QR code or paste the address manually",
+                      "Your plan activates within 1–3 minutes after confirmation",
+                    ].map((step, i) => (
+                      <View key={i} style={s.instrRow}>
+                        <Text style={s.instrNum}>{i + 1}.</Text>
+                        <Text style={s.instrTxt}>{step}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* Confirm / sent button */}
+                  {paymentSent ? (
+                    <View style={s.confirmedBox}>
+                      <Ionicons name="checkmark-circle" size={28} color={colors.success} />
+                      <Text style={s.confirmedTxt}>PAYMENT SENT</Text>
+                      <Text style={s.confirmedSub}>
+                        ACTIVATING YOUR {cryptoModal.plan.name} PLAN…{"\n"}
+                        THIS MAY TAKE 1–3 MINUTES
+                      </Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={({ pressed }) => [s.sentBtn, pressed && { opacity: 0.8 }]}
+                      onPress={() => {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                        setPaymentSent(true);
+                      }}
+                    >
+                      <Text style={s.sentBtnTxt}>I'VE SENT THE PAYMENT</Text>
+                    </Pressable>
+                  )}
+                </View>
+              )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
