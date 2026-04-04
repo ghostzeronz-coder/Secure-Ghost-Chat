@@ -59,6 +59,7 @@
     "@expo-google-fonts/share-tech-mono": "^0.4.1",
     "expo-clipboard": "^8.0.8",
     "expo-local-authentication": "^17.0.8",
-    "expo-secure-store": "^15.0.8"
+    "expo-secure-store": "^15.0.8",
+    "react-native-qrcode-svg": "^6.3.21"
   }
 }

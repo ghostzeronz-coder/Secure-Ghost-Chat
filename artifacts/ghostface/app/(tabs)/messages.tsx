@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import EncryptionTools from "@/components/EncryptionTools";
+import GhostInvite from "@/components/GhostInvite";
 import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
@@ -28,7 +29,7 @@ function formatTime(ts: number): string {
   return `${d.getDate()}/${d.getMonth() + 1}`;
 }
 
-type PageTab = "messages" | "tools";
+type PageTab = "messages" | "tools" | "invite";
 
 export default function MessagesScreen() {
   const colors = useColors();
@@ -275,7 +276,7 @@ export default function MessagesScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {pageTab === "messages" ? "MESSAGES" : "ENCRYPT"}
+          {pageTab === "messages" ? "MESSAGES" : pageTab === "tools" ? "ENCRYPT" : "INVITE"}
         </Text>
         <View style={styles.headerRight}>
           <SecureBadge type="e2ee" />
@@ -322,6 +323,19 @@ export default function MessagesScreen() {
             TOOLS
           </Text>
         </Pressable>
+        <Pressable
+          style={[styles.segBtn, pageTab === "invite" && styles.segBtnActive]}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPageTab("invite"); }}
+        >
+          <Ionicons
+            name="qr-code-outline"
+            size={14}
+            color={pageTab === "invite" ? colors.primaryForeground : colors.mutedForeground}
+          />
+          <Text style={[styles.segTxt, { color: pageTab === "invite" ? colors.primaryForeground : colors.mutedForeground }]}>
+            INVITE
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.divider} />
@@ -329,6 +343,8 @@ export default function MessagesScreen() {
       {/* Content */}
       {pageTab === "tools" ? (
         <EncryptionTools />
+      ) : pageTab === "invite" ? (
+        <GhostInvite />
       ) : (
         <FlatList
           data={sorted}
