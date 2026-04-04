@@ -1,6 +1,5 @@
 import React from "react";
 import Svg, {
-  Circle,
   Defs,
   Ellipse,
   LinearGradient,
@@ -11,77 +10,84 @@ import Svg, {
 
 interface GhostLogoProps {
   size?: number;
-  color?: string;
 }
 
-export function GhostLogo({ size = 64, color = "#F0F0F0" }: GhostLogoProps) {
+export function GhostLogo({ size = 64 }: GhostLogoProps) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 100 120">
+    <Svg width={size} height={(size * 130) / 100} viewBox="0 0 100 130">
       <Defs>
-        <RadialGradient id="eyeGlowLeft" cx="50%" cy="50%" r="50%">
-          <Stop offset="0%" stopColor="#00C8FF" stopOpacity="1" />
-          <Stop offset="60%" stopColor="#00C8FF" stopOpacity="0.6" />
-          <Stop offset="100%" stopColor="#00C8FF" stopOpacity="0" />
-        </RadialGradient>
-        <RadialGradient id="eyeGlowRight" cx="50%" cy="50%" r="50%">
-          <Stop offset="0%" stopColor="#00C8FF" stopOpacity="1" />
-          <Stop offset="60%" stopColor="#00C8FF" stopOpacity="0.6" />
-          <Stop offset="100%" stopColor="#00C8FF" stopOpacity="0" />
-        </RadialGradient>
-        <LinearGradient id="bodyGrad" x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0%" stopColor={color} stopOpacity="1" />
-          <Stop offset="100%" stopColor={color} stopOpacity="0.85" />
+        <LinearGradient id="faceGrad" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0%" stopColor="#F0D060" stopOpacity="1" />
+          <Stop offset="50%" stopColor="#D4AF37" stopOpacity="1" />
+          <Stop offset="100%" stopColor="#A07C10" stopOpacity="1" />
         </LinearGradient>
+        <RadialGradient id="eyeHaloL" cx="50%" cy="50%" r="50%">
+          <Stop offset="0%" stopColor="#D4AF37" stopOpacity="0.5" />
+          <Stop offset="100%" stopColor="#D4AF37" stopOpacity="0" />
+        </RadialGradient>
+        <RadialGradient id="eyeHaloR" cx="50%" cy="50%" r="50%">
+          <Stop offset="0%" stopColor="#D4AF37" stopOpacity="0.5" />
+          <Stop offset="100%" stopColor="#D4AF37" stopOpacity="0" />
+        </RadialGradient>
       </Defs>
 
-      {/* Ghost body - rounded top, wavy tentacle bottom */}
+      {/* ── Scream mask face — elongated drooping shape ── */}
       <Path
-        d={[
-          "M50 5",
-          "C25 5 10 22 10 44",
-          "L10 90",
-          "Q15 82 20 90",
-          "Q25 98 30 90",
-          "Q35 82 40 90",
-          "Q45 98 50 90",
-          "Q55 82 60 90",
-          "Q65 98 70 90",
-          "Q75 82 80 90",
-          "Q85 98 90 90",
-          "L90 44",
-          "C90 22 75 5 50 5Z",
-        ].join(" ")}
-        fill="url(#bodyGrad)"
+        d="M50 3
+           C43 3 28 13 20 27
+           C12 41 12 55 14 67
+           C16 79 22 91 30 101
+           C36 109 43 119 48 125
+           L50 129 L52 125
+           C57 119 64 109 70 101
+           C78 91 84 79 86 67
+           C88 55 88 41 80 27
+           C72 13 57 3 50 3Z"
+        fill="url(#faceGrad)"
       />
 
-      {/* Left eye glow halo */}
-      <Circle cx="35" cy="45" r="12" fill="url(#eyeGlowLeft)" opacity={0.35} />
-      {/* Right eye glow halo */}
-      <Circle cx="65" cy="45" r="12" fill="url(#eyeGlowRight)" opacity={0.35} />
+      {/* Eye glow halos */}
+      <Ellipse cx="34" cy="52" rx="17" ry="19" fill="url(#eyeHaloL)" />
+      <Ellipse cx="66" cy="52" rx="17" ry="19" fill="url(#eyeHaloR)" />
 
-      {/* Left eye socket (hollow oval) */}
-      <Ellipse cx="35" cy="45" rx="8" ry="10" fill="#000000" />
-      {/* Right eye socket */}
-      <Ellipse cx="65" cy="45" rx="8" ry="10" fill="#000000" />
-
-      {/* Left eye inner glow */}
-      <Ellipse cx="35" cy="45" rx="5.5" ry="7" fill="#00C8FF" opacity={0.9} />
-      {/* Right eye inner glow */}
-      <Ellipse cx="65" cy="45" rx="5.5" ry="7" fill="#00C8FF" opacity={0.9} />
-
-      {/* Left pupil shine */}
-      <Circle cx="32.5" cy="42.5" r="2" fill="#FFFFFF" opacity={0.6} />
-      {/* Right pupil shine */}
-      <Circle cx="62.5" cy="42.5" r="2" fill="#FFFFFF" opacity={0.6} />
-
-      {/* Mouth — thin jagged slash */}
+      {/* Left eye socket — teardrop */}
       <Path
-        d="M38 66 L42 62 L46 66 L50 62 L54 66 L58 62 L62 66"
+        d="M26 44
+           C24 36 30 27 38 29
+           C46 31 50 42 48 54
+           C46 64 40 70 32 67
+           C24 63 24 52 26 44Z"
+        fill="#000000"
+      />
+
+      {/* Right eye socket — teardrop mirror */}
+      <Path
+        d="M74 44
+           C76 36 70 27 62 29
+           C54 31 50 42 52 54
+           C54 64 60 70 68 67
+           C76 63 76 52 74 44Z"
+        fill="#000000"
+      />
+
+      {/* Screaming mouth — open oval */}
+      <Path
+        d="M37 82
+           C37 78 43 74 50 74
+           C57 74 63 78 63 82
+           C63 94 58 108 50 110
+           C42 108 37 94 37 82Z"
+        fill="#000000"
+      />
+
+      {/* Subtle nose hint */}
+      <Path
+        d="M47 68 C47 72 50 74 53 68"
         stroke="#000000"
-        strokeWidth="2.5"
+        strokeWidth="1.5"
         strokeLinecap="round"
-        strokeLinejoin="round"
         fill="none"
+        opacity={0.4}
       />
     </Svg>
   );
