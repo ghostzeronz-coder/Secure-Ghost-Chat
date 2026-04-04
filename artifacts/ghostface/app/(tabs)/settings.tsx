@@ -263,7 +263,7 @@ export default function SettingsScreen() {
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.profileSection}>
-          <GhostLogo size={56} color={colors.primary} />
+          <GhostLogo size={140} color={colors.primary} />
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
           <Text style={styles.aliasLabel}>ANONYMOUS IDENTITY</Text>
         </View>
@@ -369,7 +369,7 @@ export default function SettingsScreen() {
         </View>
 
         <View style={styles.versionSection}>
-          <GhostLogo size={20} color={colors.border} />
+          <GhostLogo size={50} color={colors.border} />
           <Text style={styles.versionText}>GHOSTFACE v1.0.0</Text>
           <Text style={styles.versionText}>NO FACE. NO TRACE.</Text>
         </View>

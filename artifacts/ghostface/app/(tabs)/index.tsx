@@ -227,7 +227,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <GhostLogo size={28} color={colors.foreground} />
+          <GhostLogo size={70} color={colors.foreground} />
           <View>
             <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
             <Text style={styles.statusLabel}>SECURE IDENTITY</Text>

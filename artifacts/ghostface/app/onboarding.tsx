@@ -204,7 +204,7 @@ export default function OnboardingScreen() {
     >
       <View style={styles.container}>
         <View style={styles.header}>
-          <GhostLogo size={56} color={colors.foreground} />
+          <GhostLogo size={140} color={colors.foreground} />
           <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
           <Text style={styles.appName}>GHOSTFACE</Text>
         </View>
