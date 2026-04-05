@@ -1,9 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Platform,
   Pressable,
   StyleSheet,
@@ -15,15 +16,58 @@ import { GhostLogo } from "@/components/GhostLogo";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
+// ── Scramble helper ───────────────────────────────────────────────────────────
+
+function shuffleDigits(): string[] {
+  const digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+  for (let i = digits.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [digits[i], digits[j]] = [digits[j], digits[i]];
+  }
+  return digits;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { hasPin, biometricEnabled, checkPin, setLocked } = useApp();
+
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
   const [biometricError, setBiometricError] = useState("");
-  const shakeAnim = useRef(new Animated.Value(0)).current;
 
+  // Scrambled digit layout — randomised on every mount and app-foreground event
+  const [digits, setDigits] = useState<string[]>(() => shuffleDigits());
+
+  // Animations
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const scrambleAnim = useRef(new Animated.Value(1)).current;
+
+  // ── Scramble with flash animation ──────────────────────────────────────────
+  const rescramble = useCallback(() => {
+    Animated.sequence([
+      Animated.timing(scrambleAnim, { toValue: 0, duration: 80, useNativeDriver: true }),
+      Animated.timing(scrambleAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+    ]).start();
+    setDigits(shuffleDigits());
+    setEntered("");
+    setError(false);
+    setBiometricError("");
+  }, [scrambleAnim]);
+
+  // Re-scramble when the app returns from background
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        rescramble();
+      }
+    });
+    return () => sub.remove();
+  }, [rescramble]);
+
+  // ── Shake on wrong PIN ─────────────────────────────────────────────────────
   const shake = () => {
     Animated.sequence([
       Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
@@ -34,10 +78,7 @@ export default function LockScreen() {
     ]).start();
   };
 
-  const unlock = () => {
-    setLocked(false);
-  };
-
+  // ── Biometric ─────────────────────────────────────────────────────────────
   const tryBiometric = async () => {
     if (Platform.OS === "web") return;
     if (!biometricEnabled) return;
@@ -49,22 +90,20 @@ export default function LockScreen() {
       });
       if (result.success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        unlock();
+        setLocked(false);
       } else {
         setBiometricError("Biometric failed — use PIN");
       }
-    } catch (err) {
-      console.warn("[LockScreen] Biometric error:", err);
+    } catch {
       setBiometricError("Biometric unavailable — use PIN");
     }
   };
 
   useEffect(() => {
-    if (biometricEnabled) {
-      tryBiometric();
-    }
+    if (biometricEnabled) tryBiometric();
   }, []);
 
+  // ── PIN input ─────────────────────────────────────────────────────────────
   const handleKey = async (key: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (entered.length >= 8) return;
@@ -73,9 +112,7 @@ export default function LockScreen() {
     setError(false);
     setBiometricError("");
 
-    if (!hasPin) {
-      return;
-    }
+    if (!hasPin) return;
 
     const PIN_LENGTH = 4;
     if (next.length >= PIN_LENGTH) {
@@ -83,21 +120,18 @@ export default function LockScreen() {
         const correct = await checkPin(next);
         if (correct) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          unlock();
+          setLocked(false);
         } else {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           setError(true);
           shake();
-          setTimeout(() => {
-            setEntered("");
-            setError(false);
-          }, 600);
+          // Scramble layout after a wrong attempt too
+          setTimeout(() => rescramble(), 650);
         }
-      } catch (err) {
-        console.error("[LockScreen] PIN check failed:", err);
+      } catch {
         setError(true);
         shake();
-        setTimeout(() => setEntered(""), 600);
+        setTimeout(() => rescramble(), 650);
       }
     }
   };
@@ -108,11 +142,16 @@ export default function LockScreen() {
     setError(false);
   };
 
-  const KEYS = [
-    ["1", "2", "3"],
-    ["4", "5", "6"],
-    ["7", "8", "9"],
-    ["", "0", "del"],
+  // Build 4-row grid:
+  // Row 0: digits[0..2]
+  // Row 1: digits[3..5]
+  // Row 2: digits[6..8]
+  // Row 3: digits[9], [empty], [del]
+  const KEYS: string[][] = [
+    [digits[0], digits[1], digits[2]],
+    [digits[3], digits[4], digits[5]],
+    [digits[6], digits[7], digits[8]],
+    [digits[9], "", "del"],
   ];
 
   const dotCount = 4;
@@ -126,9 +165,7 @@ export default function LockScreen() {
       paddingTop: insets.top + (Platform.OS === "web" ? 67 : 0),
       paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 0),
     },
-    logo: {
-      marginBottom: 12,
-    },
+    logo: { marginBottom: 12 },
     appName: {
       color: colors.foreground,
       fontSize: 20,
@@ -145,7 +182,7 @@ export default function LockScreen() {
     dotsRow: {
       flexDirection: "row",
       gap: 16,
-      marginBottom: 48,
+      marginBottom: 16,
     },
     dot: {
       width: 12,
@@ -153,13 +190,15 @@ export default function LockScreen() {
       borderRadius: 6,
       borderWidth: 1.5,
     },
-    keypad: {
-      gap: 16,
+    scrambleHint: {
+      color: colors.mutedForeground,
+      fontSize: 8,
+      letterSpacing: 2,
+      marginBottom: 32,
+      opacity: 0.5,
     },
-    keyRow: {
-      flexDirection: "row",
-      gap: 24,
-    },
+    keypad: { gap: 16 },
+    keyRow: { flexDirection: "row", gap: 24 },
     keyBtn: {
       width: 72,
       height: 72,
@@ -248,7 +287,12 @@ export default function LockScreen() {
             ))}
           </Animated.View>
 
-          <View style={styles.keypad} testID="keypad">
+          <Text style={styles.scrambleHint}>KEYPAD SCRAMBLES ON EACH UNLOCK</Text>
+
+          <Animated.View
+            style={[styles.keypad, { opacity: scrambleAnim }]}
+            testID="keypad"
+          >
             {KEYS.map((row, ri) => (
               <View key={ri} style={styles.keyRow}>
                 {row.map((k, ki) => {
@@ -257,16 +301,8 @@ export default function LockScreen() {
                   }
                   if (k === "del") {
                     return (
-                      <Pressable
-                        key={ki}
-                        style={styles.keyBtn}
-                        onPress={handleDelete}
-                      >
-                        <Ionicons
-                          name="backspace-outline"
-                          size={22}
-                          color={colors.foreground}
-                        />
+                      <Pressable key={ki} style={styles.keyBtn} onPress={handleDelete}>
+                        <Ionicons name="backspace-outline" size={22} color={colors.foreground} />
                       </Pressable>
                     );
                   }
@@ -283,21 +319,15 @@ export default function LockScreen() {
                 })}
               </View>
             ))}
-          </View>
+          </Animated.View>
 
-          {error && (
-            <Text style={styles.errorText}>INCORRECT PIN</Text>
-          )}
-          {biometricError ? (
-            <Text style={styles.errorText}>{biometricError}</Text>
-          ) : null}
+          {error && <Text style={styles.errorText}>INCORRECT PIN</Text>}
+          {biometricError ? <Text style={styles.errorText}>{biometricError}</Text> : null}
         </>
       ) : (
         <>
-          <Text style={styles.noPinHint}>
-            NO PIN CONFIGURED
-          </Text>
-          <Pressable style={styles.continueBtn} onPress={unlock} testID="no-pin-continue">
+          <Text style={styles.noPinHint}>NO PIN CONFIGURED</Text>
+          <Pressable style={styles.continueBtn} onPress={() => setLocked(false)} testID="no-pin-continue">
             <Text style={styles.continueBtnText}>TAP TO CONTINUE</Text>
           </Pressable>
         </>
