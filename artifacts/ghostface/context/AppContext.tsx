@@ -8,6 +8,14 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import {
+  demoKeyForConversation,
+  encryptMessage,
+  decryptMessage,
+  generateSafetyNumber,
+  messageFingerprint,
+  type EncryptedMessage,
+} from "@/lib/crypto";
 
 export interface Message {
   id: string;
@@ -15,6 +23,9 @@ export interface Message {
   fromMe: boolean;
   timestamp: number;
   encrypted: boolean;
+  ciphertext?: string;
+  fingerprint?: string;
+  expiresAt?: number;
 }
 
 export interface Conversation {
@@ -24,6 +35,8 @@ export interface Conversation {
   timestamp: number;
   unread: number;
   messages: Message[];
+  disappearAfterSec?: number;
+  safetyNumber?: string;
 }
 
 export interface Transaction {
@@ -72,8 +85,43 @@ interface AppContextType extends AppState {
   disconnectVPN: () => void;
   sendMessage: (conversationId: string, text: string) => void;
   addConversation: (alias: string) => void;
+  deleteMessage: (conversationId: string, messageId: string) => void;
+  setDisappearTimer: (conversationId: string, seconds: number | undefined) => void;
   panicWipe: () => Promise<void>;
   loaded: boolean;
+}
+
+function buildMessage(
+  text: string,
+  fromMe: boolean,
+  convId: string,
+  disappearAfterSec?: number
+): Message {
+  const key = demoKeyForConversation(convId);
+  let ciphertext: string | undefined;
+  let fingerprint: string | undefined;
+  try {
+    const enc: EncryptedMessage = encryptMessage(text, key);
+    ciphertext = enc.ciphertext;
+    fingerprint = messageFingerprint(enc);
+  } catch {
+    // Noble not available in web build — graceful fallback
+  }
+
+  const expiresAt = disappearAfterSec
+    ? Date.now() + disappearAfterSec * 1000
+    : undefined;
+
+  return {
+    id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+    text,
+    fromMe,
+    timestamp: Date.now(),
+    encrypted: true,
+    ciphertext,
+    fingerprint,
+    expiresAt,
+  };
 }
 
 const DEFAULT_CONVERSATIONS: Conversation[] = [
@@ -83,28 +131,11 @@ const DEFAULT_CONVERSATIONS: Conversation[] = [
     lastMessage: "All clear. No trace.",
     timestamp: Date.now() - 1000 * 60 * 5,
     unread: 2,
+    safetyNumber: generateSafetyNumber("GHOST_USER", "PHANTOM_7"),
     messages: [
-      {
-        id: "m1",
-        text: "Connection established. Key exchange complete.",
-        fromMe: false,
-        timestamp: Date.now() - 1000 * 60 * 30,
-        encrypted: true,
-      },
-      {
-        id: "m2",
-        text: "Copy that. Transfer ready.",
-        fromMe: true,
-        timestamp: Date.now() - 1000 * 60 * 20,
-        encrypted: true,
-      },
-      {
-        id: "m3",
-        text: "All clear. No trace.",
-        fromMe: false,
-        timestamp: Date.now() - 1000 * 60 * 5,
-        encrypted: true,
-      },
+      buildMessage("Connection established. Key exchange complete.", false, "1"),
+      buildMessage("Copy that. Transfer ready.", true, "1"),
+      buildMessage("All clear. No trace.", false, "1"),
     ],
   },
   {
@@ -113,21 +144,10 @@ const DEFAULT_CONVERSATIONS: Conversation[] = [
     lastMessage: "Package delivered. Secure.",
     timestamp: Date.now() - 1000 * 60 * 60 * 2,
     unread: 0,
+    safetyNumber: generateSafetyNumber("GHOST_USER", "WRAITH_X"),
     messages: [
-      {
-        id: "m4",
-        text: "Initiating handshake.",
-        fromMe: true,
-        timestamp: Date.now() - 1000 * 60 * 60 * 3,
-        encrypted: true,
-      },
-      {
-        id: "m5",
-        text: "Package delivered. Secure.",
-        fromMe: false,
-        timestamp: Date.now() - 1000 * 60 * 60 * 2,
-        encrypted: true,
-      },
+      buildMessage("Initiating handshake.", true, "2"),
+      buildMessage("Package delivered. Secure.", false, "2"),
     ],
   },
   {
@@ -136,102 +156,27 @@ const DEFAULT_CONVERSATIONS: Conversation[] = [
     lastMessage: "VPN hopping complete. Stand by.",
     timestamp: Date.now() - 1000 * 60 * 60 * 12,
     unread: 1,
+    safetyNumber: generateSafetyNumber("GHOST_USER", "NULL_PTR"),
     messages: [
-      {
-        id: "m6",
-        text: "VPN hopping complete. Stand by.",
-        fromMe: false,
-        timestamp: Date.now() - 1000 * 60 * 60 * 12,
-        encrypted: true,
-      },
+      buildMessage("VPN hopping complete. Stand by.", false, "3"),
     ],
   },
 ];
 
 const DEFAULT_TRANSACTIONS: Transaction[] = [
-  {
-    id: "t1",
-    type: "receive",
-    token: "FD",
-    amount: 500,
-    address: "GhF3...x9mK",
-    timestamp: Date.now() - 1000 * 60 * 60 * 2,
-  },
-  {
-    id: "t2",
-    type: "send",
-    token: "CASPER",
-    amount: 120,
-    address: "CsP7...v2nQ",
-    timestamp: Date.now() - 1000 * 60 * 60 * 6,
-  },
-  {
-    id: "t3",
-    type: "receive",
-    token: "CASPER",
-    amount: 1000,
-    address: "CsP9...r4wX",
-    timestamp: Date.now() - 1000 * 60 * 60 * 24,
-  },
-  {
-    id: "t4",
-    type: "send",
-    token: "FD",
-    amount: 200,
-    address: "GhF1...m8pL",
-    timestamp: Date.now() - 1000 * 60 * 60 * 48,
-  },
+  { id: "t1", type: "receive", token: "FD", amount: 500, address: "GhF3...x9mK", timestamp: Date.now() - 1000 * 60 * 60 * 2 },
+  { id: "t2", type: "send", token: "CASPER", amount: 120, address: "CsP7...v2nQ", timestamp: Date.now() - 1000 * 60 * 60 * 6 },
+  { id: "t3", type: "receive", token: "CASPER", amount: 1000, address: "CsP9...r4wX", timestamp: Date.now() - 1000 * 60 * 60 * 24 },
+  { id: "t4", type: "send", token: "FD", amount: 200, address: "GhF1...m8pL", timestamp: Date.now() - 1000 * 60 * 60 * 48 },
 ];
 
 const VPN_SERVERS: VPNServer[] = [
-  {
-    id: "1",
-    name: "US East",
-    country: "United States",
-    region: "New York",
-    latency: 12,
-    flag: "🇺🇸",
-  },
-  {
-    id: "2",
-    name: "EU West",
-    country: "Germany",
-    region: "Frankfurt",
-    latency: 24,
-    flag: "🇩🇪",
-  },
-  {
-    id: "3",
-    name: "Asia Pacific",
-    country: "Japan",
-    region: "Tokyo",
-    latency: 68,
-    flag: "🇯🇵",
-  },
-  {
-    id: "4",
-    name: "Nordic",
-    country: "Sweden",
-    region: "Stockholm",
-    latency: 31,
-    flag: "🇸🇪",
-  },
-  {
-    id: "5",
-    name: "Offshore",
-    country: "Iceland",
-    region: "Reykjavik",
-    latency: 45,
-    flag: "🇮🇸",
-  },
-  {
-    id: "6",
-    name: "SE Asia",
-    country: "Singapore",
-    region: "Singapore",
-    latency: 92,
-    flag: "🇸🇬",
-  },
+  { id: "1", name: "US East", country: "United States", region: "New York", latency: 12, flag: "🇺🇸" },
+  { id: "2", name: "EU West", country: "Germany", region: "Frankfurt", latency: 24, flag: "🇩🇪" },
+  { id: "3", name: "Asia Pacific", country: "Japan", region: "Tokyo", latency: 68, flag: "🇯🇵" },
+  { id: "4", name: "Nordic", country: "Sweden", region: "Stockholm", latency: 31, flag: "🇸🇪" },
+  { id: "5", name: "Offshore", country: "Iceland", region: "Reykjavik", latency: 45, flag: "🇮🇸" },
+  { id: "6", name: "SE Asia", country: "Singapore", region: "Singapore", latency: 92, flag: "🇸🇬" },
 ];
 
 export { VPN_SERVERS };
@@ -246,25 +191,17 @@ const APP_STORAGE_KEYS = [
 ] as const;
 
 async function secureGet(key: string): Promise<string | null> {
-  if (Platform.OS === "web") {
-    return AsyncStorage.getItem(key);
-  }
+  if (Platform.OS === "web") return AsyncStorage.getItem(key);
   return SecureStore.getItemAsync(key);
 }
 
 async function secureSet(key: string, value: string): Promise<void> {
-  if (Platform.OS === "web") {
-    await AsyncStorage.setItem(key, value);
-    return;
-  }
+  if (Platform.OS === "web") { await AsyncStorage.setItem(key, value); return; }
   await SecureStore.setItemAsync(key, value);
 }
 
 async function secureDelete(key: string): Promise<void> {
-  if (Platform.OS === "web") {
-    await AsyncStorage.removeItem(key);
-    return;
-  }
+  if (Platform.OS === "web") { await AsyncStorage.removeItem(key); return; }
   await SecureStore.deleteItemAsync(key);
 }
 
@@ -293,14 +230,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, biometric, onboarded, convData] =
-          await Promise.all([
-            AsyncStorage.getItem("alias"),
-            secureGet(SECURE_PIN_KEY),
-            AsyncStorage.getItem("biometricEnabled"),
-            AsyncStorage.getItem("isOnboarded"),
-            AsyncStorage.getItem(CONVERSATIONS_KEY),
-          ]);
+        const [alias, pinValue, biometric, onboarded, convData] = await Promise.all([
+          AsyncStorage.getItem("alias"),
+          secureGet(SECURE_PIN_KEY),
+          AsyncStorage.getItem("biometricEnabled"),
+          AsyncStorage.getItem("isOnboarded"),
+          AsyncStorage.getItem(CONVERSATIONS_KEY),
+        ]);
 
         const hasPinValue = !!pinValue;
         const biometricOn = biometric === "true";
@@ -310,23 +246,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (convData) {
           try {
             const parsed = JSON.parse(convData);
-            if (Array.isArray(parsed)) {
-              conversations = parsed;
-            }
+            if (Array.isArray(parsed)) conversations = parsed;
           } catch (parseErr) {
             console.warn("[AppContext] Failed to parse conversations:", parseErr);
           }
         }
 
         setHasPin(hasPinValue);
-        setState((prev) => ({
-          ...prev,
-          alias,
-          biometricEnabled: biometricOn,
-          isOnboarded,
-          isLocked: true,
-          conversations,
-        }));
+        setState((prev) => ({ ...prev, alias, biometricEnabled: biometricOn, isOnboarded, isLocked: true, conversations }));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[AppContext] Failed to load persisted state:", msg);
@@ -338,27 +265,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     load();
   }, []);
 
-  const persistConversations = useCallback(
-    async (convs: Conversation[]) => {
-      try {
-        await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
-      } catch (err) {
-        console.warn("[AppContext] Failed to persist conversations:", err);
-      }
-    },
-    []
-  );
+  // Purge expired disappearing messages every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setState((prev) => {
+        const now = Date.now();
+        let changed = false;
+        const conversations = prev.conversations.map((c) => {
+          const filtered = c.messages.filter((m) => !m.expiresAt || m.expiresAt > now);
+          if (filtered.length !== c.messages.length) {
+            changed = true;
+            return { ...c, messages: filtered };
+          }
+          return c;
+        });
+        return changed ? { ...prev, conversations } : prev;
+      });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const persistConversations = useCallback(async (convs: Conversation[]) => {
+    try {
+      await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
+    } catch (err) {
+      console.warn("[AppContext] Failed to persist conversations:", err);
+    }
+  }, []);
 
   const setAlias = useCallback(async (alias: string) => {
     try {
       await AsyncStorage.setItem("alias", alias);
       await AsyncStorage.setItem("isOnboarded", "true");
-      setState((prev) => ({
-        ...prev,
-        alias,
-        isOnboarded: true,
-        isLocked: false,
-      }));
+      setState((prev) => ({ ...prev, alias, isOnboarded: true, isLocked: false }));
     } catch (err) {
       console.error("[AppContext] Failed to save alias:", err);
       throw err;
@@ -400,46 +339,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const connectVPN = useCallback((server: VPNServer) => {
-    setState((prev) => ({
-      ...prev,
-      vpnConnected: true,
-      vpnServer: server,
-    }));
+    setState((prev) => ({ ...prev, vpnConnected: true, vpnServer: server }));
   }, []);
 
   const disconnectVPN = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      vpnConnected: false,
-      vpnServer: null,
-    }));
+    setState((prev) => ({ ...prev, vpnConnected: false, vpnServer: null }));
   }, []);
+
+  const deleteMessage = useCallback((conversationId: string, messageId: string) => {
+    setState((prev) => {
+      const updated = prev.conversations.map((c) =>
+        c.id === conversationId
+          ? { ...c, messages: c.messages.filter((m) => m.id !== messageId) }
+          : c
+      );
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+  }, [persistConversations]);
+
+  const setDisappearTimer = useCallback((conversationId: string, seconds: number | undefined) => {
+    setState((prev) => {
+      const updated = prev.conversations.map((c) =>
+        c.id === conversationId ? { ...c, disappearAfterSec: seconds } : c
+      );
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+  }, [persistConversations]);
 
   const sendMessage = useCallback(
     (conversationId: string, text: string) => {
-      const newMsg: Message = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        text,
-        fromMe: true,
-        timestamp: Date.now(),
-        encrypted: true,
-      };
+      const conv = state.conversations.find((c) => c.id === conversationId);
+      const newMsg = buildMessage(text, true, conversationId, conv?.disappearAfterSec);
+
       setState((prev) => {
-        const updated = prev.conversations.map((c) =>
-          c.id === conversationId
-            ? {
-                ...c,
-                messages: [...c.messages, newMsg],
-                lastMessage: text,
-                timestamp: Date.now(),
-                unread: 0,
-              }
-            : c
+        const c = prev.conversations.find((c) => c.id === conversationId);
+        const updated = prev.conversations.map((conv) =>
+          conv.id === conversationId
+            ? { ...conv, messages: [...conv.messages, newMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+            : conv
         );
         persistConversations(updated);
         return { ...prev, conversations: updated };
       });
 
+      // Simulated encrypted reply
+      const delay = 1500 + Math.random() * 1000;
       setTimeout(() => {
         const replies = [
           "Understood. Signal secure.",
@@ -449,48 +395,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           "Acknowledged. Channel open.",
         ];
         const replyText = replies[Math.floor(Math.random() * replies.length)];
-        const replyMsg: Message = {
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-          text: replyText,
-          fromMe: false,
-          timestamp: Date.now(),
-          encrypted: true,
-        };
+        const replyMsg = buildMessage(replyText, false, conversationId, conv?.disappearAfterSec);
+
         setState((prev) => {
           const updated = prev.conversations.map((c) =>
             c.id === conversationId
-              ? {
-                  ...c,
-                  messages: [...c.messages, replyMsg],
-                  lastMessage: replyText,
-                  timestamp: Date.now(),
-                }
+              ? { ...c, messages: [...c.messages, replyMsg], lastMessage: replyText, timestamp: Date.now() }
               : c
           );
           persistConversations(updated);
           return { ...prev, conversations: updated };
         });
-      }, 1500 + Math.random() * 1000);
+      }, delay);
     },
-    [persistConversations]
+    [state.conversations, persistConversations]
   );
 
   const addConversation = useCallback(
     (alias: string) => {
+      const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
+      const safetyNumber = generateSafetyNumber(state.alias ?? "GHOST_USER", alias.toUpperCase());
       const newConv: Conversation = {
-        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        id,
         alias: alias.toUpperCase(),
         lastMessage: "E2EE channel established.",
         timestamp: Date.now(),
         unread: 0,
+        safetyNumber,
         messages: [
-          {
-            id: Date.now().toString(),
-            text: "E2EE channel established. X3DH key exchange complete.",
-            fromMe: false,
-            timestamp: Date.now(),
-            encrypted: true,
-          },
+          buildMessage("E2EE channel established. ChaCha20-Poly1305 key exchange complete.", false, id),
         ],
       };
       setState((prev) => {
@@ -499,7 +432,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, conversations: updated };
       });
     },
-    [persistConversations]
+    [state.alias, persistConversations]
   );
 
   const panicWipe = useCallback(async () => {
@@ -544,6 +477,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         disconnectVPN,
         sendMessage,
         addConversation,
+        deleteMessage,
+        setDisappearTimer,
         panicWipe,
         loaded,
       }}

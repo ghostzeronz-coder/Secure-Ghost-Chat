@@ -3,7 +3,9 @@ import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useRef, useState } from "react";
 import {
+  Alert,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -23,29 +25,36 @@ function formatTime(ts: number): string {
   return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
 }
 
+function formatExpiry(expiresAt: number): string {
+  const secsLeft = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+  if (secsLeft < 60) return `${secsLeft}s`;
+  return `${Math.floor(secsLeft / 60)}m`;
+}
+
+const DISAPPEAR_OPTIONS = [
+  { label: "OFF", value: undefined },
+  { label: "30s", value: 30 },
+  { label: "5m", value: 300 },
+  { label: "1h", value: 3600 },
+  { label: "24h", value: 86400 },
+];
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage } = useApp();
+  const { conversations, sendMessage, deleteMessage, setDisappearTimer } = useApp();
   const [text, setText] = useState("");
+  const [showInfo, setShowInfo] = useState(false);
+  const [showDisappear, setShowDisappear] = useState(false);
   const listRef = useRef<FlatList>(null);
 
   const conv = conversations.find((c) => c.id === id);
 
   if (!conv) {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.background,
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Text style={{ color: colors.mutedForeground, letterSpacing: 2 }}>
-          CHANNEL NOT FOUND
-        </Text>
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ color: colors.mutedForeground, letterSpacing: 2 }}>CHANNEL NOT FOUND</Text>
       </View>
     );
   }
@@ -57,11 +66,24 @@ export default function ChatScreen() {
     setText("");
   };
 
+  const handleLongPress = (msgId: string, fromMe: boolean) => {
+    if (!fromMe) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== "web") {
+      Alert.alert("Delete Message", "Permanently delete this message?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => deleteMessage(conv.id, msgId) },
+      ]);
+    } else {
+      deleteMessage(conv.id, msgId);
+    }
+  };
+
+  const currentDisappear = DISAPPEAR_OPTIONS.find((o) => o.value === conv.disappearAfterSec)
+    ?? DISAPPEAR_OPTIONS[0];
+
   const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
+    container: { flex: 1, backgroundColor: colors.background },
     header: {
       flexDirection: "row",
       alignItems: "center",
@@ -72,64 +94,50 @@ export default function ChatScreen() {
       borderBottomColor: colors.border,
       gap: 12,
     },
-    backBtn: {
-      padding: 4,
-    },
-    headerInfo: {
-      flex: 1,
-    },
-    headerAlias: {
-      color: colors.foreground,
-      fontSize: 14,
-      fontWeight: "800" as const,
-      letterSpacing: 3,
-    },
-    headerSub: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      marginTop: 2,
-    },
-    headerSubText: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 2,
-    },
-    headerActions: {
-      flexDirection: "row",
-      gap: 16,
-    },
-    listContent: {
+    headerInfo: { flex: 1 },
+    headerAlias: { color: colors.foreground, fontSize: 14, fontWeight: "800", letterSpacing: 3 },
+    headerSub: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
+    headerSubText: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 2 },
+    headerActions: { flexDirection: "row", gap: 12, alignItems: "center" },
+    encBanner: {
       paddingHorizontal: 16,
-      paddingVertical: 12,
-    },
-    msgRow: {
-      marginVertical: 4,
-      maxWidth: "80%",
-    },
-    msgBubble: {
-      borderRadius: colors.radius,
-      paddingHorizontal: 12,
       paddingVertical: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: `${colors.primary}08`,
     },
-    msgText: {
-      fontSize: 14,
-      lineHeight: 20,
-      letterSpacing: 0.3,
-    },
-    msgMeta: {
+    encBannerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+    encBannerTxt: { color: colors.mutedForeground, fontSize: 9, letterSpacing: 2 },
+    disappearBadge: {
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
-      marginTop: 4,
+      backgroundColor: conv.disappearAfterSec ? `${colors.destructive}22` : "transparent",
+      borderRadius: 10,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
     },
-    msgTime: {
-      fontSize: 10,
-      letterSpacing: 0.5,
-    },
-    encryptedLabel: {
+    disappearTxt: {
       fontSize: 9,
-      letterSpacing: 0.5,
+      fontWeight: "800",
+      letterSpacing: 2,
+      color: conv.disappearAfterSec ? colors.destructive : colors.mutedForeground,
+    },
+    listContent: { paddingHorizontal: 16, paddingVertical: 12 },
+    msgRow: { marginVertical: 4, maxWidth: "80%" },
+    msgBubble: { borderRadius: colors.radius, paddingHorizontal: 12, paddingVertical: 8 },
+    msgText: { fontSize: 14, lineHeight: 20, letterSpacing: 0.3 },
+    msgMeta: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+    msgTime: { fontSize: 9, letterSpacing: 0.5 },
+    fingerprint: { fontSize: 8, letterSpacing: 1, opacity: 0.5, fontFamily: "monospace" },
+    expiryBadge: {
+      fontSize: 8,
+      fontWeight: "800",
+      letterSpacing: 1,
+      color: colors.destructive,
     },
     inputBar: {
       flexDirection: "row",
@@ -155,174 +163,159 @@ export default function ChatScreen() {
       maxHeight: 120,
     },
     sendBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 40, height: 40, borderRadius: 20,
       backgroundColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
+      alignItems: "center", justifyContent: "center",
     },
-    sendBtnDisabled: {
-      backgroundColor: colors.muted,
+    sendBtnDisabled: { backgroundColor: colors.muted },
+    callBtn: { padding: 6 },
+
+    // Info modal
+    overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" },
+    sheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 20, borderTopRightRadius: 20,
+      borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border,
+      paddingBottom: insets.bottom + 24,
     },
-    callBar: {
-      flexDirection: "row",
-      justifyContent: "flex-end",
-      gap: 8,
+    handle: {
+      width: 40, height: 4, borderRadius: 2,
+      backgroundColor: colors.border, alignSelf: "center", marginTop: 14, marginBottom: 4,
     },
-    callBtn: {
-      padding: 8,
+    sheetHead: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingHorizontal: 20, paddingVertical: 16,
+      borderBottomWidth: 1, borderBottomColor: colors.border,
     },
+    sheetTitle: { color: colors.foreground, fontSize: 13, fontWeight: "800", letterSpacing: 4 },
+    sheetBody: { padding: 20, gap: 16 },
+    safetyRow: {
+      backgroundColor: colors.background,
+      borderRadius: 12, borderWidth: 1, borderColor: colors.border,
+      padding: 16, gap: 8,
+    },
+    safetyLabel: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 3 },
+    safetyNumber: {
+      color: colors.success,
+      fontSize: 16, fontWeight: "800", letterSpacing: 4,
+      fontFamily: "monospace",
+    },
+    safetyNote: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 1 },
+    infoRow: {
+      flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+      paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border,
+    },
+    infoLabel: { color: colors.mutedForeground, fontSize: 11, letterSpacing: 2 },
+    infoValue: { color: colors.foreground, fontSize: 11, fontWeight: "700", letterSpacing: 2 },
+    disappearOptions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+    disappearOpt: {
+      borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8,
+      borderWidth: 1, borderColor: colors.border,
+    },
+    disappearOptTxt: { fontSize: 11, fontWeight: "800", letterSpacing: 2 },
   });
 
   const messages = [...conv.messages];
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior="padding"
-      keyboardVerticalOffset={0}
-    >
+    <KeyboardAvoidingView style={styles.container} behavior="padding" keyboardVerticalOffset={0}>
+      {/* Header */}
       <View style={styles.header}>
-        <Pressable style={styles.backBtn} onPress={() => router.back()}>
+        <Pressable style={{ padding: 4 }} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={22} color={colors.foreground} />
         </Pressable>
         <View style={styles.headerInfo}>
           <Text style={styles.headerAlias}>{conv.alias}</Text>
           <View style={styles.headerSub}>
             <StatusDot active size={5} pulse={false} />
-            <Text style={styles.headerSubText}>SECURE CHANNEL</Text>
+            <Text style={styles.headerSubText}>SECURE · CHACHA20-POLY1305</Text>
           </View>
         </View>
         <View style={styles.headerActions}>
-          <Pressable
-            style={styles.callBtn}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push({
-                pathname: "/call",
-                params: { alias: conv.alias, mode: "voice" },
-              });
-            }}
-            testID="voice-call-btn"
-          >
+          <Pressable style={styles.callBtn} onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push({ pathname: "/call", params: { alias: conv.alias, mode: "voice" } });
+          }} testID="voice-call-btn">
             <Ionicons name="call-outline" size={20} color={colors.primary} />
           </Pressable>
-          <Pressable
-            style={styles.callBtn}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push({
-                pathname: "/call",
-                params: { alias: conv.alias, mode: "video" },
-              });
-            }}
-            testID="video-call-btn"
-          >
+          <Pressable style={styles.callBtn} onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push({ pathname: "/call", params: { alias: conv.alias, mode: "video" } });
+          }} testID="video-call-btn">
             <Ionicons name="videocam-outline" size={20} color={colors.primary} />
+          </Pressable>
+          <Pressable style={styles.callBtn} onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowInfo(true);
+          }}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.success} />
           </Pressable>
         </View>
       </View>
 
-      <View
-        style={{
-          paddingHorizontal: 16,
-          paddingVertical: 8,
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 8,
-        }}
-      >
-        <SecureBadge type="e2ee" size="sm" />
-        <Text
-          style={{
-            color: colors.mutedForeground,
-            fontSize: 10,
-            letterSpacing: 2,
-          }}
-        >
-          X3DH + DOUBLE RATCHET
-        </Text>
+      {/* Encryption banner */}
+      <View style={styles.encBanner}>
+        <View style={styles.encBannerLeft}>
+          <SecureBadge type="e2ee" size="sm" />
+          <Text style={styles.encBannerTxt}>END-TO-END ENCRYPTED</Text>
+        </View>
+        <Pressable style={styles.disappearBadge} onPress={() => setShowDisappear(true)}>
+          <Ionicons
+            name={conv.disappearAfterSec ? "timer-outline" : "timer-outline"}
+            size={10}
+            color={conv.disappearAfterSec ? colors.destructive : colors.mutedForeground}
+          />
+          <Text style={styles.disappearTxt}>
+            {currentDisappear.label === "OFF" ? "DISAPPEAR: OFF" : `DISAPPEAR: ${currentDisappear.label}`}
+          </Text>
+        </Pressable>
       </View>
 
+      {/* Message list */}
       <FlatList
         ref={listRef}
         data={messages}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
-        inverted={false}
         showsVerticalScrollIndicator={false}
-        onContentSizeChange={() =>
-          listRef.current?.scrollToEnd({ animated: true })
-        }
+        onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (
-          <View
-            style={[
-              styles.msgRow,
-              item.fromMe ? { alignSelf: "flex-end" } : { alignSelf: "flex-start" },
-            ]}
+          <Pressable
+            style={[styles.msgRow, item.fromMe ? { alignSelf: "flex-end" } : { alignSelf: "flex-start" }]}
+            onLongPress={() => handleLongPress(item.id, item.fromMe)}
+            delayLongPress={400}
           >
-            <View
-              style={[
-                styles.msgBubble,
-                {
-                  backgroundColor: item.fromMe
-                    ? colors.primary
-                    : colors.card,
-                  borderWidth: item.fromMe ? 0 : 1,
-                  borderColor: colors.border,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.msgText,
-                  {
-                    color: item.fromMe
-                      ? colors.primaryForeground
-                      : colors.foreground,
-                  },
-                ]}
-              >
+            <View style={[
+              styles.msgBubble,
+              {
+                backgroundColor: item.fromMe ? colors.primary : colors.card,
+                borderWidth: item.fromMe ? 0 : 1,
+                borderColor: colors.border,
+              },
+            ]}>
+              <Text style={[styles.msgText, { color: item.fromMe ? colors.primaryForeground : colors.foreground }]}>
                 {item.text}
               </Text>
             </View>
-            <View
-              style={[
-                styles.msgMeta,
-                item.fromMe
-                  ? { justifyContent: "flex-end" }
-                  : { justifyContent: "flex-start" },
-              ]}
-            >
-              <Text
-                style={[styles.msgTime, { color: colors.mutedForeground }]}
-              >
+            <View style={[styles.msgMeta, item.fromMe ? { justifyContent: "flex-end" } : {}]}>
+              <Text style={[styles.msgTime, { color: colors.mutedForeground }]}>
                 {formatTime(item.timestamp)}
               </Text>
               {item.encrypted && (
-                <>
-                  <Ionicons
-                    name="lock-closed"
-                    size={8}
-                    color={colors.mutedForeground}
-                  />
-                  <Text
-                    style={[
-                      styles.encryptedLabel,
-                      { color: colors.mutedForeground },
-                    ]}
-                  >
-                    ENCRYPTED
-                  </Text>
-                </>
+                <Ionicons name="lock-closed" size={8} color={colors.mutedForeground} />
+              )}
+              {item.fingerprint && (
+                <Text style={styles.fingerprint}>{item.fingerprint}</Text>
+              )}
+              {item.expiresAt && (
+                <Text style={styles.expiryBadge}>⏱ {formatExpiry(item.expiresAt)}</Text>
               )}
             </View>
-          </View>
+          </Pressable>
         )}
       />
 
+      {/* Input bar */}
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
@@ -339,13 +332,110 @@ export default function ChatScreen() {
           disabled={!text.trim()}
           testID="send-btn"
         >
-          <Ionicons
-            name="send"
-            size={16}
-            color={text.trim() ? colors.primaryForeground : colors.mutedForeground}
-          />
+          <Ionicons name="send" size={16} color={text.trim() ? colors.primaryForeground : colors.mutedForeground} />
         </Pressable>
       </View>
+
+      {/* Security info sheet */}
+      <Modal visible={showInfo} transparent animationType="slide" onRequestClose={() => setShowInfo(false)}>
+        <Pressable style={styles.overlay} onPress={() => setShowInfo(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.sheet}>
+              <View style={styles.handle} />
+              <View style={styles.sheetHead}>
+                <Text style={styles.sheetTitle}>SECURITY INFO</Text>
+                <Pressable onPress={() => setShowInfo(false)}>
+                  <Ionicons name="close" size={20} color={colors.mutedForeground} />
+                </Pressable>
+              </View>
+              <View style={styles.sheetBody}>
+                {/* Safety number */}
+                {conv.safetyNumber && (
+                  <View style={styles.safetyRow}>
+                    <Text style={styles.safetyLabel}>SAFETY NUMBER</Text>
+                    <Text style={styles.safetyNumber}>{conv.safetyNumber}</Text>
+                    <Text style={styles.safetyNote}>
+                      Compare with {conv.alias} out-of-band to verify identity
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>CIPHER</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>CHACHA20-POLY1305</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>KEY SIZE</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>256-BIT</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>AUTHENTICATION</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>POLY1305 MAC</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>FORWARD SECRECY</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>ENABLED</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>NONCE</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>RANDOM 96-BIT PER MSG</Text>
+                </View>
+                <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
+                  <Text style={styles.infoLabel}>LIBRARY</Text>
+                  <Text style={styles.infoValue}>@NOBLE/CIPHERS</Text>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Disappearing messages sheet */}
+      <Modal visible={showDisappear} transparent animationType="slide" onRequestClose={() => setShowDisappear(false)}>
+        <Pressable style={styles.overlay} onPress={() => setShowDisappear(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.sheet}>
+              <View style={styles.handle} />
+              <View style={styles.sheetHead}>
+                <Text style={styles.sheetTitle}>DISAPPEARING MESSAGES</Text>
+                <Pressable onPress={() => setShowDisappear(false)}>
+                  <Ionicons name="close" size={20} color={colors.mutedForeground} />
+                </Pressable>
+              </View>
+              <View style={styles.sheetBody}>
+                <Text style={styles.safetyNote}>
+                  Messages auto-delete after the set time. Both sides can still screenshot.
+                </Text>
+                <View style={styles.disappearOptions}>
+                  {DISAPPEAR_OPTIONS.map((opt) => {
+                    const active = opt.value === conv.disappearAfterSec;
+                    return (
+                      <Pressable
+                        key={opt.label}
+                        style={[
+                          styles.disappearOpt,
+                          active && { backgroundColor: colors.primary, borderColor: colors.primary },
+                        ]}
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setDisappearTimer(conv.id, opt.value);
+                          setShowDisappear(false);
+                        }}
+                      >
+                        <Text style={[
+                          styles.disappearOptTxt,
+                          { color: active ? colors.primaryForeground : colors.mutedForeground },
+                        ]}>
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }

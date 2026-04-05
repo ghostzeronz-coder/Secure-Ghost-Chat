@@ -290,6 +290,17 @@ export default function SettingsScreen() {
         <View>
           <Pressable
             style={styles.settingRow}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/security-audit"); }}
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons name="shield-checkmark" size={18} color={colors.success} />
+            </View>
+            <Text style={[styles.settingLabel, { color: colors.success }]}>SECURITY AUDIT</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </Pressable>
+          <View style={styles.settingDivider} />
+          <Pressable
+            style={styles.settingRow}
             onPress={() => setShowPinChange(true)}
           >
             <View style={styles.settingIcon}>
