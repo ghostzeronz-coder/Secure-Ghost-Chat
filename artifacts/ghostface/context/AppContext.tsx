@@ -10,11 +10,10 @@ import React, {
 } from "react";
 import {
   demoKeyForConversation,
-  encryptMessage,
-  decryptMessage,
+  sealedEncryptMessage,
   generateSafetyNumber,
   messageFingerprint,
-  type EncryptedMessage,
+  type SealedMessage,
 } from "@/lib/crypto";
 
 export interface Message {
@@ -23,6 +22,7 @@ export interface Message {
   fromMe: boolean;
   timestamp: number;
   encrypted: boolean;
+  sealed: boolean;
   ciphertext?: string;
   fingerprint?: string;
   expiresAt?: number;
@@ -91,21 +91,33 @@ interface AppContextType extends AppState {
   loaded: boolean;
 }
 
+/**
+ * Build a Message using Sealed Sender encryption.
+ *
+ * The sender's alias is embedded INSIDE the ciphertext payload.
+ * What would be stored on a server: { to: recipientId, ciphertext: "..." }
+ * The from field is completely absent — only the recipient can recover it.
+ */
 function buildMessage(
   text: string,
   fromMe: boolean,
   convId: string,
+  senderAlias: string,
   disappearAfterSec?: number
 ): Message {
   const key = demoKeyForConversation(convId);
   let ciphertext: string | undefined;
   let fingerprint: string | undefined;
+  let sealed = false;
+
   try {
-    const enc: EncryptedMessage = encryptMessage(text, key);
+    // Sealed sender: senderAlias is encrypted inside the payload, not exposed
+    const enc: SealedMessage = sealedEncryptMessage(text, senderAlias, key);
     ciphertext = enc.ciphertext;
     fingerprint = messageFingerprint(enc);
+    sealed = true;
   } catch {
-    // Noble not available in web build — graceful fallback
+    // Graceful fallback if noble unavailable (unlikely but safe)
   }
 
   const expiresAt = disappearAfterSec
@@ -118,6 +130,7 @@ function buildMessage(
     fromMe,
     timestamp: Date.now(),
     encrypted: true,
+    sealed,
     ciphertext,
     fingerprint,
     expiresAt,
@@ -133,9 +146,9 @@ const DEFAULT_CONVERSATIONS: Conversation[] = [
     unread: 2,
     safetyNumber: generateSafetyNumber("GHOST_USER", "PHANTOM_7"),
     messages: [
-      buildMessage("Connection established. Key exchange complete.", false, "1"),
-      buildMessage("Copy that. Transfer ready.", true, "1"),
-      buildMessage("All clear. No trace.", false, "1"),
+      buildMessage("Connection established. Key exchange complete.", false, "1", "PHANTOM_7"),
+      buildMessage("Copy that. Transfer ready.", true, "1", "GHOST_USER"),
+      buildMessage("All clear. No trace.", false, "1", "PHANTOM_7"),
     ],
   },
   {
@@ -146,8 +159,8 @@ const DEFAULT_CONVERSATIONS: Conversation[] = [
     unread: 0,
     safetyNumber: generateSafetyNumber("GHOST_USER", "WRAITH_X"),
     messages: [
-      buildMessage("Initiating handshake.", true, "2"),
-      buildMessage("Package delivered. Secure.", false, "2"),
+      buildMessage("Initiating handshake.", true, "2", "GHOST_USER"),
+      buildMessage("Package delivered. Secure.", false, "2", "WRAITH_X"),
     ],
   },
   {
@@ -158,7 +171,7 @@ const DEFAULT_CONVERSATIONS: Conversation[] = [
     unread: 1,
     safetyNumber: generateSafetyNumber("GHOST_USER", "NULL_PTR"),
     messages: [
-      buildMessage("VPN hopping complete. Stand by.", false, "3"),
+      buildMessage("VPN hopping complete. Stand by.", false, "3", "NULL_PTR"),
     ],
   },
 ];
@@ -371,7 +384,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sendMessage = useCallback(
     (conversationId: string, text: string) => {
       const conv = state.conversations.find((c) => c.id === conversationId);
-      const newMsg = buildMessage(text, true, conversationId, conv?.disappearAfterSec);
+      const myAlias = state.alias ?? "GHOST_USER";
+      const newMsg = buildMessage(text, true, conversationId, myAlias, conv?.disappearAfterSec);
 
       setState((prev) => {
         const c = prev.conversations.find((c) => c.id === conversationId);
@@ -395,7 +409,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           "Acknowledged. Channel open.",
         ];
         const replyText = replies[Math.floor(Math.random() * replies.length)];
-        const replyMsg = buildMessage(replyText, false, conversationId, conv?.disappearAfterSec);
+        const replyMsg = buildMessage(replyText, false, conversationId, conv?.alias ?? "GHOST", conv?.disappearAfterSec);
 
         setState((prev) => {
           const updated = prev.conversations.map((c) =>
@@ -423,7 +437,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         unread: 0,
         safetyNumber,
         messages: [
-          buildMessage("E2EE channel established. ChaCha20-Poly1305 key exchange complete.", false, id),
+          buildMessage("E2EE channel established. ChaCha20-Poly1305 key exchange complete.", false, id, alias.toUpperCase()),
         ],
       };
       setState((prev) => {

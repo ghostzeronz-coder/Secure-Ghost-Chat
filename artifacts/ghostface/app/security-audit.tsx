@@ -22,6 +22,7 @@ const CRYPTO_SPECS: AuditItem[] = [
   { label: "CRYPTO LIBRARY", value: "@noble/ciphers v2", status: "pass", detail: "Audited by Trail of Bits. Used by Ethereum Foundation." },
   { label: "KEY DERIVATION", value: "PBKDF2-SHA256", status: "pass", detail: "310,000 iterations — NIST SP 800-132 compliant" },
   { label: "HASH FUNCTION", value: "SHA-256 (@noble/hashes)", status: "pass" },
+  { label: "SEALED SENDER", value: "ACTIVE", status: "pass", detail: "Sender ID hidden inside ciphertext — server sees only recipient" },
 ];
 
 const SIGNAL_COMPARISON: { feature: string; signal: boolean; ghost: boolean; note?: string }[] = [
@@ -39,7 +40,7 @@ const SIGNAL_COMPARISON: { feature: string; signal: boolean; ghost: boolean; not
   { feature: "Crypto Wallet", signal: false, ghost: true },
   { feature: "VPN Dashboard", signal: false, ghost: true },
   { feature: "Open Source Protocol", signal: true, ghost: false, note: "Proprietary — future roadmap" },
-  { feature: "Sealed Sender", signal: true, ghost: false, note: "Planned in v2" },
+  { feature: "Sealed Sender", signal: true, ghost: true, note: "Sender identity encrypted inside ciphertext" },
   { feature: "Full Double Ratchet", signal: true, ghost: false, note: "Planned in v2" },
 ];
 

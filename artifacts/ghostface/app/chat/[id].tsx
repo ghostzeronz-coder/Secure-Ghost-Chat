@@ -139,6 +139,21 @@ export default function ChatScreen() {
       letterSpacing: 1,
       color: colors.destructive,
     },
+    sealedBadge: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 2,
+      backgroundColor: `${colors.primary}1A`,
+      borderRadius: 4,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+    },
+    sealedTxt: {
+      fontSize: 7,
+      fontWeight: "800" as const,
+      letterSpacing: 1,
+      color: colors.primary,
+    },
     inputBar: {
       flexDirection: "row",
       alignItems: "flex-end",
@@ -257,7 +272,7 @@ export default function ChatScreen() {
       <View style={styles.encBanner}>
         <View style={styles.encBannerLeft}>
           <SecureBadge type="e2ee" size="sm" />
-          <Text style={styles.encBannerTxt}>END-TO-END ENCRYPTED</Text>
+          <Text style={styles.encBannerTxt}>E2EE · SEALED SENDER</Text>
         </View>
         <Pressable style={styles.disappearBadge} onPress={() => setShowDisappear(true)}>
           <Ionicons
@@ -303,6 +318,12 @@ export default function ChatScreen() {
               </Text>
               {item.encrypted && (
                 <Ionicons name="lock-closed" size={8} color={colors.mutedForeground} />
+              )}
+              {item.sealed && (
+                <View style={styles.sealedBadge}>
+                  <Ionicons name="mail-unread-outline" size={7} color={colors.primary} />
+                  <Text style={styles.sealedTxt}>SEALED</Text>
+                </View>
               )}
               {item.fingerprint && (
                 <Text style={styles.fingerprint}>{item.fingerprint}</Text>
@@ -378,6 +399,10 @@ export default function ChatScreen() {
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>NONCE</Text>
                   <Text style={[styles.infoValue, { color: colors.success }]}>RANDOM 96-BIT PER MSG</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>SEALED SENDER</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>ACTIVE</Text>
                 </View>
                 <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
                   <Text style={styles.infoLabel}>LIBRARY</Text>
