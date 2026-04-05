@@ -279,10 +279,10 @@ export default function SettingsScreen() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.settingLabel}>CURRENT PLAN</Text>
-            <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>GHOST — FREE</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>GHOST — FREE  ·  ◎ USDC</Text>
           </View>
-          <View style={{ backgroundColor: colors.primary, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
-            <Text style={{ color: "#000", fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>UPGRADE</Text>
+          <View style={{ backgroundColor: "#9945FF", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>UPGRADE</Text>
           </View>
         </Pressable>
 
