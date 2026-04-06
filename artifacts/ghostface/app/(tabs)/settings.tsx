@@ -32,10 +32,12 @@ export default function SettingsScreen() {
   const {
     alias,
     biometricEnabled,
+    stripeEmail,
     setBiometricEnabled,
     setPin,
     setLocked,
     panicWipe,
+    setStripeEmail,
   } = useApp();
 
   const [showPinChange, setShowPinChange] = useState(false);
@@ -66,6 +68,7 @@ export default function SettingsScreen() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not open billing portal");
+      await setStripeEmail(billingEmail);
       setShowBilling(false);
       setBillingEmail("");
       await Linking.openURL(data.url);
@@ -74,6 +77,13 @@ export default function SettingsScreen() {
     } finally {
       setBillingLoading(false);
     }
+  };
+
+  const handleDisconnectStripe = async () => {
+    await setStripeEmail(null);
+    setShowBilling(false);
+    setBillingEmail("");
+    setBillingError("");
   };
 
   const handleBioToggle = async (val: boolean) => {
@@ -324,16 +334,29 @@ export default function SettingsScreen() {
           <View style={{ height: 1, backgroundColor: `${colors.primary}30` }} />
           <Pressable
             style={styles.settingRow}
-            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowBilling(true); setBillingError(""); }}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setBillingEmail(stripeEmail ?? "");
+              setBillingError("");
+              setShowBilling(true);
+            }}
           >
             <View style={styles.settingIcon}>
               <Ionicons name="card-outline" size={18} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.settingLabel}>MANAGE BILLING</Text>
-              <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>STRIPE CUSTOMER PORTAL</Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>
+                {stripeEmail ? stripeEmail.toUpperCase() : "STRIPE CUSTOMER PORTAL"}
+              </Text>
             </View>
-            <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
+            {stripeEmail ? (
+              <View style={{ backgroundColor: colors.success, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ color: "#000", fontSize: 9, fontWeight: "800", letterSpacing: 2 }}>LINKED</Text>
+              </View>
+            ) : (
+              <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
+            )}
           </Pressable>
         </View>
 
@@ -578,6 +601,14 @@ export default function SettingsScreen() {
                   <Text style={styles.modalBtnText}>OPEN STRIPE PORTAL</Text>
                 )}
               </Pressable>
+              {stripeEmail && (
+                <Pressable
+                  style={[styles.cancelBtn, { borderColor: colors.destructive, marginBottom: 2 }]}
+                  onPress={handleDisconnectStripe}
+                >
+                  <Text style={[styles.cancelText, { color: colors.destructive }]}>DISCONNECT ACCOUNT</Text>
+                </Pressable>
+              )}
               <Pressable style={styles.cancelBtn} onPress={() => { setShowBilling(false); setBillingEmail(""); setBillingError(""); }}>
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>

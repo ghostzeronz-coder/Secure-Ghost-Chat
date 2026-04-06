@@ -71,6 +71,7 @@ interface AppState {
   transactions: Transaction[];
   dataUsed: number;
   dataLimit: number;
+  stripeEmail: string | null;
 }
 
 interface AppContextType extends AppState {
@@ -90,6 +91,7 @@ interface AppContextType extends AppState {
   deleteConversation: (conversationId: string) => void;
   setDisappearTimer: (conversationId: string, seconds: number | undefined) => void;
   panicWipe: () => Promise<void>;
+  setStripeEmail: (email: string | null) => Promise<void>;
   loaded: boolean;
 }
 
@@ -198,11 +200,13 @@ export { VPN_SERVERS };
 
 const SECURE_PIN_KEY = "ghostface_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
+const STRIPE_EMAIL_KEY = "stripeEmail";
 const APP_STORAGE_KEYS = [
   "alias",
   "isOnboarded",
   "biometricEnabled",
   CONVERSATIONS_KEY,
+  STRIPE_EMAIL_KEY,
 ] as const;
 
 async function secureGet(key: string): Promise<string | null> {
@@ -240,17 +244,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     transactions: DEFAULT_TRANSACTIONS,
     dataUsed: 2.4,
     dataLimit: 10,
+    stripeEmail: null,
   });
 
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, biometric, onboarded, convData] = await Promise.all([
+        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
           AsyncStorage.getItem("isOnboarded"),
           AsyncStorage.getItem(CONVERSATIONS_KEY),
+          AsyncStorage.getItem(STRIPE_EMAIL_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -268,7 +274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         setHasPin(hasPinValue);
-        setState((prev) => ({ ...prev, alias, biometricEnabled: biometricOn, isOnboarded, isLocked: true, conversations }));
+        setState((prev) => ({ ...prev, alias, biometricEnabled: biometricOn, isOnboarded, isLocked: true, conversations, stripeEmail: stripeEmailVal }));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[AppContext] Failed to load persisted state:", msg);
@@ -471,6 +477,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [state.alias, persistConversations]
   );
 
+  const setStripeEmail = useCallback(async (email: string | null) => {
+    try {
+      if (email) {
+        await AsyncStorage.setItem(STRIPE_EMAIL_KEY, email);
+      } else {
+        await AsyncStorage.removeItem(STRIPE_EMAIL_KEY);
+      }
+      setState((prev) => ({ ...prev, stripeEmail: email }));
+    } catch (err) {
+      console.error("[AppContext] Failed to save stripe email:", err);
+      throw err;
+    }
+  }, []);
+
   const panicWipe = useCallback(async () => {
     try {
       await Promise.all([
@@ -495,6 +515,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       transactions: DEFAULT_TRANSACTIONS,
       dataUsed: 2.4,
       dataLimit: 10,
+      stripeEmail: null,
     });
   }, []);
 
@@ -518,6 +539,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteConversation,
         setDisappearTimer,
         panicWipe,
+        setStripeEmail,
         loaded,
       }}
     >
