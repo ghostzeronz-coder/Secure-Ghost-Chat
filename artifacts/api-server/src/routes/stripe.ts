@@ -96,13 +96,22 @@ router.post("/stripe/seed", async (_req, res) => {
   }
 });
 
+// NZD plan prices (cents)
+const NZD_PLAN_PRICES: Record<string, { amount: number; label: string }> = {
+  specter: { amount: 1699, label: "GHOSTFACE SPECTER" },
+  phantom: { amount: 3299, label: "GHOSTFACE PHANTOM" },
+};
+
 // POST /api/stripe/checkout — create a Stripe Checkout Session
+// Accepts either { priceId } or { plan, currency } where currency defaults to "usd"
 router.post("/stripe/checkout", async (req, res) => {
   try {
-    const { priceId, email } = req.body as { priceId: string; email?: string };
-    if (!priceId) {
-      return res.status(400).json({ error: "priceId is required" });
-    }
+    const { priceId, plan, currency, email } = req.body as {
+      priceId?: string;
+      plan?: string;
+      currency?: string;
+      email?: string;
+    };
 
     const domain =
       process.env.REPLIT_DOMAINS?.split(",")[0] ||
@@ -111,8 +120,81 @@ router.post("/stripe/checkout", async (req, res) => {
 
     const baseUrl = `https://${domain}`;
 
+    let resolvedPriceId = priceId;
+
+    if (!resolvedPriceId && plan) {
+      const cur = (currency || "usd").toLowerCase();
+      const stripe = await (await import("../stripeClient")).getUncachableStripeClient();
+      const planKey = plan.toLowerCase();
+
+      if (cur === "nzd") {
+        const nzdConfig = NZD_PLAN_PRICES[planKey];
+        if (!nzdConfig) {
+          return res.status(400).json({ error: `Unknown plan: ${planKey}` });
+        }
+
+        // Find existing product by name
+        const products = await stripe.products.search({
+          query: `name:"${planKey.toUpperCase()}" AND active:"true"`,
+        });
+        if (products.data.length === 0) {
+          return res.status(400).json({ error: `Product '${planKey}' not found. Run /api/stripe/seed first.` });
+        }
+        const product = products.data[0];
+
+        // Find or create a NZD monthly price for this product
+        const existingPrices = await stripe.prices.list({
+          product: product.id,
+          active: true,
+          currency: "nzd",
+        });
+        const nzdMonthly = existingPrices.data.find(
+          (p) => p.recurring?.interval === "month" && p.unit_amount === nzdConfig.amount
+        );
+
+        if (nzdMonthly) {
+          resolvedPriceId = nzdMonthly.id;
+        } else {
+          const created = await stripe.prices.create({
+            product: product.id,
+            unit_amount: nzdConfig.amount,
+            currency: "nzd",
+            recurring: { interval: "month" },
+            metadata: { ghostface: "true", tier: planKey, region: "nz" },
+          });
+          resolvedPriceId = created.id;
+        }
+      } else {
+        // Default USD — find existing monthly USD price
+        const USD_AMOUNTS: Record<string, number> = { specter: 999, phantom: 1999 };
+        const usdAmount = USD_AMOUNTS[planKey];
+        if (!usdAmount) {
+          return res.status(400).json({ error: `Unknown plan: ${planKey}` });
+        }
+        const products = await stripe.products.search({
+          query: `name:"${planKey.toUpperCase()}" AND active:"true"`,
+        });
+        if (products.data.length === 0) {
+          return res.status(400).json({ error: `Product '${planKey}' not found. Run /api/stripe/seed first.` });
+        }
+        const product = products.data[0];
+        const existingPrices = await stripe.prices.list({ product: product.id, active: true, currency: "usd" });
+        const usdMonthly = existingPrices.data.find(
+          (p) => p.recurring?.interval === "month" && p.unit_amount === usdAmount
+        );
+        resolvedPriceId = usdMonthly?.id;
+        if (!resolvedPriceId) {
+          return res.status(400).json({ error: `USD price for '${planKey}' not found. Run /api/stripe/seed first.` });
+        }
+      }
+    }
+
+    if (!resolvedPriceId) {
+      return res.status(400).json({ error: "Provide either priceId or plan+currency" });
+    }
+
     const session = await stripeService.createCheckoutSession(
-      priceId,
+      resolvedPriceId,
       `${baseUrl}/api/stripe/checkout/success`,
       `${baseUrl}/api/stripe/checkout/cancel`,
       email
