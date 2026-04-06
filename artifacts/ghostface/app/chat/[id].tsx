@@ -43,7 +43,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage, deleteMessage, setDisappearTimer } = useApp();
+  const { conversations, sendMessage, deleteMessage, clearConversation, setDisappearTimer } = useApp();
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
@@ -67,15 +67,30 @@ export default function ChatScreen() {
   };
 
   const handleLongPress = (msgId: string, fromMe: boolean) => {
-    if (!fromMe) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const title = fromMe ? "DELETE MESSAGE" : "DELETE FOR ME";
+    const msg = fromMe
+      ? "Permanently delete this message?"
+      : "Remove this message from your view?";
     if (Platform.OS !== "web") {
-      Alert.alert("Delete Message", "Permanently delete this message?", [
+      Alert.alert(title, msg, [
         { text: "Cancel", style: "cancel" },
         { text: "Delete", style: "destructive", onPress: () => deleteMessage(conv.id, msgId) },
       ]);
     } else {
       deleteMessage(conv.id, msgId);
+    }
+  };
+
+  const handleClearChat = () => {
+    if (Platform.OS !== "web") {
+      Alert.alert("CLEAR CHAT", "Delete all messages in this channel? This cannot be undone.", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Clear", style: "destructive", onPress: () => { clearConversation(conv.id); setShowInfo(false); } },
+      ]);
+    } else {
+      clearConversation(conv.id);
+      setShowInfo(false);
     }
   };
 
@@ -228,6 +243,23 @@ export default function ChatScreen() {
       borderWidth: 1, borderColor: colors.border,
     },
     disappearOptTxt: { fontSize: 11, fontWeight: "800", letterSpacing: 2 },
+    clearBtn: {
+      marginTop: 4,
+      borderWidth: 1,
+      borderColor: colors.destructive,
+      borderRadius: colors.radius,
+      paddingVertical: 13,
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 8,
+    },
+    clearBtnTxt: {
+      color: colors.destructive,
+      fontSize: 12,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
   });
 
   const messages = [...conv.messages];
@@ -408,6 +440,13 @@ export default function ChatScreen() {
                   <Text style={styles.infoLabel}>LIBRARY</Text>
                   <Text style={styles.infoValue}>@NOBLE/CIPHERS</Text>
                 </View>
+                <Pressable
+                  style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.7 }]}
+                  onPress={handleClearChat}
+                >
+                  <Ionicons name="trash-outline" size={14} color={colors.destructive} />
+                  <Text style={styles.clearBtnTxt}>CLEAR CHAT</Text>
+                </Pressable>
               </View>
             </View>
           </Pressable>

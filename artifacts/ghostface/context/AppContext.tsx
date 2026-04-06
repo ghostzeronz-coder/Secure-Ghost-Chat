@@ -86,6 +86,8 @@ interface AppContextType extends AppState {
   sendMessage: (conversationId: string, text: string) => void;
   addConversation: (alias: string) => void;
   deleteMessage: (conversationId: string, messageId: string) => void;
+  clearConversation: (conversationId: string) => void;
+  deleteConversation: (conversationId: string) => void;
   setDisappearTimer: (conversationId: string, seconds: number | undefined) => void;
   panicWipe: () => Promise<void>;
   loaded: boolean;
@@ -371,6 +373,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistConversations]);
 
+  const clearConversation = useCallback((conversationId: string) => {
+    setState((prev) => {
+      const updated = prev.conversations.map((c) =>
+        c.id === conversationId
+          ? { ...c, messages: [], lastMessage: "Chat cleared.", unread: 0 }
+          : c
+      );
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+  }, [persistConversations]);
+
+  const deleteConversation = useCallback((conversationId: string) => {
+    setState((prev) => {
+      const updated = prev.conversations.filter((c) => c.id !== conversationId);
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+  }, [persistConversations]);
+
   const setDisappearTimer = useCallback((conversationId: string, seconds: number | undefined) => {
     setState((prev) => {
       const updated = prev.conversations.map((c) =>
@@ -492,6 +514,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         sendMessage,
         addConversation,
         deleteMessage,
+        clearConversation,
+        deleteConversation,
         setDisappearTimer,
         panicWipe,
         loaded,

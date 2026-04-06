@@ -3,6 +3,7 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useState } from "react";
 import {
+  Alert,
   FlatList,
   Modal,
   Platform,
@@ -34,11 +35,31 @@ type PageTab = "messages" | "tools" | "invite";
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, addConversation } = useApp();
+  const { conversations, addConversation, deleteConversation } = useApp();
 
   const [pageTab, setPageTab] = useState<PageTab>("messages");
   const [showNew, setShowNew] = useState(false);
   const [newAlias, setNewAlias] = useState("");
+
+  const handleLongPressConversation = (convId: string, alias: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (Platform.OS !== "web") {
+      Alert.alert(
+        alias,
+        "What would you like to do?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete Contact",
+            style: "destructive",
+            onPress: () => deleteConversation(convId),
+          },
+        ]
+      );
+    } else {
+      deleteConversation(convId);
+    }
+  };
 
   const handleNewChat = () => {
     const trimmed = newAlias.trim();
@@ -368,6 +389,8 @@ export default function MessagesScreen() {
               <Pressable
                 style={({ pressed }) => [styles.item, pressed && { opacity: 0.7 }]}
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(`/chat/${item.id}`); }}
+                onLongPress={() => handleLongPressConversation(item.id, item.alias)}
+                delayLongPress={400}
                 testID={`conversation-${item.id}`}
               >
                 <View style={styles.avatarWrap}>
