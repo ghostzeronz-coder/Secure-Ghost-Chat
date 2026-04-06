@@ -12,8 +12,6 @@ export class StripeService {
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: "subscription",
-      billing_address_collection: "required",
-      phone_number_collection: { enabled: true },
       success_url: successUrl,
       cancel_url: cancelUrl,
       ...(customerEmail ? { customer_email: customerEmail } : {}),
