@@ -259,4 +259,43 @@ router.get("/stripe/checkout/cancel", (_req, res) => {
   `);
 });
 
+// POST /api/stripe/customer-portal — create a billing portal session for a customer email
+router.post("/stripe/customer-portal", async (req, res) => {
+  try {
+    const { email } = req.body as { email: string };
+    if (!email) {
+      return res.status(400).json({ error: "email is required" });
+    }
+
+    const stripe = await (await import("../stripeClient")).getUncachableStripeClient();
+    const domain =
+      process.env.REPLIT_DOMAINS?.split(",")[0] ||
+      process.env.REPLIT_DEV_DOMAIN ||
+      "localhost";
+    const returnUrl = `https://${domain}`;
+
+    // Find or create Stripe customer by email
+    const existing = await stripe.customers.list({ email, limit: 1 });
+    let customer;
+    if (existing.data.length > 0) {
+      customer = existing.data[0];
+    } else {
+      customer = await stripe.customers.create({
+        email,
+        metadata: { ghostface: "true" },
+      });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: customer.id,
+      return_url: returnUrl,
+    });
+
+    res.json({ url: session.url });
+  } catch (err: any) {
+    console.error("[stripe/customer-portal]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

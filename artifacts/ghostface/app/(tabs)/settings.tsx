@@ -5,8 +5,10 @@ import { router } from "expo-router";
 import React, { useRef, useState } from "react";
 
 import {
+  ActivityIndicator,
   Alert,
   Animated,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -41,6 +43,38 @@ export default function SettingsScreen() {
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinSaved, setPinSaved] = useState(false);
+
+  const [showBilling, setShowBilling] = useState(false);
+  const [billingEmail, setBillingEmail] = useState("");
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState("");
+
+  const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
+
+  const handleBillingPortal = async () => {
+    if (!billingEmail.includes("@")) {
+      setBillingError("Enter a valid email");
+      return;
+    }
+    try {
+      setBillingLoading(true);
+      setBillingError("");
+      const res = await fetch(`${API_BASE}/stripe/customer-portal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: billingEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not open billing portal");
+      setShowBilling(false);
+      setBillingEmail("");
+      await Linking.openURL(data.url);
+    } catch (err: any) {
+      setBillingError(err.message || "Something went wrong");
+    } finally {
+      setBillingLoading(false);
+    }
+  };
 
   const handleBioToggle = async (val: boolean) => {
     if (val && Platform.OS !== "web") {
@@ -271,21 +305,37 @@ export default function SettingsScreen() {
         </View>
 
         <Text style={styles.sectionLabel}>SUBSCRIPTION</Text>
-        <Pressable
-          style={[styles.settingRow, { borderWidth: 1, borderColor: colors.primary, borderRadius: 10, marginHorizontal: 16, backgroundColor: `${colors.primary}11` }]}
-          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/paywall"); }}
-        >
-          <View style={styles.settingIcon}>
-            <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.settingLabel}>CURRENT PLAN</Text>
-            <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>GHOST — FREE  ·  ◎ USDC</Text>
-          </View>
-          <View style={{ backgroundColor: "#9945FF", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
-            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>UPGRADE</Text>
-          </View>
-        </Pressable>
+        <View style={{ borderWidth: 1, borderColor: colors.primary, borderRadius: 10, marginHorizontal: 16, backgroundColor: `${colors.primary}11`, overflow: "hidden" }}>
+          <Pressable
+            style={styles.settingRow}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push("/paywall"); }}
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>CURRENT PLAN</Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>GHOST — FREE  ·  ◎ USDC</Text>
+            </View>
+            <View style={{ backgroundColor: "#9945FF", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>UPGRADE</Text>
+            </View>
+          </Pressable>
+          <View style={{ height: 1, backgroundColor: `${colors.primary}30` }} />
+          <Pressable
+            style={styles.settingRow}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowBilling(true); setBillingError(""); }}
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons name="card-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.settingLabel}>MANAGE BILLING</Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>STRIPE CUSTOMER PORTAL</Text>
+            </View>
+            <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
+          </Pressable>
+        </View>
 
         <Text style={styles.sectionLabel}>SECURITY</Text>
         <View>
@@ -482,6 +532,55 @@ export default function SettingsScreen() {
                   </Pressable>
                 </>
               )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Billing portal modal */}
+      <Modal
+        visible={showBilling}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowBilling(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowBilling(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <Ionicons name="card" size={20} color={colors.primary} />
+                <Text style={styles.modalTitle}>BILLING PORTAL</Text>
+              </View>
+              <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginBottom: 16, textAlign: "center" }}>
+                ENTER YOUR ACCOUNT EMAIL TO MANAGE SUBSCRIPTIONS, INVOICES & PAYMENT METHODS
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={billingEmail}
+                onChangeText={(t) => { setBillingEmail(t); setBillingError(""); }}
+                placeholder="YOUR EMAIL"
+                placeholderTextColor={colors.mutedForeground}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {billingError ? (
+                <Text style={styles.errorText}>{billingError.toUpperCase()}</Text>
+              ) : null}
+              <Pressable
+                style={[styles.modalBtn, (billingLoading || !billingEmail) && { opacity: 0.5 }]}
+                onPress={handleBillingPortal}
+                disabled={billingLoading || !billingEmail}
+              >
+                {billingLoading ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={styles.modalBtnText}>OPEN STRIPE PORTAL</Text>
+                )}
+              </Pressable>
+              <Pressable style={styles.cancelBtn} onPress={() => { setShowBilling(false); setBillingEmail(""); setBillingError(""); }}>
+                <Text style={styles.cancelText}>CANCEL</Text>
+              </Pressable>
             </View>
           </Pressable>
         </Pressable>

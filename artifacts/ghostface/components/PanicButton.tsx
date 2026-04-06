@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
+  Easing,
+  Image,
   Modal,
   Pressable,
   StyleSheet,
@@ -14,40 +16,37 @@ import { useColors } from "@/hooks/useColors";
 
 const { width: W, height: H } = Dimensions.get("window");
 
-// ─── Explosion flame tongue ────────────────────────────────────────────────────
-// Each flame blasts outward from the origin at a given angle.
+// ─── Expanding smoke ring ──────────────────────────────────────────────────────
 
-interface FlameProps {
-  angleDeg: number; // clockwise from top, 0 = up
-  delay: number;    // ms before animating
-  length: number;   // px - how far the flame travels
-  width: number;    // flame body width
-  height: number;   // flame body height (elongation)
+function SmokeRing({
+  delay,
+  maxScale,
+  color,
+  size,
+  duration,
+}: {
+  delay: number;
+  maxScale: number;
   color: string;
-  glowColor: string;
-}
-
-function Flame({ angleDeg, delay, length, width, height, color, glowColor }: FlameProps) {
-  const progress = useRef(new Animated.Value(0)).current;
+  size: number;
+  duration: number;
+}) {
+  const scale = useRef(new Animated.Value(0.05)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.2)).current;
-
-  const rad = (angleDeg * Math.PI) / 180;
-  const tx = Math.sin(rad) * length;
-  const ty = -Math.cos(rad) * length; // negative = upward in RN coords
-
-  const translateX = progress.interpolate({ inputRange: [0, 1], outputRange: [0, tx] });
-  const translateY = progress.interpolate({ inputRange: [0, 1], outputRange: [0, ty] });
 
   useEffect(() => {
     const t = setTimeout(() => {
       Animated.parallel([
-        Animated.timing(progress, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(scale, {
+          toValue: maxScale,
+          duration,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
         Animated.sequence([
-          Animated.timing(opacity, { toValue: 1, duration: 60, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0, duration: 640, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0.55, duration: 400, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0, duration: duration - 400, useNativeDriver: true }),
         ]),
-        Animated.timing(scale, { toValue: 1.8, duration: 700, useNativeDriver: true }),
       ]).start();
     }, delay);
     return () => clearTimeout(t);
@@ -57,177 +56,135 @@ function Flame({ angleDeg, delay, length, width, height, color, glowColor }: Fla
     <Animated.View
       style={{
         position: "absolute",
-        width,
-        height,
-        marginLeft: -width / 2,
-        marginTop: -height / 2,
-        borderRadius: width / 2,
+        width: size,
+        height: size,
+        marginLeft: -size / 2,
+        marginTop: -size / 2,
+        borderRadius: size / 2,
         backgroundColor: color,
-        // Glow ring underneath
-        shadowColor: glowColor,
-        shadowOpacity: 0.9,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 0 },
-        transform: [
-          { translateX },
-          { translateY },
-          { rotate: `${angleDeg}deg` },
-          { scale },
-        ],
-        opacity,
-      }}
-    />
-  );
-}
-
-// ─── Inner core flash ─────────────────────────────────────────────────────────
-
-function CoreBlast({ delay }: { delay: number }) {
-  const scale = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(scale, { toValue: 4, duration: 600, useNativeDriver: true }),
-        Animated.sequence([
-          Animated.timing(opacity, { toValue: 1, duration: 80, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0, duration: 520, useNativeDriver: true }),
-        ]),
-      ]).start();
-    }, delay);
-    return () => clearTimeout(t);
-  }, []);
-
-  return (
-    <Animated.View
-      style={{
-        position: "absolute",
-        width: 80,
-        height: 80,
-        marginLeft: -40,
-        marginTop: -40,
-        borderRadius: 40,
-        backgroundColor: "#FFEE44",
         opacity,
         transform: [{ scale }],
-        shadowColor: "#FFAA00",
-        shadowOpacity: 1,
-        shadowRadius: 30,
-        shadowOffset: { width: 0, height: 0 },
       }}
     />
   );
 }
 
-// ─── Full explosion screen ────────────────────────────────────────────────────
+// ─── Ghost wipe screen ────────────────────────────────────────────────────────
 
-function ExplosionScreen({ onDone }: { onDone: () => void }) {
-  const flashOpacity = useRef(new Animated.Value(0)).current;
+function GhostWipeScreen({ onDone }: { onDone: () => void }) {
+  const ghostOpacity = useRef(new Animated.Value(0)).current;
+  const ghostScale = useRef(new Animated.Value(0.6)).current;
+  const ghostGlow = useRef(new Animated.Value(0)).current;
   const bgOpacity = useRef(new Animated.Value(0)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
-  const shockScale = useRef(new Animated.Value(0)).current;
-  const shockOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // White flash on detonation
-    Animated.sequence([
-      Animated.timing(flashOpacity, { toValue: 1, duration: 60, useNativeDriver: true }),
-      Animated.timing(flashOpacity, { toValue: 0, duration: 350, useNativeDriver: true }),
-    ]).start();
-
-    // Shockwave ring expanding outward
+    // Ghost materialises
     Animated.parallel([
-      Animated.timing(shockScale, { toValue: 8, duration: 600, useNativeDriver: true }),
       Animated.sequence([
-        Animated.timing(shockOpacity, { toValue: 0.8, duration: 80, useNativeDriver: true }),
-        Animated.timing(shockOpacity, { toValue: 0, duration: 520, useNativeDriver: true }),
+        Animated.timing(ghostOpacity, { toValue: 0.9, duration: 700, useNativeDriver: true }),
+        Animated.timing(ghostOpacity, { toValue: 0.6, duration: 1000, useNativeDriver: true }),
+        Animated.timing(ghostOpacity, { toValue: 0, duration: 800, useNativeDriver: true }),
       ]),
+      Animated.timing(ghostScale, {
+        toValue: 2.8,
+        duration: 2500,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      // Ghostly glow pulse
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ghostGlow, { toValue: 1, duration: 600, useNativeDriver: true }),
+          Animated.timing(ghostGlow, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+        ]),
+        { iterations: 3 }
+      ),
     ]).start();
 
-    // Black bg fills in after explosion settles
+    // Dark smoke fills screen after ghost swells
     setTimeout(() => {
-      Animated.timing(bgOpacity, { toValue: 1, duration: 1200, useNativeDriver: true }).start();
-    }, 600);
+      Animated.timing(bgOpacity, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+    }, 1200);
 
-    // DATA WIPED text
+    // "DATA WIPED" text
     setTimeout(() => {
-      Animated.timing(textOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-    }, 1400);
+      Animated.timing(textOpacity, { toValue: 1, duration: 500, useNativeDriver: true }).start();
+    }, 2400);
 
-    const t = setTimeout(onDone, 3200);
+    const t = setTimeout(onDone, 3600);
     return () => clearTimeout(t);
   }, []);
 
-  // 13 flames distributed around the full 360°
-  const FLAMES = [
-    // angle, length, width, height,     color,      glowColor,  delay
-    [   0,    H*0.55, 22, 100, "#FF8C00", "#FF4500",   0   ],
-    [  27,    H*0.50, 26, 120, "#FF4500", "#FF0000",  20   ],
-    [  55,    H*0.52, 20, 90,  "#FFB400", "#FF6600",  10   ],
-    [  83,    H*0.48, 28, 110, "#FF2200", "#FF0000",  30   ],
-    [ 110,    H*0.53, 22, 95,  "#FF5500", "#FF2200",   5   ],
-    [ 138,    H*0.50, 24, 105, "#FF8800", "#FF4400",  25   ],
-    [ 165,    H*0.55, 20, 115, "#FF3300", "#FF0000",  15   ],
-    [ 193,    H*0.48, 26, 100, "#FF6600", "#FF3300",  35   ],
-    [ 221,    H*0.52, 22, 90,  "#FF9900", "#FF5500",   8   ],
-    [ 248,    H*0.50, 28, 120, "#FF2200", "#CC0000",  28   ],
-    [ 276,    H*0.54, 20, 105, "#FF7700", "#FF4400",  12   ],
-    [ 304,    H*0.49, 24, 95,  "#FF4400", "#FF1100",  22   ],
-    [ 332,    H*0.53, 22, 110, "#FF8800", "#FF5500",   3   ],
-  ] as const;
+  // Smoke rings — staggered waves radiating from ghost
+  const RINGS = [
+    { delay: 200,  maxScale: 6,  color: "rgba(10,10,15,0.75)",  size: 120, duration: 2200 },
+    { delay: 450,  maxScale: 8,  color: "rgba(8,8,12,0.70)",    size: 160, duration: 2400 },
+    { delay: 700,  maxScale: 10, color: "rgba(6,6,10,0.80)",    size: 100, duration: 2600 },
+    { delay: 950,  maxScale: 7,  color: "rgba(12,12,18,0.65)",  size: 180, duration: 2200 },
+    { delay: 1200, maxScale: 9,  color: "rgba(8,8,14,0.75)",    size: 140, duration: 2400 },
+    { delay: 1450, maxScale: 11, color: "rgba(5,5,10,0.85)",    size: 120, duration: 2600 },
+    { delay: 300,  maxScale: 5,  color: "rgba(15,15,22,0.60)",  size: 200, duration: 2000 },
+    { delay: 600,  maxScale: 8,  color: "rgba(10,10,16,0.70)",  size: 150, duration: 2300 },
+  ];
 
-  // Origin: center of screen for full radial explosion
-  const ox = W / 2;
-  const oy = H * 0.5;
+  const glowOpacity = ghostGlow.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.25],
+  });
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      {/* Dark bg fade in after explosion */}
-      <Animated.View
-        style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: bgOpacity }]}
-      />
-
-      {/* Bright white detonation flash */}
-      <Animated.View
-        style={[StyleSheet.absoluteFill, { backgroundColor: "#FFFFFF", opacity: flashOpacity }]}
-      />
-
-      {/* Explosion origin */}
-      <View style={{ position: "absolute", top: oy, left: ox }}>
-        {/* Shockwave ring */}
-        <Animated.View
-          style={{
-            position: "absolute",
-            width: 80,
-            height: 80,
-            marginLeft: -40,
-            marginTop: -40,
-            borderRadius: 40,
-            borderWidth: 3,
-            borderColor: "#FF8C00",
-            opacity: shockOpacity,
-            transform: [{ scale: shockScale }],
-          }}
-        />
-
-        {/* Inner core blast */}
-        <CoreBlast delay={0} />
-
-        {/* 13 flame tongues */}
-        {FLAMES.map((f, i) => (
-          <Flame
-            key={i}
-            angleDeg={f[0]}
-            length={f[1]}
-            width={f[2]}
-            height={f[3]}
-            color={f[4]}
-            glowColor={f[5]}
-            delay={f[6]}
-          />
+      {/* Smoke rings origin: center of screen */}
+      <View style={{ position: "absolute", top: H * 0.42, left: W / 2 }}>
+        {RINGS.map((r, i) => (
+          <SmokeRing key={i} {...r} />
         ))}
       </View>
+
+      {/* Ghost glow aura */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: H * 0.42 - 130,
+          left: W / 2 - 130,
+          width: 260,
+          height: 260,
+          borderRadius: 130,
+          backgroundColor: "#00C8FF",
+          opacity: glowOpacity,
+          transform: [{ scale: ghostScale }],
+        }}
+      />
+
+      {/* Ghost logo */}
+      <Animated.Image
+        source={require("../assets/images/ghostlogo.png")}
+        style={{
+          position: "absolute",
+          top: H * 0.42 - 70,
+          left: W / 2 - 70,
+          width: 140,
+          height: 140,
+          borderRadius: 25,
+          opacity: ghostOpacity,
+          transform: [{ scale: ghostScale }],
+        }}
+        resizeMode="contain"
+      />
+
+      {/* Dark smoke fill */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: "#000008", opacity: bgOpacity },
+        ]}
+      />
 
       {/* DATA WIPED */}
       <Animated.View
@@ -238,7 +195,7 @@ function ExplosionScreen({ onDone }: { onDone: () => void }) {
           opacity: textOpacity,
         }}
       >
-        <Ionicons name="nuclear" size={52} color="#FF3B30" />
+        <Ionicons name="nuclear" size={44} color="#FF3B30" />
         <Text style={ss.wipedHeading}>DATA WIPED</Text>
         <Text style={ss.wipedSub}>ALL TRACES ELIMINATED</Text>
       </Animated.View>
@@ -249,14 +206,14 @@ function ExplosionScreen({ onDone }: { onDone: () => void }) {
 const ss = StyleSheet.create({
   wipedHeading: {
     color: "#FF3B30",
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: "800",
     letterSpacing: 8,
     marginTop: 18,
   },
   wipedSub: {
     color: "#FF3B30",
-    fontSize: 12,
+    fontSize: 11,
     letterSpacing: 4,
     opacity: 0.7,
     marginTop: 6,
@@ -273,7 +230,7 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
   const colors = useColors();
   const [panicHeld, setPanicHeld] = useState(false);
   const [panicProgress, setPanicProgress] = useState(0);
-  const [exploding, setExploding] = useState(false);
+  const [ghostWipe, setGhostWipe] = useState(false);
   const panicTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panicInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -299,7 +256,7 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
     }, 60);
     panicTimer.current = setTimeout(() => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setExploding(true);
+      setGhostWipe(true);
     }, 3000);
   };
 
@@ -311,9 +268,9 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
 
   return (
     <>
-      <Modal visible={exploding} transparent animationType="none" statusBarTranslucent>
-        <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <ExplosionScreen onDone={async () => { await onWipe(); }} />
+      <Modal visible={ghostWipe} transparent animationType="none" statusBarTranslucent>
+        <View style={{ flex: 1, backgroundColor: "#000008" }}>
+          <GhostWipeScreen onDone={async () => { await onWipe(); }} />
         </View>
       </Modal>
 
