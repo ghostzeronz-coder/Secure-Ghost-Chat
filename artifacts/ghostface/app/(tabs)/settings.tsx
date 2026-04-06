@@ -32,6 +32,7 @@ export default function SettingsScreen() {
     biometricEnabled,
     setBiometricEnabled,
     setPin,
+    setLocked,
     panicWipe,
   } = useApp();
 
@@ -288,6 +289,20 @@ export default function SettingsScreen() {
 
         <Text style={styles.sectionLabel}>SECURITY</Text>
         <View>
+          <Pressable
+            style={styles.settingRow}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setLocked(true);
+            }}
+          >
+            <View style={[styles.settingIcon, { borderColor: colors.primary, backgroundColor: `${colors.primary}18` }]}>
+              <Ionicons name="lock-closed" size={18} color={colors.primary} />
+            </View>
+            <Text style={[styles.settingLabel, { color: colors.primary }]}>LOCK SESSION</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+          </Pressable>
+          <View style={styles.settingDivider} />
           <Pressable
             style={styles.settingRow}
             onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push("/security-audit"); }}

@@ -7,9 +7,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
+import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
 const TIMER_OPTIONS = [
@@ -39,14 +41,55 @@ function fmtCountdown(ms: number): string {
   return `${m}M ${s % 60}S`;
 }
 
+const CODE_REGEX = /^GF-[A-Z2-9]{4}-[A-Z2-9]{4}$/;
+
+function deriveAlias(code: string): string {
+  const parts = code.split("-");
+  return `GH_${parts[1]}`;
+}
+
 export default function GhostInvite() {
   const colors = useColors();
+  const { addConversation } = useApp();
   const [code, setCode] = useState(genCode);
   const [timerIdx, setTimerIdx] = useState(0);
   const [expiresAt, setExpiresAt] = useState(() => Date.now() + TIMER_OPTIONS[0].ms);
   const [remaining, setRemaining] = useState(TIMER_OPTIONS[0].ms);
   const [copied, setCopied] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [redeemInput, setRedeemInput] = useState("");
+  const [redeemState, setRedeemState] = useState<"idle" | "success" | "error">("idle");
+  const [redeemAlias, setRedeemAlias] = useState("");
+
+  const handleRedeemChange = (text: string) => {
+    setRedeemState("idle");
+    const upper = text.toUpperCase().replace(/[^A-Z2-9-]/g, "");
+    let formatted = upper;
+    const raw = upper.replace(/-/g, "");
+    if (raw.length <= 2) {
+      formatted = raw;
+    } else if (raw.length <= 6) {
+      formatted = `GF-${raw.slice(2)}`;
+    } else {
+      formatted = `GF-${raw.slice(2, 6)}-${raw.slice(6, 10)}`;
+    }
+    setRedeemInput(formatted);
+  };
+
+  const handleRedeem = () => {
+    if (!CODE_REGEX.test(redeemInput)) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setRedeemState("error");
+      return;
+    }
+    const alias = deriveAlias(redeemInput);
+    addConversation(alias);
+    setRedeemAlias(alias);
+    setRedeemInput("");
+    setRedeemState("success");
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setRedeemState("idle"), 4000);
+  };
 
   const reset = useCallback((idx?: number) => {
     const i = idx ?? timerIdx;
@@ -233,6 +276,67 @@ export default function GhostInvite() {
       flex: 1,
       lineHeight: 18,
     },
+    redeemCard: {
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      padding: 20,
+      gap: 14,
+    },
+    redeemTitle: {
+      color: colors.foreground,
+      fontSize: 13,
+      fontWeight: "800",
+      letterSpacing: 4,
+    },
+    redeemSub: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 1,
+      marginTop: -6,
+    },
+    redeemInput: {
+      backgroundColor: colors.muted,
+      color: colors.foreground,
+      fontSize: 20,
+      fontWeight: "800",
+      letterSpacing: 6,
+      fontFamily: "monospace",
+      borderWidth: 1,
+      borderColor: redeemState === "error" ? colors.destructive : redeemState === "success" ? colors.success : colors.border,
+      borderRadius: colors.radius,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      textAlign: "center",
+    },
+    redeemBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: colors.radius,
+      paddingVertical: 14,
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 8,
+    },
+    redeemBtnTxt: {
+      color: colors.primaryForeground,
+      fontSize: 12,
+      fontWeight: "800",
+      letterSpacing: 3,
+    },
+    redeemFeedback: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 8,
+      paddingVertical: 4,
+    },
+    redeemFeedbackTxt: {
+      fontSize: 12,
+      fontWeight: "700",
+      letterSpacing: 2,
+    },
   });
 
   return (
@@ -328,7 +432,7 @@ export default function GhostInvite() {
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
             <Ionicons name="qr-code-outline" size={14} color={colors.primary} />
-            <Text style={styles.infoTxt}>Share your QR code or the text code with your contact. They scan or enter it to establish an encrypted channel.</Text>
+            <Text style={styles.infoTxt}>Share your code with your contact. They enter it below to establish an encrypted channel.</Text>
           </View>
           <View style={styles.infoRow}>
             <Ionicons name="flame-outline" size={14} color={colors.destructive} />
@@ -337,6 +441,56 @@ export default function GhostInvite() {
           <View style={styles.infoRow}>
             <Ionicons name="shield-checkmark-outline" size={14} color={colors.success} />
             <Text style={styles.infoTxt}>Each code is one-time use. After a contact connects, the code is automatically invalidated.</Text>
+          </View>
+        </View>
+
+        {/* Redeem a code */}
+        <View>
+          <Text style={styles.sectionLabel}>RECEIVED A CODE?</Text>
+          <View style={styles.redeemCard}>
+            <Text style={styles.redeemTitle}>REDEEM GHOST CODE</Text>
+            <Text style={styles.redeemSub}>Enter the code your contact shared with you</Text>
+
+            <TextInput
+              style={styles.redeemInput}
+              value={redeemInput}
+              onChangeText={handleRedeemChange}
+              placeholder="GF-XXXX-XXXX"
+              placeholderTextColor={colors.mutedForeground}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              maxLength={12}
+            />
+
+            {redeemState === "success" && (
+              <View style={styles.redeemFeedback}>
+                <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+                <Text style={[styles.redeemFeedbackTxt, { color: colors.success }]}>
+                  CHANNEL OPEN · {redeemAlias}
+                </Text>
+              </View>
+            )}
+            {redeemState === "error" && (
+              <View style={styles.redeemFeedback}>
+                <Ionicons name="close-circle" size={16} color={colors.destructive} />
+                <Text style={[styles.redeemFeedbackTxt, { color: colors.destructive }]}>
+                  INVALID CODE FORMAT
+                </Text>
+              </View>
+            )}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.redeemBtn,
+                (redeemInput.length < 12 || redeemState === "success") && { opacity: 0.4 },
+                pressed && { opacity: 0.75 },
+              ]}
+              onPress={handleRedeem}
+              disabled={redeemInput.length < 12 || redeemState === "success"}
+            >
+              <Ionicons name="enter-outline" size={16} color={colors.primaryForeground} />
+              <Text style={styles.redeemBtnTxt}>ESTABLISH CHANNEL</Text>
+            </Pressable>
           </View>
         </View>
 
