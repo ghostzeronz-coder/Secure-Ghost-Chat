@@ -381,7 +381,7 @@ export default function PaywallScreen() {
             style={[s.toggleBtn, payMethod === "crypto" && s.toggleBtnActive]}
             onPress={() => { setPayMethod("crypto"); setError(null); }}
           >
-            <Text style={{ fontSize: 12 }}>◎</Text>
+            <Text style={{ fontSize: 12, color: payMethod === "crypto" ? "#000" : colors.mutedForeground }}>◎</Text>
             <Text style={[s.toggleTxt, payMethod === "crypto" && s.toggleTxtActive]}>
               USDC
             </Text>
@@ -462,9 +462,11 @@ export default function PaywallScreen() {
                         ? plan.color
                         : isPaid
                         ? (payMethod === "card" ? "#00C8FF22" : "#9945FF22")
-                        : `${plan.color}22`,
-                      borderWidth: isPaid && !plan.recommended ? 1 : 0,
-                      borderColor: payMethod === "card" ? "#00C8FF" : "#9945FF",
+                        : "transparent",
+                      borderWidth: isPaid && !plan.recommended ? 1 : plan.id === "ghost" ? 1 : 0,
+                      borderColor: plan.id === "ghost"
+                        ? plan.color
+                        : payMethod === "card" ? "#00C8FF" : "#9945FF",
                     },
                     pressed && { opacity: 0.8 },
                     loading !== null && { opacity: 0.6 },
