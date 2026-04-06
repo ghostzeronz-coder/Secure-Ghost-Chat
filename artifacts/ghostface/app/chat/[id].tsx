@@ -77,7 +77,7 @@ export default function ChatScreen() {
         { text: "Cancel", style: "cancel" },
         { text: "Delete", style: "destructive", onPress: () => deleteMessage(conv.id, msgId) },
       ]);
-    } else {
+    } else if (window.confirm(`${title}\n${msg}`)) {
       deleteMessage(conv.id, msgId);
     }
   };
@@ -88,7 +88,7 @@ export default function ChatScreen() {
         { text: "Cancel", style: "cancel" },
         { text: "Clear", style: "destructive", onPress: () => { clearConversation(conv.id); setShowInfo(false); } },
       ]);
-    } else {
+    } else if (window.confirm("CLEAR CHAT\nDelete all messages in this channel? This cannot be undone.")) {
       clearConversation(conv.id);
       setShowInfo(false);
     }

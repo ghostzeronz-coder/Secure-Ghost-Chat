@@ -56,7 +56,7 @@ export default function MessagesScreen() {
           },
         ]
       );
-    } else {
+    } else if (window.confirm(`${alias}\nDelete this contact and all messages? This cannot be undone.`)) {
       deleteConversation(convId);
     }
   };
