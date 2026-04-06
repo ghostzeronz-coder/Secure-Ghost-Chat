@@ -44,7 +44,27 @@ export default function VPNScreen() {
   const { vpnConnected, vpnServer, connectVPN, disconnectVPN, dataUsed, dataLimit } =
     useApp();
   const [connecting, setConnecting] = useState(false);
+  const [currentIp, setCurrentIp] = useState<string | null>(null);
+  const [ipLoading, setIpLoading] = useState(true);
   const rotateAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchIp() {
+      try {
+        setIpLoading(true);
+        const res = await fetch("https://api.ipify.org?format=json");
+        const data = await res.json();
+        if (!cancelled) setCurrentIp(data.ip ?? null);
+      } catch {
+        if (!cancelled) setCurrentIp(null);
+      } finally {
+        if (!cancelled) setIpLoading(false);
+      }
+    }
+    fetchIp();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (connecting) {
@@ -313,6 +333,42 @@ export default function VPNScreen() {
                   ? `${vpnServer.flag} ${vpnServer.name} — ${vpnServer.latency}ms`
                   : "TAP SHIELD TO CONNECT"}
               </Text>
+
+              {/* Current IP row */}
+              <View style={{
+                marginTop: 18,
+                backgroundColor: vpnConnected ? `${colors.success}12` : `${colors.destructive}12`,
+                borderWidth: 1,
+                borderColor: vpnConnected ? `${colors.success}40` : `${colors.destructive}40`,
+                borderRadius: 8,
+                paddingHorizontal: 18,
+                paddingVertical: 10,
+                alignItems: "center",
+                minWidth: 220,
+              }}>
+                <Text style={{
+                  color: colors.mutedForeground,
+                  fontSize: 9,
+                  letterSpacing: 3,
+                  fontWeight: "700",
+                  marginBottom: 4,
+                }}>
+                  {vpnConnected ? "IP ADDRESS" : "YOUR EXPOSED IP"}
+                </Text>
+                {vpnConnected ? (
+                  <Text style={{ color: colors.success, fontSize: 15, fontWeight: "800", letterSpacing: 3, fontVariant: ["tabular-nums"] }}>
+                    ●●●.●●●.●●●.●●●
+                  </Text>
+                ) : ipLoading ? (
+                  <Text style={{ color: colors.mutedForeground, fontSize: 13, letterSpacing: 2 }}>DETECTING...</Text>
+                ) : currentIp ? (
+                  <Text style={{ color: colors.destructive, fontSize: 15, fontWeight: "800", letterSpacing: 2, fontVariant: ["tabular-nums"] }}>
+                    {currentIp}
+                  </Text>
+                ) : (
+                  <Text style={{ color: colors.mutedForeground, fontSize: 13, letterSpacing: 2 }}>UNAVAILABLE</Text>
+                )}
+              </View>
             </View>
 
             <View style={styles.statsRow}>
