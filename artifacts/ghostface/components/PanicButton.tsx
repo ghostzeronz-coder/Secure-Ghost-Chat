@@ -14,206 +14,222 @@ import { useColors } from "@/hooks/useColors";
 
 const { width: W, height: H } = Dimensions.get("window");
 
-// ─── Single smoke puff ────────────────────────────────────────────────────────
+// ─── Explosion flame tongue ────────────────────────────────────────────────────
+// Each flame blasts outward from the origin at a given angle.
 
-interface PuffProps {
-  x: number;
-  size: number;
-  delay: number;
+interface FlameProps {
+  angleDeg: number; // clockwise from top, 0 = up
+  delay: number;    // ms before animating
+  length: number;   // px - how far the flame travels
+  width: number;    // flame body width
+  height: number;   // flame body height (elongation)
   color: string;
-  duration: number;
+  glowColor: string;
 }
 
-function SmokePuff({ x, size, delay, color, duration }: PuffProps) {
-  const translateY = useRef(new Animated.Value(0)).current;
+function Flame({ angleDeg, delay, length, width, height, color, glowColor }: FlameProps) {
+  const progress = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-  const scale = useRef(new Animated.Value(0.4)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.2)).current;
+
+  const rad = (angleDeg * Math.PI) / 180;
+  const tx = Math.sin(rad) * length;
+  const ty = -Math.cos(rad) * length; // negative = upward in RN coords
+
+  const translateX = progress.interpolate({ inputRange: [0, 1], outputRange: [0, tx] });
+  const translateY = progress.interpolate({ inputRange: [0, 1], outputRange: [0, ty] });
 
   useEffect(() => {
-    const drift = (Math.random() - 0.5) * 80;
-    const timer = setTimeout(() => {
+    const t = setTimeout(() => {
       Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: -(H * 0.85 + size),
-          duration,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateX, {
-          toValue: drift,
-          duration,
-          useNativeDriver: true,
-        }),
+        Animated.timing(progress, { toValue: 1, duration: 700, useNativeDriver: true }),
         Animated.sequence([
-          Animated.timing(opacity, { toValue: 0.85, duration: 250, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0, duration: duration - 250, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 1, duration: 60, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0, duration: 640, useNativeDriver: true }),
         ]),
-        Animated.timing(scale, { toValue: 2.4, duration, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1.8, duration: 700, useNativeDriver: true }),
       ]).start();
     }, delay);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, []);
 
   return (
     <Animated.View
       style={{
         position: "absolute",
-        bottom: 40,
-        left: x - size / 2,
-        width: size,
-        height: size,
-        borderRadius: size / 2,
+        width,
+        height,
+        marginLeft: -width / 2,
+        marginTop: -height / 2,
+        borderRadius: width / 2,
         backgroundColor: color,
+        // Glow ring underneath
+        shadowColor: glowColor,
+        shadowOpacity: 0.9,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 0 },
+        transform: [
+          { translateX },
+          { translateY },
+          { rotate: `${angleDeg}deg` },
+          { scale },
+        ],
         opacity,
-        transform: [{ translateY }, { translateX }, { scale }],
       }}
     />
   );
 }
 
-// ─── Fire ember fleck ─────────────────────────────────────────────────────────
+// ─── Inner core flash ─────────────────────────────────────────────────────────
 
-interface EmberProps {
-  x: number;
-  delay: number;
-}
-
-function Ember({ x, delay }: EmberProps) {
-  const translateY = useRef(new Animated.Value(0)).current;
+function CoreBlast({ delay }: { delay: number }) {
+  const scale = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const drift = (Math.random() - 0.5) * 120;
-    const timer = setTimeout(() => {
+    const t = setTimeout(() => {
       Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: -(H * 0.4 + Math.random() * H * 0.3),
-          duration: 1200 + Math.random() * 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateX, {
-          toValue: drift,
-          duration: 1200 + Math.random() * 800,
-          useNativeDriver: true,
-        }),
+        Animated.timing(scale, { toValue: 4, duration: 600, useNativeDriver: true }),
         Animated.sequence([
-          Animated.timing(opacity, { toValue: 1, duration: 100, useNativeDriver: true }),
-          Animated.timing(opacity, { toValue: 0, duration: 900, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 1, duration: 80, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0, duration: 520, useNativeDriver: true }),
         ]),
       ]).start();
     }, delay);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(t);
   }, []);
 
   return (
     <Animated.View
       style={{
         position: "absolute",
-        bottom: 20,
-        left: x,
-        width: 3,
-        height: 3,
-        borderRadius: 2,
-        backgroundColor: "#FF6A00",
+        width: 80,
+        height: 80,
+        marginLeft: -40,
+        marginTop: -40,
+        borderRadius: 40,
+        backgroundColor: "#FFEE44",
         opacity,
-        transform: [{ translateY }, { translateX }],
+        transform: [{ scale }],
+        shadowColor: "#FFAA00",
+        shadowOpacity: 1,
+        shadowRadius: 30,
+        shadowOffset: { width: 0, height: 0 },
       }}
     />
   );
 }
 
-// ─── Full-screen smoke overlay ────────────────────────────────────────────────
+// ─── Full explosion screen ────────────────────────────────────────────────────
 
-function SmokeScreen({ onDone }: { onDone: () => void }) {
-  const screenOpacity = useRef(new Animated.Value(0)).current;
-  const fireGlow = useRef(new Animated.Value(0)).current;
+function ExplosionScreen({ onDone }: { onDone: () => void }) {
+  const flashOpacity = useRef(new Animated.Value(0)).current;
+  const bgOpacity = useRef(new Animated.Value(0)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
+  const shockScale = useRef(new Animated.Value(0)).current;
+  const shockOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Background fades to black
-    Animated.timing(screenOpacity, {
-      toValue: 1, duration: 2800, useNativeDriver: true,
-    }).start();
+    // White flash on detonation
+    Animated.sequence([
+      Animated.timing(flashOpacity, { toValue: 1, duration: 60, useNativeDriver: true }),
+      Animated.timing(flashOpacity, { toValue: 0, duration: 350, useNativeDriver: true }),
+    ]).start();
 
-    // Fire glow pulses
-    Animated.loop(
+    // Shockwave ring expanding outward
+    Animated.parallel([
+      Animated.timing(shockScale, { toValue: 8, duration: 600, useNativeDriver: true }),
       Animated.sequence([
-        Animated.timing(fireGlow, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(fireGlow, { toValue: 0.6, duration: 300, useNativeDriver: true }),
+        Animated.timing(shockOpacity, { toValue: 0.8, duration: 80, useNativeDriver: true }),
+        Animated.timing(shockOpacity, { toValue: 0, duration: 520, useNativeDriver: true }),
       ]),
-      { iterations: 8 }
-    ).start();
+    ]).start();
 
-    // DATA WIPED text fades in after smoke rises
+    // Black bg fills in after explosion settles
     setTimeout(() => {
-      Animated.timing(textOpacity, { toValue: 1, duration: 500, useNativeDriver: true }).start();
-    }, 1800);
+      Animated.timing(bgOpacity, { toValue: 1, duration: 1200, useNativeDriver: true }).start();
+    }, 600);
 
-    // Call onDone after animation
+    // DATA WIPED text
+    setTimeout(() => {
+      Animated.timing(textOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    }, 1400);
+
     const t = setTimeout(onDone, 3200);
     return () => clearTimeout(t);
   }, []);
 
-  const SMOKE_PUFFS = [
-    { x: W * 0.05, size: 90,  delay: 0,    color: "rgba(20,5,5,0.85)",    duration: 2800 },
-    { x: W * 0.18, size: 70,  delay: 120,  color: "rgba(30,10,5,0.8)",    duration: 2600 },
-    { x: W * 0.32, size: 110, delay: 60,   color: "rgba(15,5,5,0.9)",     duration: 3000 },
-    { x: W * 0.45, size: 80,  delay: 200,  color: "rgba(25,8,5,0.85)",    duration: 2700 },
-    { x: W * 0.58, size: 100, delay: 80,   color: "rgba(20,5,5,0.88)",    duration: 2900 },
-    { x: W * 0.70, size: 75,  delay: 160,  color: "rgba(30,10,5,0.8)",    duration: 2650 },
-    { x: W * 0.82, size: 95,  delay: 40,   color: "rgba(18,6,5,0.87)",    duration: 2750 },
-    { x: W * 0.92, size: 65,  delay: 220,  color: "rgba(25,8,5,0.82)",    duration: 2550 },
-    // Second wave
-    { x: W * 0.10, size: 120, delay: 500,  color: "rgba(15,5,5,0.78)",    duration: 3100 },
-    { x: W * 0.28, size: 85,  delay: 600,  color: "rgba(22,7,5,0.80)",    duration: 2900 },
-    { x: W * 0.50, size: 130, delay: 450,  color: "rgba(12,4,5,0.82)",    duration: 3200 },
-    { x: W * 0.72, size: 90,  delay: 550,  color: "rgba(20,6,5,0.77)",    duration: 2950 },
-    { x: W * 0.88, size: 105, delay: 480,  color: "rgba(18,5,5,0.79)",    duration: 3050 },
-  ];
+  // 13 flames distributed around the full 360°
+  const FLAMES = [
+    // angle, length, width, height,     color,      glowColor,  delay
+    [   0,    H*0.55, 22, 100, "#FF8C00", "#FF4500",   0   ],
+    [  27,    H*0.50, 26, 120, "#FF4500", "#FF0000",  20   ],
+    [  55,    H*0.52, 20, 90,  "#FFB400", "#FF6600",  10   ],
+    [  83,    H*0.48, 28, 110, "#FF2200", "#FF0000",  30   ],
+    [ 110,    H*0.53, 22, 95,  "#FF5500", "#FF2200",   5   ],
+    [ 138,    H*0.50, 24, 105, "#FF8800", "#FF4400",  25   ],
+    [ 165,    H*0.55, 20, 115, "#FF3300", "#FF0000",  15   ],
+    [ 193,    H*0.48, 26, 100, "#FF6600", "#FF3300",  35   ],
+    [ 221,    H*0.52, 22, 90,  "#FF9900", "#FF5500",   8   ],
+    [ 248,    H*0.50, 28, 120, "#FF2200", "#CC0000",  28   ],
+    [ 276,    H*0.54, 20, 105, "#FF7700", "#FF4400",  12   ],
+    [ 304,    H*0.49, 24, 95,  "#FF4400", "#FF1100",  22   ],
+    [ 332,    H*0.53, 22, 110, "#FF8800", "#FF5500",   3   ],
+  ] as const;
 
-  const EMBERS = Array.from({ length: 20 }, (_, i) => ({
-    x: Math.random() * W,
-    delay: Math.random() * 600,
-  }));
+  // Origin: center of screen for full radial explosion
+  const ox = W / 2;
+  const oy = H * 0.5;
 
   return (
     <View style={StyleSheet.absoluteFill}>
-      {/* Dark bg fade */}
+      {/* Dark bg fade in after explosion */}
       <Animated.View
-        style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: screenOpacity }]}
+        style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: bgOpacity }]}
       />
 
-      {/* Fire glow band at bottom */}
+      {/* Bright white detonation flash */}
       <Animated.View
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: H * 0.28,
-          opacity: fireGlow,
-        }}
-      >
-        <View style={{ flex: 1, backgroundColor: "transparent" }}>
-          {/* Deep red base */}
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(180,20,0,0.4)", bottom: 0, top: "60%" }]} />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(255,60,0,0.25)", bottom: 0, top: "30%" }]} />
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(255,140,0,0.15)" }]} />
-        </View>
-      </Animated.View>
+        style={[StyleSheet.absoluteFill, { backgroundColor: "#FFFFFF", opacity: flashOpacity }]}
+      />
 
-      {/* Ember flecks */}
-      {EMBERS.map((e, i) => (
-        <Ember key={i} x={e.x} delay={e.delay} />
-      ))}
+      {/* Explosion origin */}
+      <View style={{ position: "absolute", top: oy, left: ox }}>
+        {/* Shockwave ring */}
+        <Animated.View
+          style={{
+            position: "absolute",
+            width: 80,
+            height: 80,
+            marginLeft: -40,
+            marginTop: -40,
+            borderRadius: 40,
+            borderWidth: 3,
+            borderColor: "#FF8C00",
+            opacity: shockOpacity,
+            transform: [{ scale: shockScale }],
+          }}
+        />
 
-      {/* Smoke puffs */}
-      {SMOKE_PUFFS.map((p, i) => (
-        <SmokePuff key={i} x={p.x} size={p.size} delay={p.delay} color={p.color} duration={p.duration} />
-      ))}
+        {/* Inner core blast */}
+        <CoreBlast delay={0} />
 
-      {/* DATA WIPED text */}
+        {/* 13 flame tongues */}
+        {FLAMES.map((f, i) => (
+          <Flame
+            key={i}
+            angleDeg={f[0]}
+            length={f[1]}
+            width={f[2]}
+            height={f[3]}
+            color={f[4]}
+            glowColor={f[5]}
+            delay={f[6]}
+          />
+        ))}
+      </View>
+
+      {/* DATA WIPED */}
       <Animated.View
         style={{
           ...StyleSheet.absoluteFillObject,
@@ -222,7 +238,7 @@ function SmokeScreen({ onDone }: { onDone: () => void }) {
           opacity: textOpacity,
         }}
       >
-        <Ionicons name="nuclear" size={48} color="#FF3B30" />
+        <Ionicons name="nuclear" size={52} color="#FF3B30" />
         <Text style={ss.wipedHeading}>DATA WIPED</Text>
         <Text style={ss.wipedSub}>ALL TRACES ELIMINATED</Text>
       </Animated.View>
@@ -236,7 +252,7 @@ const ss = StyleSheet.create({
     fontSize: 26,
     fontWeight: "800",
     letterSpacing: 8,
-    marginTop: 16,
+    marginTop: 18,
   },
   wipedSub: {
     color: "#FF3B30",
@@ -257,7 +273,7 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
   const colors = useColors();
   const [panicHeld, setPanicHeld] = useState(false);
   const [panicProgress, setPanicProgress] = useState(0);
-  const [smokeVisible, setSmokeVisible] = useState(false);
+  const [exploding, setExploding] = useState(false);
   const panicTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panicInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -283,7 +299,7 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
     }, 60);
     panicTimer.current = setTimeout(() => {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      setSmokeVisible(true);
+      setExploding(true);
     }, 3000);
   };
 
@@ -293,20 +309,11 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
     clearTimers();
   };
 
-  const handleSmokeDone = async () => {
-    await onWipe();
-  };
-
   return (
     <>
-      <Modal
-        visible={smokeVisible}
-        transparent
-        animationType="none"
-        statusBarTranslucent
-      >
+      <Modal visible={exploding} transparent animationType="none" statusBarTranslucent>
         <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <SmokeScreen onDone={handleSmokeDone} />
+          <ExplosionScreen onDone={async () => { await onWipe(); }} />
         </View>
       </Modal>
 
@@ -357,9 +364,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
-  btnPressed: {
-    backgroundColor: "transparent",
-  },
+  btnPressed: { backgroundColor: "transparent" },
   progressFill: {
     position: "absolute",
     left: 0,
