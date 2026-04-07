@@ -103,21 +103,23 @@ function kdfCk(ck: Uint8Array): { ck: Uint8Array; mk: Uint8Array } {
 
 /**
  * ChaCha20-Poly1305 with a random 12-byte nonce prepended to the output.
- * Associated data (the serialised header) is used for authentication.
+ * Associated data (the serialised header) is passed to the AEAD cipher so the
+ * header is cryptographically bound to the ciphertext — tampering with either
+ * causes decryption to throw.  This is the standard Signal DR binding step.
  */
-function aeadEncrypt(mk: Uint8Array, plaintext: Uint8Array, _ad: Uint8Array): Uint8Array {
+function aeadEncrypt(mk: Uint8Array, plaintext: Uint8Array, ad: Uint8Array): Uint8Array {
   const nonce = randomBytes(12);
-  const ct    = chacha20poly1305(mk, nonce).encrypt(plaintext);
+  const ct    = chacha20poly1305(mk, nonce, ad).encrypt(plaintext);
   const out   = new Uint8Array(12 + ct.length);
   out.set(nonce, 0);
   out.set(ct, 12);
   return out;
 }
 
-function aeadDecrypt(mk: Uint8Array, data: Uint8Array, _ad: Uint8Array): Uint8Array {
+function aeadDecrypt(mk: Uint8Array, data: Uint8Array, ad: Uint8Array): Uint8Array {
   const nonce = data.slice(0, 12);
   const ct    = data.slice(12);
-  return chacha20poly1305(mk, nonce).decrypt(ct);
+  return chacha20poly1305(mk, nonce, ad).decrypt(ct);
 }
 
 // ── X3DH ──────────────────────────────────────────────────────────────────────

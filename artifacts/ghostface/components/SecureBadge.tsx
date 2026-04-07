@@ -5,7 +5,7 @@ import { useColors } from "@/hooks/useColors";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
-type BadgeType = "e2ee" | "vpn" | "no-trace" | "encrypted";
+type BadgeType = "e2ee" | "vpn" | "no-trace" | "encrypted" | "double-ratchet";
 
 interface SecureBadgeProps {
   type: BadgeType;
@@ -37,6 +37,11 @@ export function SecureBadge({ type, size = "sm" }: SecureBadgeProps) {
     encrypted: {
       label: "ENCRYPTED",
       icon: "key",
+      color: colors.success,
+    },
+    "double-ratchet": {
+      label: "DR",
+      icon: "refresh-circle",
       color: colors.success,
     },
   };

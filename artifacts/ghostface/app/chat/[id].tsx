@@ -306,7 +306,7 @@ export default function ChatScreen() {
       {/* Encryption banner */}
       <View style={styles.encBanner}>
         <View style={styles.encBannerLeft}>
-          <SecureBadge type="e2ee" size="sm" />
+          <SecureBadge type={conv.drSession ? "double-ratchet" : "e2ee"} size="sm" />
           <Text style={styles.encBannerTxt}>
             {conv.drSession ? "DOUBLE RATCHET · SEALED SENDER" : "E2EE · SEALED SENDER"}
           </Text>
@@ -418,37 +418,41 @@ export default function ChatScreen() {
                   </View>
                 )}
                 {/* Ratchet state panel — only visible for DR sessions */}
-                {conv.drSession && (
-                  <View style={[styles.safetyRow, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}40` }]}>
-                    <Text style={[styles.safetyLabel, { color: colors.primary }]}>RATCHET STATE</Text>
-                    <View style={{ flexDirection: "row", gap: 20, flexWrap: "wrap", marginTop: 4 }}>
-                      <View>
-                        <Text style={[styles.safetyLabel, { fontSize: 8 }]}>DH STEPS</Text>
-                        <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
-                          {conv.drSession.alice.step}
-                        </Text>
+                {conv.drSession && (() => {
+                  const drStep = conv.drSession.alice.step;
+                  const stepColor = drStep === 0 ? colors.primary : colors.success;
+                  return (
+                    <View style={[styles.safetyRow, { backgroundColor: `${stepColor}10`, borderColor: `${stepColor}40` }]}>
+                      <Text style={[styles.safetyLabel, { color: stepColor }]}>RATCHET STATE</Text>
+                      <View style={{ flexDirection: "row", gap: 20, flexWrap: "wrap", marginTop: 4 }}>
+                        <View>
+                          <Text style={[styles.safetyLabel, { fontSize: 8 }]}>DH STEPS</Text>
+                          <Text style={[styles.safetyNumber, { fontSize: 22, color: stepColor }]}>
+                            {drStep}
+                          </Text>
+                        </View>
+                        <View>
+                          <Text style={[styles.safetyLabel, { fontSize: 8 }]}>SENT</Text>
+                          <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
+                            {conv.drSession!.alice.Ns}
+                          </Text>
+                        </View>
+                        <View>
+                          <Text style={[styles.safetyLabel, { fontSize: 8 }]}>RECV</Text>
+                          <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
+                            {conv.drSession!.alice.Nr}
+                          </Text>
+                        </View>
                       </View>
-                      <View>
-                        <Text style={[styles.safetyLabel, { fontSize: 8 }]}>SENT</Text>
-                        <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
-                          {conv.drSession.alice.Ns}
-                        </Text>
-                      </View>
-                      <View>
-                        <Text style={[styles.safetyLabel, { fontSize: 8 }]}>RECV</Text>
-                        <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
-                          {conv.drSession.alice.Nr}
-                        </Text>
-                      </View>
+                      <Text style={[styles.safetyNote, { fontFamily: "monospace", marginTop: 6 }]}>
+                        DH KEY: {drKeyFingerprint(conv.drSession!.alice)}...
+                      </Text>
+                      <Text style={[styles.safetyNote, { marginTop: 2 }]}>
+                        {drStep === 0 ? "Awaiting first ratchet step" : "Each reply triggers a new DH ratchet step"}
+                      </Text>
                     </View>
-                    <Text style={[styles.safetyNote, { fontFamily: "monospace", marginTop: 6 }]}>
-                      DH KEY: {drKeyFingerprint(conv.drSession.alice)}...
-                    </Text>
-                    <Text style={[styles.safetyNote, { marginTop: 2 }]}>
-                      Each reply triggers a new DH ratchet step
-                    </Text>
-                  </View>
-                )}
+                  );
+                })()}
 
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>PROTOCOL</Text>
