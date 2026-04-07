@@ -425,3 +425,44 @@ export function ratchetDecrypt(
 export function drKeyFingerprint(state: SerializedRatchetState): string {
   return state.DHs.pub.substring(0, 8).toUpperCase();
 }
+
+// ── Integrity validation ──────────────────────────────────────────────────────
+
+/** Check that a hex string has the expected byte length (n bytes = 2n hex chars). */
+function isHex(v: unknown, bytes: number): boolean {
+  return typeof v === "string" && v.length === bytes * 2 && /^[0-9a-f]+$/i.test(v);
+}
+
+/**
+ * Validate the shape of a deserialised ratchet state.
+ * Returns true only if all required fields are well-formed hex values.
+ * Call this on startup to detect corrupted / migrated states.
+ */
+export function isValidRatchetState(s: unknown): s is SerializedRatchetState {
+  if (!s || typeof s !== "object") return false;
+  const r = s as Record<string, unknown>;
+  if (!r.DHs || typeof r.DHs !== "object") return false;
+  const dhs = r.DHs as Record<string, unknown>;
+  return (
+    isHex(dhs.priv, 32) &&
+    isHex(dhs.pub,  32) &&
+    isHex(r.RK,     32) &&
+    (r.DHr  === null || isHex(r.DHr,  32)) &&
+    (r.CKs  === null || isHex(r.CKs,  32)) &&
+    (r.CKr  === null || isHex(r.CKr,  32)) &&
+    typeof r.Ns === "number" &&
+    typeof r.Nr === "number" &&
+    typeof r.PN === "number" &&
+    typeof r.step === "number"
+  );
+}
+
+/**
+ * Validate a complete DRSession object.
+ * Returns true only if both alice and bob states are well-formed.
+ */
+export function isValidDRSession(session: unknown): session is DRSession {
+  if (!session || typeof session !== "object") return false;
+  const s = session as Record<string, unknown>;
+  return isValidRatchetState(s.alice) && isValidRatchetState(s.bob);
+}

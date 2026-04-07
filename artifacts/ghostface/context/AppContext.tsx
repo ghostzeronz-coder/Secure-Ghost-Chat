@@ -19,9 +19,8 @@ import {
   initSession,
   ratchetEncrypt,
   ratchetDecrypt,
-  drKeyFingerprint,
+  isValidDRSession,
   type DRSession,
-  type RatchetMessage,
 } from "@/lib/doubleRatchet";
 
 export interface Message {
@@ -282,10 +281,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // Lazily initialise Double Ratchet sessions for any conversation that
-        // was created before DR was implemented (or the defaults on first run).
+        // Ensure every conversation has a valid DR session.
+        // Conversations loaded from an older app version (or corrupted storage)
+        // may be missing a session or have malformed hex fields — reinitialise
+        // those rather than silently operating on bad key material.
         conversations = conversations.map((c) =>
-          c.drSession ? c : { ...c, drSession: initSession() }
+          isValidDRSession(c.drSession) ? c : { ...c, drSession: initSession() }
         );
 
         setHasPin(hasPinValue);
@@ -438,33 +439,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         let updatedDRSession = conv.drSession;
 
         if (conv.drSession) {
-          try {
-            // 1. Alice encrypts the plaintext (advances her sending chain)
-            const { state: newAlice, message: aliceMsg } = ratchetEncrypt(conv.drSession.alice, text);
-            // 2. Bob "receives" Alice's message (performs DH ratchet step,
-            //    advances his receiving chain so he can reply next round)
-            const { state: newBob } = ratchetDecrypt(conv.drSession.bob, aliceMsg);
-
-            updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: aliceMsg.header };
-
-            const expiresAt = conv.disappearAfterSec
-              ? Date.now() + conv.disappearAfterSec * 1000
-              : undefined;
-            newMsg = {
-              id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-              text,
-              fromMe: true,
-              timestamp: Date.now(),
-              encrypted: true,
-              sealed: true,
-              ciphertext: aliceMsg.ciphertext,
-              fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`,
-              expiresAt,
-            };
-          } catch (e) {
-            console.warn("[DR] Encrypt failed, falling back to legacy:", e);
-            newMsg = buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec);
+          // Double Ratchet path — no legacy fallback.  If the ratchet fails,
+          // reinitialise the session rather than downgrading to weaker keying.
+          let drSession = conv.drSession;
+          let aliceMsg: import("@/lib/doubleRatchet").RatchetMessage | undefined;
+          let attempts = 0;
+          while (attempts < 2) {
+            try {
+              const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, text);
+              const { state: newBob } = ratchetDecrypt(drSession.bob, msg);
+              updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: msg.header };
+              aliceMsg = msg;
+              break;
+            } catch (e) {
+              console.error(`[DR] Encrypt attempt ${attempts + 1} failed:`, e);
+              drSession = initSession();
+              attempts += 1;
+            }
           }
+          if (!aliceMsg) {
+            // Both attempts failed — abort send rather than use legacy keying
+            console.error("[DR] Aborting send: could not encrypt with DR after reinit");
+            return prev;
+          }
+          const expiresAt = conv.disappearAfterSec
+            ? Date.now() + conv.disappearAfterSec * 1000
+            : undefined;
+          newMsg = {
+            id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+            text,
+            fromMe: true,
+            timestamp: Date.now(),
+            encrypted: true,
+            sealed: true,
+            ciphertext: aliceMsg.ciphertext,
+            fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+            expiresAt,
+          };
         } else {
           newMsg = buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec);
         }
@@ -498,32 +509,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           let updatedDRSession = conv.drSession;
 
           if (conv.drSession) {
-            try {
-              // 1. Bob encrypts his reply (advances his sending chain)
-              const { state: newBob, message: bobMsg } = ratchetEncrypt(conv.drSession.bob, replyText);
-              // 2. Alice "receives" Bob's reply (DH ratchet step on her side)
-              const { state: newAlice } = ratchetDecrypt(conv.drSession.alice, bobMsg);
-
-              updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: null };
-
-              const expiresAt = conv.disappearAfterSec
-                ? Date.now() + conv.disappearAfterSec * 1000
-                : undefined;
-              replyMsg = {
-                id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-                text: replyText,
-                fromMe: false,
-                timestamp: Date.now(),
-                encrypted: true,
-                sealed: true,
-                ciphertext: bobMsg.ciphertext,
-                fingerprint: `DR:${bobMsg.ciphertext.slice(0, 8).toUpperCase()}`,
-                expiresAt,
-              };
-            } catch (e) {
-              console.warn("[DR] Reply failed, falling back to legacy:", e);
-              replyMsg = buildMessage(replyText, false, conversationId, conv.alias ?? "GHOST", conv.disappearAfterSec);
+            // Double Ratchet reply path — no legacy fallback.
+            let drSession = conv.drSession;
+            let bobMsg: import("@/lib/doubleRatchet").RatchetMessage | undefined;
+            let attempts = 0;
+            while (attempts < 2) {
+              try {
+                const { state: newBob, message: msg } = ratchetEncrypt(drSession.bob, replyText);
+                const { state: newAlice } = ratchetDecrypt(drSession.alice, msg);
+                updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: null };
+                bobMsg = msg;
+                break;
+              } catch (e) {
+                console.error(`[DR] Reply attempt ${attempts + 1} failed:`, e);
+                drSession = initSession();
+                attempts += 1;
+              }
             }
+            if (!bobMsg) {
+              // Both attempts failed — skip the reply entirely rather than downgrade
+              console.error("[DR] Aborting reply: could not encrypt with DR after reinit");
+              return prev;
+            }
+            const expiresAt = conv.disappearAfterSec
+              ? Date.now() + conv.disappearAfterSec * 1000
+              : undefined;
+            replyMsg = {
+              id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+              text: replyText,
+              fromMe: false,
+              timestamp: Date.now(),
+              encrypted: true,
+              sealed: true,
+              ciphertext: bobMsg.ciphertext,
+              fingerprint: `DR:${bobMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+              expiresAt,
+            };
           } else {
             replyMsg = buildMessage(replyText, false, conversationId, conv.alias ?? "GHOST", conv.disappearAfterSec);
           }
