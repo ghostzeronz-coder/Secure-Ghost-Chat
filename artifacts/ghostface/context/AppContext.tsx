@@ -149,44 +149,54 @@ function buildMessage(
   };
 }
 
-const DEFAULT_CONVERSATIONS: Conversation[] = [
-  {
-    id: "1",
-    alias: "PHANTOM_7",
-    lastMessage: "All clear. No trace.",
-    timestamp: Date.now() - 1000 * 60 * 5,
-    unread: 2,
-    safetyNumber: generateSafetyNumber("GHOST_USER", "PHANTOM_7"),
-    messages: [
-      buildMessage("Connection established. Key exchange complete.", false, "1", "PHANTOM_7"),
-      buildMessage("Copy that. Transfer ready.", true, "1", "GHOST_USER"),
-      buildMessage("All clear. No trace.", false, "1", "PHANTOM_7"),
-    ],
-  },
-  {
-    id: "2",
-    alias: "WRAITH_X",
-    lastMessage: "Package delivered. Secure.",
-    timestamp: Date.now() - 1000 * 60 * 60 * 2,
-    unread: 0,
-    safetyNumber: generateSafetyNumber("GHOST_USER", "WRAITH_X"),
-    messages: [
-      buildMessage("Initiating handshake.", true, "2", "GHOST_USER"),
-      buildMessage("Package delivered. Secure.", false, "2", "WRAITH_X"),
-    ],
-  },
-  {
-    id: "3",
-    alias: "NULL_PTR",
-    lastMessage: "VPN hopping complete. Stand by.",
-    timestamp: Date.now() - 1000 * 60 * 60 * 12,
-    unread: 1,
-    safetyNumber: generateSafetyNumber("GHOST_USER", "NULL_PTR"),
-    messages: [
-      buildMessage("VPN hopping complete. Stand by.", false, "3", "NULL_PTR"),
-    ],
-  },
-];
+/**
+ * Build the default conversations with fresh DR sessions each call.
+ * Called on first launch and after panic wipe — ensures all default
+ * conversations are always DR-enabled from the first render.
+ */
+function createDefaultConversations(): Conversation[] {
+  return [
+    {
+      id: "1",
+      alias: "PHANTOM_7",
+      lastMessage: "All clear. No trace.",
+      timestamp: Date.now() - 1000 * 60 * 5,
+      unread: 2,
+      safetyNumber: generateSafetyNumber("GHOST_USER", "PHANTOM_7"),
+      drSession: initSession(),
+      messages: [
+        buildMessage("Connection established. Key exchange complete.", false, "1", "PHANTOM_7"),
+        buildMessage("Copy that. Transfer ready.", true, "1", "GHOST_USER"),
+        buildMessage("All clear. No trace.", false, "1", "PHANTOM_7"),
+      ],
+    },
+    {
+      id: "2",
+      alias: "WRAITH_X",
+      lastMessage: "Package delivered. Secure.",
+      timestamp: Date.now() - 1000 * 60 * 60 * 2,
+      unread: 0,
+      safetyNumber: generateSafetyNumber("GHOST_USER", "WRAITH_X"),
+      drSession: initSession(),
+      messages: [
+        buildMessage("Initiating handshake.", true, "2", "GHOST_USER"),
+        buildMessage("Package delivered. Secure.", false, "2", "WRAITH_X"),
+      ],
+    },
+    {
+      id: "3",
+      alias: "NULL_PTR",
+      lastMessage: "VPN hopping complete. Stand by.",
+      timestamp: Date.now() - 1000 * 60 * 60 * 12,
+      unread: 1,
+      safetyNumber: generateSafetyNumber("GHOST_USER", "NULL_PTR"),
+      drSession: initSession(),
+      messages: [
+        buildMessage("VPN hopping complete. Stand by.", false, "3", "NULL_PTR"),
+      ],
+    },
+  ];
+}
 
 const DEFAULT_TRANSACTIONS: Transaction[] = [
   { id: "t1", type: "receive", token: "FD", amount: 500, address: "GhF3...x9mK", timestamp: Date.now() - 1000 * 60 * 60 * 2 },
@@ -245,7 +255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isOnboarded: false,
     vpnConnected: false,
     vpnServer: null,
-    conversations: DEFAULT_CONVERSATIONS,
+    conversations: createDefaultConversations(),
     fdBalance: 4250.75,
     casperBalance: 8920.5,
     walletAddress: "GhFc3...x9mKr4",
@@ -271,7 +281,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const biometricOn = biometric === "true";
         const isOnboarded = onboarded === "true";
 
-        let conversations: Conversation[] = DEFAULT_CONVERSATIONS;
+        let conversations: Conversation[] = createDefaultConversations();
         if (convData) {
           try {
             const parsed = JSON.parse(convData);
@@ -625,7 +635,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isOnboarded: false,
       vpnConnected: false,
       vpnServer: null,
-      conversations: DEFAULT_CONVERSATIONS,
+      conversations: createDefaultConversations(),
       fdBalance: 4250.75,
       casperBalance: 8920.5,
       walletAddress: "GhFc3...x9mKr4",
