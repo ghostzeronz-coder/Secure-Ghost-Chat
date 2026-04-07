@@ -15,6 +15,14 @@ import {
   messageFingerprint,
   type SealedMessage,
 } from "@/lib/crypto";
+import {
+  initSession,
+  ratchetEncrypt,
+  ratchetDecrypt,
+  drKeyFingerprint,
+  type DRSession,
+  type RatchetMessage,
+} from "@/lib/doubleRatchet";
 
 export interface Message {
   id: string;
@@ -37,6 +45,7 @@ export interface Conversation {
   messages: Message[];
   disappearAfterSec?: number;
   safetyNumber?: string;
+  drSession?: DRSession;
 }
 
 export interface Transaction {
@@ -263,7 +272,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const biometricOn = biometric === "true";
         const isOnboarded = onboarded === "true";
 
-        let conversations = DEFAULT_CONVERSATIONS;
+        let conversations: Conversation[] = DEFAULT_CONVERSATIONS;
         if (convData) {
           try {
             const parsed = JSON.parse(convData);
@@ -272,6 +281,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn("[AppContext] Failed to parse conversations:", parseErr);
           }
         }
+
+        // Lazily initialise Double Ratchet sessions for any conversation that
+        // was created before DR was implemented (or the defaults on first run).
+        conversations = conversations.map((c) =>
+          c.drSession ? c : { ...c, drSession: initSession() }
+        );
 
         setHasPin(hasPinValue);
         setState((prev) => ({ ...prev, alias, biometricEnabled: biometricOn, isOnboarded, isLocked: true, conversations, stripeEmail: stripeEmailVal }));
@@ -411,38 +426,111 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const sendMessage = useCallback(
     (conversationId: string, text: string) => {
-      const conv = state.conversations.find((c) => c.id === conversationId);
-      const myAlias = state.alias ?? "GHOST_USER";
-      const newMsg = buildMessage(text, true, conversationId, myAlias, conv?.disappearAfterSec);
-
+      // Encrypt with Double Ratchet (if session available) or fall back to
+      // the legacy sealed-sender path.  Both Alice-send and Bob-advance happen
+      // inside the setState callback to always read the latest persisted state.
       setState((prev) => {
-        const c = prev.conversations.find((c) => c.id === conversationId);
-        const updated = prev.conversations.map((conv) =>
-          conv.id === conversationId
-            ? { ...conv, messages: [...conv.messages, newMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
-            : conv
+        const conv = prev.conversations.find((c) => c.id === conversationId);
+        if (!conv) return prev;
+
+        const myAlias = prev.alias ?? "GHOST_USER";
+        let newMsg: Message;
+        let updatedDRSession = conv.drSession;
+
+        if (conv.drSession) {
+          try {
+            // 1. Alice encrypts the plaintext (advances her sending chain)
+            const { state: newAlice, message: aliceMsg } = ratchetEncrypt(conv.drSession.alice, text);
+            // 2. Bob "receives" Alice's message (performs DH ratchet step,
+            //    advances his receiving chain so he can reply next round)
+            const { state: newBob } = ratchetDecrypt(conv.drSession.bob, aliceMsg);
+
+            updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: aliceMsg.header };
+
+            const expiresAt = conv.disappearAfterSec
+              ? Date.now() + conv.disappearAfterSec * 1000
+              : undefined;
+            newMsg = {
+              id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+              text,
+              fromMe: true,
+              timestamp: Date.now(),
+              encrypted: true,
+              sealed: true,
+              ciphertext: aliceMsg.ciphertext,
+              fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+              expiresAt,
+            };
+          } catch (e) {
+            console.warn("[DR] Encrypt failed, falling back to legacy:", e);
+            newMsg = buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec);
+          }
+        } else {
+          newMsg = buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec);
+        }
+
+        const updated = prev.conversations.map((c) =>
+          c.id === conversationId
+            ? { ...c, messages: [...c.messages, newMsg!], lastMessage: text, timestamp: Date.now(), unread: 0, drSession: updatedDRSession }
+            : c
         );
         persistConversations(updated);
         return { ...prev, conversations: updated };
       });
 
-      // Simulated encrypted reply
+      // Simulated encrypted reply (Bob → Alice ratchet step)
       const delay = 1500 + Math.random() * 1000;
-      setTimeout(() => {
-        const replies = [
-          "Understood. Signal secure.",
-          "Roger. Transmission encrypted.",
-          "Copy. Awaiting further instructions.",
-          "Confirmed. No trace detected.",
-          "Acknowledged. Channel open.",
-        ];
-        const replyText = replies[Math.floor(Math.random() * replies.length)];
-        const replyMsg = buildMessage(replyText, false, conversationId, conv?.alias ?? "GHOST", conv?.disappearAfterSec);
+      const REPLY_POOL = [
+        "Understood. Signal secure.",
+        "Roger. Transmission encrypted.",
+        "Copy. Awaiting further instructions.",
+        "Confirmed. No trace detected.",
+        "Acknowledged. Channel open.",
+      ];
+      const replyText = REPLY_POOL[Math.floor(Math.random() * REPLY_POOL.length)];
 
+      setTimeout(() => {
         setState((prev) => {
+          const conv = prev.conversations.find((c) => c.id === conversationId);
+          if (!conv) return prev;
+
+          let replyMsg: Message;
+          let updatedDRSession = conv.drSession;
+
+          if (conv.drSession) {
+            try {
+              // 1. Bob encrypts his reply (advances his sending chain)
+              const { state: newBob, message: bobMsg } = ratchetEncrypt(conv.drSession.bob, replyText);
+              // 2. Alice "receives" Bob's reply (DH ratchet step on her side)
+              const { state: newAlice } = ratchetDecrypt(conv.drSession.alice, bobMsg);
+
+              updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: null };
+
+              const expiresAt = conv.disappearAfterSec
+                ? Date.now() + conv.disappearAfterSec * 1000
+                : undefined;
+              replyMsg = {
+                id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+                text: replyText,
+                fromMe: false,
+                timestamp: Date.now(),
+                encrypted: true,
+                sealed: true,
+                ciphertext: bobMsg.ciphertext,
+                fingerprint: `DR:${bobMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+                expiresAt,
+              };
+            } catch (e) {
+              console.warn("[DR] Reply failed, falling back to legacy:", e);
+              replyMsg = buildMessage(replyText, false, conversationId, conv.alias ?? "GHOST", conv.disappearAfterSec);
+            }
+          } else {
+            replyMsg = buildMessage(replyText, false, conversationId, conv.alias ?? "GHOST", conv.disappearAfterSec);
+          }
+
           const updated = prev.conversations.map((c) =>
             c.id === conversationId
-              ? { ...c, messages: [...c.messages, replyMsg], lastMessage: replyText, timestamp: Date.now() }
+              ? { ...c, messages: [...c.messages, replyMsg!], lastMessage: replyText, timestamp: Date.now(), drSession: updatedDRSession }
               : c
           );
           persistConversations(updated);
@@ -450,31 +538,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }, delay);
     },
-    [state.conversations, persistConversations]
+    [persistConversations]
   );
 
   const addConversation = useCallback(
     (alias: string) => {
-      const id = Date.now().toString() + Math.random().toString(36).substr(2, 9);
-      const safetyNumber = generateSafetyNumber(state.alias ?? "GHOST_USER", alias.toUpperCase());
-      const newConv: Conversation = {
-        id,
-        alias: alias.toUpperCase(),
-        lastMessage: "E2EE channel established.",
-        timestamp: Date.now(),
-        unread: 0,
-        safetyNumber,
-        messages: [
-          buildMessage("E2EE channel established. ChaCha20-Poly1305 key exchange complete.", false, id, alias.toUpperCase()),
-        ],
-      };
       setState((prev) => {
+        const id = `${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
+        const aliasUpper = alias.toUpperCase();
+        const safetyNumber = generateSafetyNumber(prev.alias ?? "GHOST_USER", aliasUpper);
+        const drSession = initSession();
+        const newConv: Conversation = {
+          id,
+          alias: aliasUpper,
+          lastMessage: "Double Ratchet session established.",
+          timestamp: Date.now(),
+          unread: 0,
+          safetyNumber,
+          drSession,
+          messages: [
+            buildMessage(
+              "Double Ratchet E2EE channel established. X3DH key exchange complete.",
+              false,
+              id,
+              aliasUpper,
+            ),
+          ],
+        };
         const updated = [newConv, ...prev.conversations];
         persistConversations(updated);
         return { ...prev, conversations: updated };
       });
     },
-    [state.alias, persistConversations]
+    [persistConversations]
   );
 
   const setStripeEmail = useCallback(async (email: string | null) => {

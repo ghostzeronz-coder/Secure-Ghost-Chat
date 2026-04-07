@@ -19,6 +19,7 @@ import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { drKeyFingerprint } from "@/lib/doubleRatchet";
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -275,7 +276,9 @@ export default function ChatScreen() {
           <Text style={styles.headerAlias}>{conv.alias}</Text>
           <View style={styles.headerSub}>
             <StatusDot active size={5} pulse={false} />
-            <Text style={styles.headerSubText}>SECURE · CHACHA20-POLY1305</Text>
+            <Text style={styles.headerSubText}>
+              {conv.drSession ? "DOUBLE RATCHET · X3DH · CHACHA20" : "SECURE · CHACHA20-POLY1305"}
+            </Text>
           </View>
         </View>
         <View style={styles.headerActions}>
@@ -304,7 +307,9 @@ export default function ChatScreen() {
       <View style={styles.encBanner}>
         <View style={styles.encBannerLeft}>
           <SecureBadge type="e2ee" size="sm" />
-          <Text style={styles.encBannerTxt}>E2EE · SEALED SENDER</Text>
+          <Text style={styles.encBannerTxt}>
+            {conv.drSession ? "DOUBLE RATCHET · SEALED SENDER" : "E2EE · SEALED SENDER"}
+          </Text>
         </View>
         <Pressable style={styles.disappearBadge} onPress={() => setShowDisappear(true)}>
           <Ionicons
@@ -412,21 +417,70 @@ export default function ChatScreen() {
                     </Text>
                   </View>
                 )}
+                {/* Ratchet state panel — only visible for DR sessions */}
+                {conv.drSession && (
+                  <View style={[styles.safetyRow, { backgroundColor: `${colors.primary}10`, borderColor: `${colors.primary}40` }]}>
+                    <Text style={[styles.safetyLabel, { color: colors.primary }]}>RATCHET STATE</Text>
+                    <View style={{ flexDirection: "row", gap: 20, flexWrap: "wrap", marginTop: 4 }}>
+                      <View>
+                        <Text style={[styles.safetyLabel, { fontSize: 8 }]}>DH STEPS</Text>
+                        <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
+                          {conv.drSession.alice.step}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.safetyLabel, { fontSize: 8 }]}>SENT</Text>
+                        <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
+                          {conv.drSession.alice.Ns}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={[styles.safetyLabel, { fontSize: 8 }]}>RECV</Text>
+                        <Text style={[styles.safetyNumber, { fontSize: 22 }]}>
+                          {conv.drSession.alice.Nr}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.safetyNote, { fontFamily: "monospace", marginTop: 6 }]}>
+                      DH KEY: {drKeyFingerprint(conv.drSession.alice)}...
+                    </Text>
+                    <Text style={[styles.safetyNote, { marginTop: 2 }]}>
+                      Each reply triggers a new DH ratchet step
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>PROTOCOL</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>
+                    {conv.drSession ? "DOUBLE RATCHET" : "SEALED SENDER"}
+                  </Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>KEY AGREEMENT</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>
+                    {conv.drSession ? "X3DH · X25519" : "ECDH"}
+                  </Text>
+                </View>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>CIPHER</Text>
                   <Text style={[styles.infoValue, { color: colors.success }]}>CHACHA20-POLY1305</Text>
                 </View>
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>KEY SIZE</Text>
-                  <Text style={[styles.infoValue, { color: colors.success }]}>256-BIT</Text>
-                </View>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>AUTHENTICATION</Text>
-                  <Text style={[styles.infoValue, { color: colors.success }]}>POLY1305 MAC</Text>
+                  <Text style={styles.infoLabel}>KDF</Text>
+                  <Text style={[styles.infoValue, { color: colors.success }]}>
+                    {conv.drSession ? "HKDF-SHA256 · HMAC-SHA256" : "SHA-256"}
+                  </Text>
                 </View>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>FORWARD SECRECY</Text>
                   <Text style={[styles.infoValue, { color: colors.success }]}>ENABLED</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>BREAK-IN RECOVERY</Text>
+                  <Text style={[styles.infoValue, { color: conv.drSession ? colors.success : colors.mutedForeground }]}>
+                    {conv.drSession ? "ENABLED" : "N/A"}
+                  </Text>
                 </View>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>NONCE</Text>
@@ -438,7 +492,7 @@ export default function ChatScreen() {
                 </View>
                 <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
                   <Text style={styles.infoLabel}>LIBRARY</Text>
-                  <Text style={styles.infoValue}>@NOBLE/CIPHERS</Text>
+                  <Text style={styles.infoValue}>@NOBLE/{conv.drSession ? "CURVES + HASHES" : "CIPHERS"}</Text>
                 </View>
                 <Pressable
                   style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.7 }]}
