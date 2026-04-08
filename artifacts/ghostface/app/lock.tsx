@@ -100,8 +100,13 @@ export default function LockScreen() {
 
   // ── Load persisted fail count on mount ────────────────────────────────────
   useEffect(() => {
-    loadFailCount().then((count) => {
+    loadFailCount().then(async (count) => {
       const clamped = Math.max(0, Math.min(count, MAX_ATTEMPTS));
+      if (clamped >= MAX_ATTEMPTS) {
+        await clearFailCount();
+        await panicWipe();
+        return;
+      }
       failedAttemptsRef.current = clamped;
       setFailedAttempts(clamped);
       setFailCountLoaded(true);
@@ -154,6 +159,7 @@ export default function LockScreen() {
       if (result.success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         await clearFailCount();
+        failedAttemptsRef.current = 0;
         setFailedAttempts(0);
         setLocked(false);
       } else {
