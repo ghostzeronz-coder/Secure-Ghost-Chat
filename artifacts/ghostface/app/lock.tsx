@@ -1,6 +1,8 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
+import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -15,6 +17,46 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const MAX_ATTEMPTS = 10;
+const WARN_FROM = 7;
+const FAIL_KEY = "ghostface_pin_fail_count";
+
+// ── Secure storage helpers (web-safe) ─────────────────────────────────────────
+
+async function loadFailCount(): Promise<number> {
+  try {
+    const raw = Platform.OS === "web"
+      ? await AsyncStorage.getItem(FAIL_KEY)
+      : await SecureStore.getItemAsync(FAIL_KEY);
+    return raw ? parseInt(raw, 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function saveFailCount(count: number): Promise<void> {
+  try {
+    const val = String(count);
+    if (Platform.OS === "web") {
+      await AsyncStorage.setItem(FAIL_KEY, val);
+    } else {
+      await SecureStore.setItemAsync(FAIL_KEY, val);
+    }
+  } catch {}
+}
+
+async function clearFailCount(): Promise<void> {
+  try {
+    if (Platform.OS === "web") {
+      await AsyncStorage.removeItem(FAIL_KEY);
+    } else {
+      await SecureStore.deleteItemAsync(FAIL_KEY);
+    }
+  } catch {}
+}
 
 // ── Scramble helper ───────────────────────────────────────────────────────────
 
@@ -32,11 +74,12 @@ function shuffleDigits(): string[] {
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { hasPin, biometricEnabled, checkPin, setLocked } = useApp();
+  const { hasPin, biometricEnabled, checkPin, setLocked, panicWipe } = useApp();
 
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
   const [biometricError, setBiometricError] = useState("");
+  const [failedAttempts, setFailedAttempts] = useState(0);
 
   // Scrambled digit layout — randomised on every mount and app-foreground event
   const [digits, setDigits] = useState<string[]>(() => shuffleDigits());
@@ -44,6 +87,11 @@ export default function LockScreen() {
   // Animations
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const scrambleAnim = useRef(new Animated.Value(1)).current;
+
+  // ── Load persisted fail count on mount ────────────────────────────────────
+  useEffect(() => {
+    loadFailCount().then(setFailedAttempts);
+  }, []);
 
   // ── Scramble with flash animation ──────────────────────────────────────────
   const rescramble = useCallback(() => {
@@ -90,6 +138,8 @@ export default function LockScreen() {
       });
       if (result.success) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await clearFailCount();
+        setFailedAttempts(0);
         setLocked(false);
       } else {
         setBiometricError("Biometric failed — use PIN");
@@ -120,17 +170,37 @@ export default function LockScreen() {
         const correct = await checkPin(next);
         if (correct) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          await clearFailCount();
+          setFailedAttempts(0);
           setLocked(false);
         } else {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           setError(true);
           shake();
-          // Scramble layout after a wrong attempt too
+
+          const newCount = failedAttempts + 1;
+          await saveFailCount(newCount);
+          setFailedAttempts(newCount);
+
+          if (newCount >= MAX_ATTEMPTS) {
+            await clearFailCount();
+            await panicWipe();
+            return;
+          }
+
           setTimeout(() => rescramble(), 650);
         }
       } catch {
         setError(true);
         shake();
+        const newCount = failedAttempts + 1;
+        await saveFailCount(newCount);
+        setFailedAttempts(newCount);
+        if (newCount >= MAX_ATTEMPTS) {
+          await clearFailCount();
+          await panicWipe();
+          return;
+        }
         setTimeout(() => rescramble(), 650);
       }
     }
@@ -155,6 +225,8 @@ export default function LockScreen() {
   ];
 
   const dotCount = 4;
+  const remaining = MAX_ATTEMPTS - failedAttempts;
+  const showWipeWarning = failedAttempts >= WARN_FROM;
 
   const styles = StyleSheet.create({
     container: {
@@ -219,6 +291,30 @@ export default function LockScreen() {
       fontSize: 11,
       letterSpacing: 2,
       marginTop: 16,
+    },
+    wipeWarning: {
+      marginTop: 16,
+      paddingHorizontal: 20,
+      paddingVertical: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.destructive,
+      backgroundColor: `${colors.destructive}18`,
+      alignItems: "center",
+    },
+    wipeWarningText: {
+      color: colors.destructive,
+      fontSize: 10,
+      fontWeight: "800" as const,
+      letterSpacing: 2,
+      textAlign: "center",
+    },
+    wipeWarningCount: {
+      color: colors.destructive,
+      fontSize: 22,
+      fontWeight: "900" as const,
+      letterSpacing: 1,
+      marginTop: 2,
     },
     biometricBtn: {
       marginTop: 28,
@@ -321,7 +417,19 @@ export default function LockScreen() {
             ))}
           </Animated.View>
 
-          {error && <Text style={styles.errorText}>INCORRECT PIN</Text>}
+          {error && !showWipeWarning && (
+            <Text style={styles.errorText}>INCORRECT PIN</Text>
+          )}
+
+          {showWipeWarning && (
+            <View style={styles.wipeWarning} testID="wipe-warning">
+              <Text style={styles.wipeWarningText}>
+                ATTEMPTS REMAINING BEFORE DATA WIPE
+              </Text>
+              <Text style={styles.wipeWarningCount}>{remaining}</Text>
+            </View>
+          )}
+
           {biometricError ? <Text style={styles.errorText}>{biometricError}</Text> : null}
         </>
       ) : (
