@@ -79,6 +79,7 @@ export default function LockScreen() {
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
   const [biometricError, setBiometricError] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
 
   // Scrambled digit layout — randomised on every mount and app-foreground event
@@ -155,8 +156,12 @@ export default function LockScreen() {
 
   // ── PIN input ─────────────────────────────────────────────────────────────
   const handleKey = async (key: string) => {
+    if (isVerifying) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (entered.length >= 8) return;
+
+    const PIN_LENGTH = 4;
+    if (entered.length >= PIN_LENGTH) return;
+
     const next = entered + key;
     setEntered(next);
     setError(false);
@@ -164,8 +169,8 @@ export default function LockScreen() {
 
     if (!hasPin) return;
 
-    const PIN_LENGTH = 4;
-    if (next.length >= PIN_LENGTH) {
+    if (next.length === PIN_LENGTH) {
+      setIsVerifying(true);
       try {
         const correct = await checkPin(next);
         if (correct) {
@@ -188,7 +193,10 @@ export default function LockScreen() {
             return;
           }
 
-          setTimeout(() => rescramble(), 650);
+          setTimeout(() => {
+            rescramble();
+            setIsVerifying(false);
+          }, 650);
         }
       } catch {
         setError(true);
@@ -201,12 +209,16 @@ export default function LockScreen() {
           await panicWipe();
           return;
         }
-        setTimeout(() => rescramble(), 650);
+        setTimeout(() => {
+          rescramble();
+          setIsVerifying(false);
+        }, 650);
       }
     }
   };
 
   const handleDelete = () => {
+    if (isVerifying) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEntered((e) => e.slice(0, -1));
     setError(false);
