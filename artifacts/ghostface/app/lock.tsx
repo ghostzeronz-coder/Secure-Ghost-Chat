@@ -81,6 +81,8 @@ export default function LockScreen() {
   const [biometricError, setBiometricError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [failedAttempts, setFailedAttempts] = useState(0);
+  const failedAttemptsRef = useRef(0);
+  const [failCountLoaded, setFailCountLoaded] = useState(false);
 
   // Scrambled digit layout — randomised on every mount and app-foreground event
   const [digits, setDigits] = useState<string[]>(() => shuffleDigits());
@@ -91,7 +93,12 @@ export default function LockScreen() {
 
   // ── Load persisted fail count on mount ────────────────────────────────────
   useEffect(() => {
-    loadFailCount().then(setFailedAttempts);
+    loadFailCount().then((count) => {
+      const clamped = Math.max(0, Math.min(count, MAX_ATTEMPTS));
+      failedAttemptsRef.current = clamped;
+      setFailedAttempts(clamped);
+      setFailCountLoaded(true);
+    });
   }, []);
 
   // ── Scramble with flash animation ──────────────────────────────────────────
@@ -156,7 +163,7 @@ export default function LockScreen() {
 
   // ── PIN input ─────────────────────────────────────────────────────────────
   const handleKey = async (key: string) => {
-    if (isVerifying) return;
+    if (isVerifying || !failCountLoaded) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const PIN_LENGTH = 4;
@@ -171,28 +178,33 @@ export default function LockScreen() {
 
     if (next.length === PIN_LENGTH) {
       setIsVerifying(true);
+
+      const recordFailure = async () => {
+        const newCount = failedAttemptsRef.current + 1;
+        failedAttemptsRef.current = newCount;
+        await saveFailCount(newCount);
+        setFailedAttempts(newCount);
+        return newCount;
+      };
+
       try {
         const correct = await checkPin(next);
         if (correct) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           await clearFailCount();
+          failedAttemptsRef.current = 0;
           setFailedAttempts(0);
           setLocked(false);
         } else {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           setError(true);
           shake();
-
-          const newCount = failedAttempts + 1;
-          await saveFailCount(newCount);
-          setFailedAttempts(newCount);
-
+          const newCount = await recordFailure();
           if (newCount >= MAX_ATTEMPTS) {
             await clearFailCount();
             await panicWipe();
             return;
           }
-
           setTimeout(() => {
             rescramble();
             setIsVerifying(false);
@@ -201,9 +213,7 @@ export default function LockScreen() {
       } catch {
         setError(true);
         shake();
-        const newCount = failedAttempts + 1;
-        await saveFailCount(newCount);
-        setFailedAttempts(newCount);
+        const newCount = await recordFailure();
         if (newCount >= MAX_ATTEMPTS) {
           await clearFailCount();
           await panicWipe();
@@ -218,7 +228,7 @@ export default function LockScreen() {
   };
 
   const handleDelete = () => {
-    if (isVerifying) return;
+    if (isVerifying || !failCountLoaded) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setEntered((e) => e.slice(0, -1));
     setError(false);
