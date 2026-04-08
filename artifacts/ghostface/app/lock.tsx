@@ -31,8 +31,11 @@ async function loadFailCount(): Promise<number> {
     const raw = Platform.OS === "web"
       ? await AsyncStorage.getItem(FAIL_KEY)
       : await SecureStore.getItemAsync(FAIL_KEY);
-    return raw ? parseInt(raw, 10) : 0;
-  } catch {
+    if (!raw) return 0;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 ? n : 0;
+  } catch (e) {
+    if (__DEV__) console.warn("[LockScreen] loadFailCount error:", e);
     return 0;
   }
 }
@@ -45,7 +48,9 @@ async function saveFailCount(count: number): Promise<void> {
     } else {
       await SecureStore.setItemAsync(FAIL_KEY, val);
     }
-  } catch {}
+  } catch (e) {
+    if (__DEV__) console.warn("[LockScreen] saveFailCount error:", e);
+  }
 }
 
 async function clearFailCount(): Promise<void> {
@@ -55,7 +60,9 @@ async function clearFailCount(): Promise<void> {
     } else {
       await SecureStore.deleteItemAsync(FAIL_KEY);
     }
-  } catch {}
+  } catch (e) {
+    if (__DEV__) console.warn("[LockScreen] clearFailCount error:", e);
+  }
 }
 
 // ── Scramble helper ───────────────────────────────────────────────────────────
