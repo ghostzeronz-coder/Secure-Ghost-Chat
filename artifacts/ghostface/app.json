@@ -18,7 +18,11 @@
       "bundleIdentifier": "com.ghostface.app"
     },
     "android": {
-      "package": "com.ghostface.app"
+      "package": "com.ghostface.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#000000"
+      }
     },
     "web": {
       "favicon": "./assets/images/icon.png"
