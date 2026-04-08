@@ -1,8 +1,11 @@
+import "react-native-get-random-values";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   Platform,
@@ -23,23 +26,51 @@ function formatDate(ts: number): string {
   return `${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
 }
 
+function truncateAddress(addr: string): string {
+  if (addr.length <= 16) return addr;
+  return `${addr.slice(0, 8)}...${addr.slice(-8)}`;
+}
+
 export default function WalletScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { fdBalance, casperBalance, walletAddress, transactions } = useApp();
+  const {
+    fdBalance,
+    casperBalance,
+    walletAddress,
+    transactions,
+    connectedWalletAddress,
+    solBalance,
+    connectWallet,
+    disconnectWallet,
+  } = useApp();
   const [copied, setCopied] = useState(false);
+  const [copiedConnected, setCopiedConnected] = useState(false);
   const [activeToken, setActiveToken] = useState<"FD" | "CASPER">("FD");
   const [showSend, setShowSend] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
+  const [showConnect, setShowConnect] = useState(false);
   const [sendAmount, setSendAmount] = useState("");
   const [sendAddress, setSendAddress] = useState("");
   const [sent, setSent] = useState(false);
+  const [walletInput, setWalletInput] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [connectError, setConnectError] = useState("");
+  const [disconnecting, setDisconnecting] = useState(false);
 
   const handleCopy = async () => {
     await Clipboard.setStringAsync(walletAddress);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyConnected = async () => {
+    if (!connectedWalletAddress) return;
+    await Clipboard.setStringAsync(connectedWalletAddress);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setCopiedConnected(true);
+    setTimeout(() => setCopiedConnected(false), 2000);
   };
 
   const handleSend = () => {
@@ -54,7 +85,46 @@ export default function WalletScreen() {
     }, 2000);
   };
 
+  const handleConnect = async () => {
+    setConnectError("");
+    if (!walletInput.trim()) {
+      setConnectError("Please enter a wallet address.");
+      return;
+    }
+    setConnecting(true);
+    const result = await connectWallet(walletInput);
+    setConnecting(false);
+    if (result.error) {
+      setConnectError(result.error);
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setWalletInput("");
+      setShowConnect(false);
+    }
+  };
+
+  const handleDisconnect = () => {
+    Alert.alert(
+      "DISCONNECT WALLET",
+      "Remove your linked Solana wallet from GHOSTFACE?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Disconnect",
+          style: "destructive",
+          onPress: async () => {
+            setDisconnecting(true);
+            await disconnectWallet();
+            setDisconnecting(false);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          },
+        },
+      ]
+    );
+  };
+
   const balance = activeToken === "FD" ? fdBalance : casperBalance;
+  const filteredTx = transactions.filter((t) => t.token === activeToken);
 
   const styles = StyleSheet.create({
     container: {
@@ -78,6 +148,127 @@ export default function WalletScreen() {
     divider: {
       height: 1,
       backgroundColor: colors.border,
+    },
+    sectionLabel: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 3,
+      fontWeight: "700" as const,
+      paddingHorizontal: 20,
+      marginTop: 24,
+      marginBottom: 12,
+    },
+    linkedCard: {
+      marginHorizontal: 20,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: "#9945FF",
+      padding: 16,
+    },
+    linkedHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 12,
+    },
+    linkedTitle: {
+      color: "#9945FF",
+      fontSize: 10,
+      letterSpacing: 3,
+      fontWeight: "800" as const,
+    },
+    linkedStatus: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    linkedDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.success,
+    },
+    linkedStatusText: {
+      color: colors.success,
+      fontSize: 9,
+      letterSpacing: 2,
+      fontWeight: "700" as const,
+    },
+    solBalanceRow: {
+      alignItems: "center",
+      marginBottom: 12,
+    },
+    solAmount: {
+      color: colors.foreground,
+      fontSize: 32,
+      fontWeight: "800" as const,
+      letterSpacing: 1,
+    },
+    solLabel: {
+      color: "#9945FF",
+      fontSize: 12,
+      fontWeight: "700" as const,
+      letterSpacing: 3,
+      marginTop: 2,
+    },
+    linkedAddressRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.muted,
+      borderRadius: colors.radius,
+      padding: 10,
+      gap: 8,
+      marginBottom: 12,
+    },
+    linkedAddress: {
+      flex: 1,
+      color: colors.foreground,
+      fontSize: 11,
+      letterSpacing: 1,
+      fontWeight: "600" as const,
+    },
+    disconnectBtn: {
+      alignItems: "center",
+      paddingVertical: 8,
+    },
+    disconnectText: {
+      color: colors.destructive,
+      fontSize: 11,
+      letterSpacing: 2,
+      fontWeight: "700" as const,
+    },
+    connectPrompt: {
+      marginHorizontal: 20,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderStyle: "dashed",
+      padding: 20,
+      alignItems: "center",
+      gap: 10,
+    },
+    connectPromptText: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 2,
+      textAlign: "center",
+    },
+    connectBtn: {
+      backgroundColor: "#9945FF",
+      borderRadius: colors.radius,
+      paddingVertical: 10,
+      paddingHorizontal: 24,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    connectBtnText: {
+      color: "#FFFFFF",
+      fontSize: 11,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
     },
     tokenSelector: {
       flexDirection: "row",
@@ -188,7 +379,7 @@ export default function WalletScreen() {
       fontWeight: "800" as const,
       letterSpacing: 3,
     },
-    sectionLabel: {
+    txSectionLabel: {
       color: colors.mutedForeground,
       fontSize: 10,
       letterSpacing: 3,
@@ -261,21 +452,44 @@ export default function WalletScreen() {
       fontSize: 13,
       fontWeight: "800" as const,
       letterSpacing: 4,
+      marginBottom: 8,
+    },
+    modalSubtitle: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 1,
       marginBottom: 20,
+      lineHeight: 16,
     },
     modalInput: {
       backgroundColor: colors.muted,
       color: colors.foreground,
-      fontSize: 14,
-      letterSpacing: 2,
+      fontSize: 12,
+      letterSpacing: 1,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: colors.radius,
       paddingHorizontal: 14,
       paddingVertical: 12,
+      marginBottom: 8,
+    },
+    errorText: {
+      color: colors.destructive,
+      fontSize: 11,
+      letterSpacing: 1,
       marginBottom: 12,
     },
     modalBtn: {
+      backgroundColor: "#9945FF",
+      borderRadius: colors.radius,
+      paddingVertical: 14,
+      alignItems: "center",
+      marginBottom: 8,
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 8,
+    },
+    modalBtnPrimary: {
       backgroundColor: colors.primary,
       borderRadius: colors.radius,
       paddingVertical: 14,
@@ -283,7 +497,7 @@ export default function WalletScreen() {
       marginBottom: 8,
     },
     modalBtnText: {
-      color: colors.primaryForeground,
+      color: "#FFFFFF",
       fontSize: 12,
       fontWeight: "800" as const,
       letterSpacing: 3,
@@ -317,14 +531,7 @@ export default function WalletScreen() {
       marginBottom: 16,
       backgroundColor: colors.muted,
     },
-    qrText: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 2,
-    },
   });
-
-  const filteredTx = transactions.filter((t) => t.token === activeToken);
 
   return (
     <View style={styles.container}>
@@ -335,13 +542,68 @@ export default function WalletScreen() {
       <View style={styles.divider} />
 
       <ScrollView showsVerticalScrollIndicator={false}>
+
+        {/* ── PERSONAL SOLANA WALLET ─────────────────────── */}
+        <Text style={styles.sectionLabel}>PERSONAL WALLET</Text>
+        {connectedWalletAddress ? (
+          <View style={styles.linkedCard}>
+            <View style={styles.linkedHeader}>
+              <Text style={styles.linkedTitle}>SOLANA MAINNET</Text>
+              <View style={styles.linkedStatus}>
+                <View style={styles.linkedDot} />
+                <Text style={styles.linkedStatusText}>LINKED</Text>
+              </View>
+            </View>
+            <View style={styles.solBalanceRow}>
+              <Text style={styles.solAmount}>
+                {solBalance === 0 ? "—" : solBalance.toFixed(4)}
+              </Text>
+              <Text style={styles.solLabel}>SOL</Text>
+            </View>
+            <Pressable style={styles.linkedAddressRow} onPress={handleCopyConnected}>
+              <Ionicons name="wallet-outline" size={12} color="#9945FF" />
+              <Text style={styles.linkedAddress}>
+                {truncateAddress(connectedWalletAddress)}
+              </Text>
+              <Ionicons
+                name={copiedConnected ? "checkmark" : "copy-outline"}
+                size={14}
+                color={copiedConnected ? colors.success : colors.mutedForeground}
+              />
+            </Pressable>
+            <Pressable style={styles.disconnectBtn} onPress={handleDisconnect} disabled={disconnecting}>
+              <Text style={styles.disconnectText}>
+                {disconnecting ? "DISCONNECTING..." : "DISCONNECT WALLET"}
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.connectPrompt}>
+            <Ionicons name="wallet-outline" size={28} color={colors.mutedForeground} />
+            <Text style={styles.connectPromptText}>
+              Link your personal Solana wallet{"\n"}to view your real SOL balance
+            </Text>
+            <Pressable
+              style={styles.connectBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setConnectError("");
+                setWalletInput("");
+                setShowConnect(true);
+              }}
+            >
+              <Ionicons name="link" size={14} color="#FFFFFF" />
+              <Text style={styles.connectBtnText}>LINK WALLET</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── APP TOKENS ─────────────────────────────────── */}
         <View style={styles.tokenSelector}>
           <Pressable
             style={[
               styles.tokenTab,
-              activeToken === "FD"
-                ? styles.tokenTabActive
-                : styles.tokenTabInactive,
+              activeToken === "FD" ? styles.tokenTabActive : styles.tokenTabInactive,
             ]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -351,12 +613,7 @@ export default function WalletScreen() {
             <Text
               style={[
                 styles.tokenTabText,
-                {
-                  color:
-                    activeToken === "FD"
-                      ? colors.primaryForeground
-                      : colors.mutedForeground,
-                },
+                { color: activeToken === "FD" ? colors.primaryForeground : colors.mutedForeground },
               ]}
             >
               FD
@@ -365,9 +622,7 @@ export default function WalletScreen() {
           <Pressable
             style={[
               styles.tokenTab,
-              activeToken === "CASPER"
-                ? styles.tokenTabActive
-                : styles.tokenTabInactive,
+              activeToken === "CASPER" ? styles.tokenTabActive : styles.tokenTabInactive,
             ]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -377,12 +632,7 @@ export default function WalletScreen() {
             <Text
               style={[
                 styles.tokenTabText,
-                {
-                  color:
-                    activeToken === "CASPER"
-                      ? colors.primaryForeground
-                      : colors.mutedForeground,
-                },
+                { color: activeToken === "CASPER" ? colors.primaryForeground : colors.mutedForeground },
               ]}
             >
               CASPER
@@ -419,10 +669,7 @@ export default function WalletScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.actionBtn,
-              {
-                backgroundColor: pressed ? colors.muted : colors.card,
-                borderColor: colors.primary,
-              },
+              { backgroundColor: pressed ? colors.muted : colors.card, borderColor: colors.primary },
             ]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -430,17 +677,12 @@ export default function WalletScreen() {
             }}
           >
             <Ionicons name="arrow-up" size={16} color={colors.primary} />
-            <Text style={[styles.actionBtnText, { color: colors.primary }]}>
-              SEND
-            </Text>
+            <Text style={[styles.actionBtnText, { color: colors.primary }]}>SEND</Text>
           </Pressable>
           <Pressable
             style={({ pressed }) => [
               styles.actionBtn,
-              {
-                backgroundColor: pressed ? colors.muted : colors.card,
-                borderColor: colors.success,
-              },
+              { backgroundColor: pressed ? colors.muted : colors.card, borderColor: colors.success },
             ]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -448,23 +690,18 @@ export default function WalletScreen() {
             }}
           >
             <Ionicons name="arrow-down" size={16} color={colors.success} />
-            <Text style={[styles.actionBtnText, { color: colors.success }]}>
-              RECEIVE
-            </Text>
+            <Text style={[styles.actionBtnText, { color: colors.success }]}>RECEIVE</Text>
           </Pressable>
         </View>
 
-        <Text style={styles.sectionLabel}>TRANSACTIONS</Text>
+        <Text style={styles.txSectionLabel}>TRANSACTIONS</Text>
         {filteredTx.map((tx, idx) => (
           <View key={tx.id}>
             <View style={styles.txItem}>
               <View
                 style={[
                   styles.txIcon,
-                  {
-                    borderColor:
-                      tx.type === "receive" ? colors.success : colors.primary,
-                  },
+                  { borderColor: tx.type === "receive" ? colors.success : colors.primary },
                 ]}
               >
                 <Ionicons
@@ -474,65 +711,96 @@ export default function WalletScreen() {
                 />
               </View>
               <View style={styles.txContent}>
-                <Text style={styles.txType}>
-                  {tx.type === "receive" ? "RECEIVED" : "SENT"}
-                </Text>
+                <Text style={styles.txType}>{tx.type === "receive" ? "RECEIVED" : "SENT"}</Text>
                 <Text style={styles.txAddress}>{tx.address}</Text>
                 <Text style={styles.txDate}>{formatDate(tx.timestamp)}</Text>
               </View>
               <Text
                 style={[
                   styles.txAmount,
-                  {
-                    color:
-                      tx.type === "receive" ? colors.success : colors.primary,
-                  },
+                  { color: tx.type === "receive" ? colors.success : colors.primary },
                 ]}
               >
                 {tx.type === "receive" ? "+" : "-"}
                 {tx.amount}
               </Text>
             </View>
-            {idx < filteredTx.length - 1 && (
-              <View style={styles.txDivider} />
-            )}
+            {idx < filteredTx.length - 1 && <View style={styles.txDivider} />}
           </View>
         ))}
 
         <View style={styles.padBottom} />
       </ScrollView>
 
+      {/* ── LINK WALLET MODAL ───────────────────────────── */}
+      <Modal
+        visible={showConnect}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowConnect(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowConnect(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>LINK WALLET</Text>
+              <Text style={styles.modalSubtitle}>
+                Paste your Solana wallet address to view your real SOL balance. Your private keys stay on your device — GHOSTFACE never has access.
+              </Text>
+              <TextInput
+                style={styles.modalInput}
+                value={walletInput}
+                onChangeText={(t) => { setWalletInput(t); setConnectError(""); }}
+                placeholder="Solana wallet address"
+                placeholderTextColor={colors.mutedForeground}
+                autoCorrect={false}
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+              {connectError ? (
+                <Text style={styles.errorText}>{connectError}</Text>
+              ) : null}
+              <Pressable
+                style={[styles.modalBtn, (!walletInput.trim() || connecting) && { opacity: 0.5 }]}
+                onPress={handleConnect}
+                disabled={!walletInput.trim() || connecting}
+              >
+                {connecting ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Ionicons name="link" size={14} color="#FFF" />
+                )}
+                <Text style={styles.modalBtnText}>
+                  {connecting ? "LINKING..." : "LINK WALLET"}
+                </Text>
+              </Pressable>
+              <Pressable style={styles.cancelBtn} onPress={() => setShowConnect(false)}>
+                <Text style={styles.cancelText}>CANCEL</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── SEND MODAL ──────────────────────────────────── */}
       <Modal
         visible={showSend}
         transparent
         animationType="slide"
         onRequestClose={() => setShowSend(false)}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowSend(false)}
-        >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowSend(false)}>
           <Pressable onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalContent}>
               {sent ? (
                 <>
                   <Text style={styles.successText}>TRANSMITTED</Text>
-                  <Text
-                    style={{
-                      color: colors.mutedForeground,
-                      textAlign: "center",
-                      fontSize: 11,
-                      letterSpacing: 2,
-                    }}
-                  >
+                  <Text style={{ color: colors.mutedForeground, textAlign: "center", fontSize: 11, letterSpacing: 2 }}>
                     TRANSACTION ENCRYPTED & BROADCAST
                   </Text>
                 </>
               ) : (
                 <>
-                  <Text style={styles.modalTitle}>
-                    SEND {activeToken}
-                  </Text>
+                  <Text style={styles.modalTitle}>SEND {activeToken}</Text>
                   <TextInput
                     style={styles.modalInput}
                     value={sendAddress}
@@ -550,19 +818,13 @@ export default function WalletScreen() {
                     keyboardType="decimal-pad"
                   />
                   <Pressable
-                    style={[
-                      styles.modalBtn,
-                      (!sendAmount || !sendAddress) && { opacity: 0.4 },
-                    ]}
+                    style={[styles.modalBtnPrimary, (!sendAmount || !sendAddress) && { opacity: 0.4 }]}
                     onPress={handleSend}
                     disabled={!sendAmount || !sendAddress}
                   >
                     <Text style={styles.modalBtnText}>CONFIRM SEND</Text>
                   </Pressable>
-                  <Pressable
-                    style={styles.cancelBtn}
-                    onPress={() => setShowSend(false)}
-                  >
+                  <Pressable style={styles.cancelBtn} onPress={() => setShowSend(false)}>
                     <Text style={styles.cancelText}>CANCEL</Text>
                   </Pressable>
                 </>
@@ -572,16 +834,14 @@ export default function WalletScreen() {
         </Pressable>
       </Modal>
 
+      {/* ── RECEIVE MODAL ───────────────────────────────── */}
       <Modal
         visible={showReceive}
         transparent
         animationType="slide"
         onRequestClose={() => setShowReceive(false)}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setShowReceive(false)}
-        >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowReceive(false)}>
           <Pressable onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>RECEIVE {activeToken}</Text>
@@ -598,10 +858,7 @@ export default function WalletScreen() {
                   color={copied ? colors.success : colors.mutedForeground}
                 />
               </Pressable>
-              <Pressable
-                style={[styles.cancelBtn, { marginTop: 8 }]}
-                onPress={() => setShowReceive(false)}
-              >
+              <Pressable style={[styles.cancelBtn, { marginTop: 8 }]} onPress={() => setShowReceive(false)}>
                 <Text style={styles.cancelText}>CLOSE</Text>
               </Pressable>
             </View>

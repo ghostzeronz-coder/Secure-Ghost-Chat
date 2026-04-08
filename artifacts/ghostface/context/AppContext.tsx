@@ -80,6 +80,8 @@ interface AppState {
   dataUsed: number;
   dataLimit: number;
   stripeEmail: string | null;
+  connectedWalletAddress: string | null;
+  solBalance: number;
 }
 
 interface AppContextType extends AppState {
@@ -100,6 +102,8 @@ interface AppContextType extends AppState {
   setDisappearTimer: (conversationId: string, seconds: number | undefined) => void;
   panicWipe: () => Promise<void>;
   setStripeEmail: (email: string | null) => Promise<void>;
+  connectWallet: (address: string) => Promise<{ error?: string }>;
+  disconnectWallet: () => Promise<void>;
   loaded: boolean;
 }
 
@@ -219,13 +223,38 @@ export { VPN_SERVERS };
 const SECURE_PIN_KEY = "ghostface_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
 const STRIPE_EMAIL_KEY = "stripeEmail";
+const CONNECTED_WALLET_KEY = "ghostface_connected_wallet";
 const APP_STORAGE_KEYS = [
   "alias",
   "isOnboarded",
   "biometricEnabled",
   CONVERSATIONS_KEY,
   STRIPE_EMAIL_KEY,
+  CONNECTED_WALLET_KEY,
 ] as const;
+
+function isValidSolanaAddress(addr: string): boolean {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr.trim());
+}
+
+async function fetchSolBalance(address: string): Promise<number> {
+  try {
+    const resp = await fetch("https://api.mainnet-beta.solana.com", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getBalance",
+        params: [address],
+      }),
+    });
+    const json = await resp.json();
+    return (json?.result?.value ?? 0) / 1e9;
+  } catch {
+    return 0;
+  }
+}
 
 async function secureGet(key: string): Promise<string | null> {
   if (Platform.OS === "web") return AsyncStorage.getItem(key);
@@ -263,18 +292,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dataUsed: 2.4,
     dataLimit: 10,
     stripeEmail: null,
+    connectedWalletAddress: null,
+    solBalance: 0,
   });
 
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal] = await Promise.all([
+        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
           AsyncStorage.getItem("isOnboarded"),
           AsyncStorage.getItem(CONVERSATIONS_KEY),
           AsyncStorage.getItem(STRIPE_EMAIL_KEY),
+          AsyncStorage.getItem(CONNECTED_WALLET_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -300,7 +332,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
 
         setHasPin(hasPinValue);
-        setState((prev) => ({ ...prev, alias, biometricEnabled: biometricOn, isOnboarded, isLocked: true, conversations, stripeEmail: stripeEmailVal }));
+        setState((prev) => ({
+          ...prev,
+          alias,
+          biometricEnabled: biometricOn,
+          isOnboarded,
+          isLocked: true,
+          conversations,
+          stripeEmail: stripeEmailVal,
+          connectedWalletAddress: connectedWallet ?? null,
+        }));
+
+        // Fetch SOL balance in background after state is set
+        if (connectedWallet) {
+          fetchSolBalance(connectedWallet).then((bal) =>
+            setState((prev) => ({ ...prev, solBalance: bal }))
+          );
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[AppContext] Failed to load persisted state:", msg);
@@ -618,6 +666,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const connectWallet = useCallback(async (address: string): Promise<{ error?: string }> => {
+    const trimmed = address.trim();
+    if (!isValidSolanaAddress(trimmed)) {
+      return { error: "Invalid Solana address. Please check and try again." };
+    }
+    try {
+      await AsyncStorage.setItem(CONNECTED_WALLET_KEY, trimmed);
+      setState((prev) => ({ ...prev, connectedWalletAddress: trimmed, solBalance: 0 }));
+      fetchSolBalance(trimmed).then((bal) =>
+        setState((prev) => ({ ...prev, solBalance: bal }))
+      );
+      return {};
+    } catch (err) {
+      console.error("[AppContext] Failed to save connected wallet:", err);
+      return { error: "Failed to save wallet address." };
+    }
+  }, []);
+
+  const disconnectWallet = useCallback(async () => {
+    await AsyncStorage.removeItem(CONNECTED_WALLET_KEY);
+    setState((prev) => ({ ...prev, connectedWalletAddress: null, solBalance: 0 }));
+  }, []);
+
   const panicWipe = useCallback(async () => {
     try {
       await Promise.all([
@@ -643,6 +714,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dataUsed: 2.4,
       dataLimit: 10,
       stripeEmail: null,
+      connectedWalletAddress: null,
+      solBalance: 0,
     });
   }, []);
 
@@ -667,6 +740,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setDisappearTimer,
         panicWipe,
         setStripeEmail,
+        connectWallet,
+        disconnectWallet,
         loaded,
       }}
     >
