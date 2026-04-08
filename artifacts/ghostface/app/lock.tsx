@@ -211,6 +211,9 @@ export default function LockScreen() {
           }, 650);
         }
       } catch {
+        // Intentionally count errors as failed attempts: treating a
+        // checkPin() exception as "unknown outcome" could be exploited
+        // to bypass the wipe threshold by repeatedly triggering errors.
         setError(true);
         shake();
         const newCount = await recordFailure();
@@ -331,13 +334,6 @@ export default function LockScreen() {
       letterSpacing: 2,
       textAlign: "center",
     },
-    wipeWarningCount: {
-      color: colors.destructive,
-      fontSize: 22,
-      fontWeight: "900" as const,
-      letterSpacing: 1,
-      marginTop: 2,
-    },
     biometricBtn: {
       marginTop: 28,
       flexDirection: "row",
@@ -446,9 +442,8 @@ export default function LockScreen() {
           {showWipeWarning && (
             <View style={styles.wipeWarning} testID="wipe-warning">
               <Text style={styles.wipeWarningText}>
-                ATTEMPTS REMAINING BEFORE DATA WIPE
+                {remaining} {remaining === 1 ? "ATTEMPT" : "ATTEMPTS"} REMAINING BEFORE DATA WIPE
               </Text>
-              <Text style={styles.wipeWarningCount}>{remaining}</Text>
             </View>
           )}
 
