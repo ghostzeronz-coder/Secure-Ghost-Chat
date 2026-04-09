@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import React, { useRef, useState } from "react";
 
 import {
+  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Animated,
@@ -33,13 +34,47 @@ export default function SettingsScreen() {
     alias,
     biometricEnabled,
     stripeEmail,
+    autoLockTimeout,
     setBiometricEnabled,
     setPin,
     setLocked,
     panicWipe,
     setStripeEmail,
+    setAutoLockTimeout,
   } = useApp();
 
+  const AUTO_LOCK_OPTIONS: { label: string; value: number | null }[] = [
+    { label: "30 SECONDS", value: 30 * 1000 },
+    { label: "1 MINUTE", value: 60 * 1000 },
+    { label: "5 MINUTES", value: 5 * 60 * 1000 },
+    { label: "15 MINUTES", value: 15 * 60 * 1000 },
+    { label: "NEVER", value: null },
+  ];
+
+  const currentAutoLockLabel =
+    AUTO_LOCK_OPTIONS.find((o) => o.value === autoLockTimeout)?.label ?? "5 MINUTES";
+
+  const handleAutoLockPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...AUTO_LOCK_OPTIONS.map((o) => o.label), "CANCEL"],
+          cancelButtonIndex: AUTO_LOCK_OPTIONS.length,
+          title: "AUTO-LOCK TIMEOUT",
+        },
+        (idx) => {
+          if (idx < AUTO_LOCK_OPTIONS.length) {
+            setAutoLockTimeout(AUTO_LOCK_OPTIONS[idx].value);
+          }
+        }
+      );
+    } else {
+      setShowAutoLock(true);
+    }
+  };
+
+  const [showAutoLock, setShowAutoLock] = useState(false);
   const [showPinChange, setShowPinChange] = useState(false);
   const [newPin, setNewPin] = useState("");
   const [newPinConfirm, setNewPinConfirm] = useState("");
@@ -416,6 +451,21 @@ export default function SettingsScreen() {
               testID="biometric-switch"
             />
           </View>
+          <View style={styles.settingDivider} />
+          <Pressable
+            style={styles.settingRow}
+            onPress={handleAutoLockPress}
+            testID="auto-lock-row"
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons name="timer-outline" size={18} color={colors.primary} />
+            </View>
+            <Text style={styles.settingLabel}>AUTO-LOCK</Text>
+            <Text style={{ color: colors.primary, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
+              {currentAutoLockLabel}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </Pressable>
         </View>
 
         <Text style={styles.sectionLabel}>APPEARANCE</Text>
@@ -493,6 +543,43 @@ export default function SettingsScreen() {
 
         <View style={styles.padBottom} />
       </ScrollView>
+
+      <Modal
+        visible={showAutoLock}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAutoLock(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowAutoLock(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>AUTO-LOCK TIMEOUT</Text>
+              {AUTO_LOCK_OPTIONS.map((opt) => (
+                <Pressable
+                  key={String(opt.value)}
+                  style={[
+                    styles.settingRow,
+                    { paddingHorizontal: 0, paddingVertical: 14 },
+                  ]}
+                  onPress={() => {
+                    setAutoLockTimeout(opt.value);
+                    setShowAutoLock(false);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                >
+                  <Text style={[styles.settingLabel, { flex: 1, fontSize: 12 }]}>{opt.label}</Text>
+                  {opt.value === autoLockTimeout && (
+                    <Ionicons name="checkmark" size={18} color={colors.primary} />
+                  )}
+                </Pressable>
+              ))}
+              <Pressable style={styles.cancelBtn} onPress={() => setShowAutoLock(false)}>
+                <Text style={styles.cancelText}>CANCEL</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={showPinChange}

@@ -95,6 +95,7 @@ interface AppState {
   stripeEmail: string | null;
   connectedWalletAddress: string | null;
   solBalance: number;
+  autoLockTimeout: number | null;
 }
 
 interface AppContextType extends AppState {
@@ -117,6 +118,7 @@ interface AppContextType extends AppState {
   setStripeEmail: (email: string | null) => Promise<void>;
   connectWallet: (address: string) => Promise<{ error?: string }>;
   disconnectWallet: () => Promise<void>;
+  setAutoLockTimeout: (ms: number | null) => Promise<void>;
   loaded: boolean;
 }
 
@@ -241,6 +243,7 @@ const OPK_STORE_KEY = "ghostface_opk_store";
 const OPK_BATCH_SIZE = 10;
 const DEVICE_TOKEN_KEY = "ghostface_device_token";
 const CONTACT_IDENTITY_STORE_KEY = "ghostface_contact_identity_store";
+const AUTO_LOCK_TIMEOUT_KEY = "ghostface_auto_lock_timeout";
 const APP_STORAGE_KEYS = [
   "alias",
   "isOnboarded",
@@ -250,6 +253,7 @@ const APP_STORAGE_KEYS = [
   CONNECTED_WALLET_KEY,
   OPK_STORE_KEY,
   CONTACT_IDENTITY_STORE_KEY,
+  AUTO_LOCK_TIMEOUT_KEY,
 ] as const;
 
 function getApiBase(): string {
@@ -604,12 +608,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     stripeEmail: null,
     connectedWalletAddress: null,
     solBalance: 0,
+    autoLockTimeout: 5 * 60 * 1000,
   });
 
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet] = await Promise.all([
+        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
@@ -617,6 +622,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(CONVERSATIONS_KEY),
           AsyncStorage.getItem(STRIPE_EMAIL_KEY),
           AsyncStorage.getItem(CONNECTED_WALLET_KEY),
+          AsyncStorage.getItem(AUTO_LOCK_TIMEOUT_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -641,6 +647,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           isValidDRSession(c.drSession) ? c : { ...c, drSession: initSession() }
         );
 
+        let autoLockTimeout: number | null = 5 * 60 * 1000;
+        if (autoLockRaw === "null") {
+          autoLockTimeout = null;
+        } else if (autoLockRaw !== null) {
+          const parsed = parseInt(autoLockRaw, 10);
+          if (!isNaN(parsed)) autoLockTimeout = parsed;
+        }
+
         setHasPin(hasPinValue);
         setState((prev) => ({
           ...prev,
@@ -651,6 +665,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           conversations,
           stripeEmail: stripeEmailVal,
           connectedWalletAddress: connectedWallet ?? null,
+          autoLockTimeout,
         }));
 
         // Fetch SOL balance in background after state is set
@@ -772,6 +787,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setLocked = useCallback((locked: boolean) => {
     setState((prev) => ({ ...prev, isLocked: locked }));
+  }, []);
+
+  const setAutoLockTimeout = useCallback(async (ms: number | null) => {
+    try {
+      await AsyncStorage.setItem(AUTO_LOCK_TIMEOUT_KEY, ms === null ? "null" : String(ms));
+      setState((prev) => ({ ...prev, autoLockTimeout: ms }));
+    } catch (err) {
+      console.error("[AppContext] Failed to save autoLockTimeout:", err);
+      throw err;
+    }
   }, []);
 
   const connectVPN = useCallback((server: VPNServer) => {
@@ -1098,6 +1123,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       stripeEmail: null,
       connectedWalletAddress: null,
       solBalance: 0,
+      autoLockTimeout: 5 * 60 * 1000,
     });
   }, []);
 
@@ -1124,6 +1150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setStripeEmail,
         connectWallet,
         disconnectWallet,
+        setAutoLockTimeout,
         loaded,
       }}
     >
