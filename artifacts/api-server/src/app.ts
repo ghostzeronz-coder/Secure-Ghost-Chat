@@ -55,4 +55,6 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
+app.get("/admin", (_req, res) => res.redirect("/api/admin"));
+
 export default app;
