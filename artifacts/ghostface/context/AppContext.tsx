@@ -17,11 +17,24 @@ import {
 } from "@/lib/crypto";
 import {
   initSession,
+  initSessionFromBundle,
+  generateOneTimePreKeys,
   ratchetEncrypt,
   ratchetDecrypt,
   isValidDRSession,
   type DRSession,
+  type OneTimePreKey,
+  type PreKeyBundle,
 } from "@/lib/doubleRatchet";
+import { x25519 } from "@noble/curves/ed25519";
+import { randomBytes } from "@noble/hashes/utils";
+
+function generateHexKeypair(): { pub: string; priv: string } {
+  const priv = randomBytes(32);
+  const pub  = x25519.getPublicKey(priv);
+  const toHex = (b: Uint8Array) => Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
+  return { pub: toHex(pub), priv: toHex(priv) };
+}
 
 export interface Message {
   id: string;
@@ -95,7 +108,7 @@ interface AppContextType extends AppState {
   connectVPN: (server: VPNServer) => void;
   disconnectVPN: () => void;
   sendMessage: (conversationId: string, text: string) => void;
-  addConversation: (alias: string) => void;
+  addConversation: (alias: string) => Promise<void>;
   deleteMessage: (conversationId: string, messageId: string) => void;
   clearConversation: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => void;
@@ -224,6 +237,10 @@ const SECURE_PIN_KEY = "ghostface_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
 const STRIPE_EMAIL_KEY = "stripeEmail";
 const CONNECTED_WALLET_KEY = "ghostface_connected_wallet";
+const OPK_STORE_KEY = "ghostface_opk_store";
+const OPK_BATCH_SIZE = 10;
+const DEVICE_TOKEN_KEY = "ghostface_device_token";
+const CONTACT_IDENTITY_STORE_KEY = "ghostface_contact_identity_store";
 const APP_STORAGE_KEYS = [
   "alias",
   "isOnboarded",
@@ -231,10 +248,303 @@ const APP_STORAGE_KEYS = [
   CONVERSATIONS_KEY,
   STRIPE_EMAIL_KEY,
   CONNECTED_WALLET_KEY,
+  OPK_STORE_KEY,
+  CONTACT_IDENTITY_STORE_KEY,
 ] as const;
+
+function getApiBase(): string {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (!domain) return "";
+  return `https://${domain}/api`;
+}
 
 function isValidSolanaAddress(addr: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr.trim());
+}
+
+/**
+ * Load the local OPK private-key store from AsyncStorage.
+ * The store is a map of { publicKeyHex: privateKeyHex } for unused OPKs.
+ */
+async function loadOPKStore(): Promise<Record<string, string>> {
+  try {
+    const raw = await AsyncStorage.getItem(OPK_STORE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+async function saveOPKStore(store: Record<string, string>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(OPK_STORE_KEY, JSON.stringify(store));
+  } catch (err) {
+    console.warn("[OPK] Failed to save OPK store:", err);
+  }
+}
+
+/**
+ * Contact identity store: maps contactAlias → { ikPriv, ikPub, spkPriv, spkPub }.
+ * Populated when we simulate registration for a contact in the single-device demo.
+ */
+interface ContactIdentity {
+  ikPub:  string;
+  ikPriv: string;
+  spkPub: string;
+  spkPriv: string;
+}
+
+async function loadContactIdentityStore(): Promise<Record<string, ContactIdentity>> {
+  try {
+    const raw = await AsyncStorage.getItem(CONTACT_IDENTITY_STORE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, ContactIdentity>;
+  } catch {
+    return {};
+  }
+}
+
+async function saveContactIdentityStore(store: Record<string, ContactIdentity>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(CONTACT_IDENTITY_STORE_KEY, JSON.stringify(store));
+  } catch (err) {
+    console.warn("[IK] Failed to save contact identity store:", err);
+  }
+}
+
+/**
+ * Register a user's identity with the server.
+ * Generates IK + SPK, uploads to server, stores device token.
+ * Returns the device token or null on failure.
+ */
+async function registerWithServer(
+  userId: string,
+): Promise<{ token: string; ikPriv: string; spkPriv: string } | null> {
+  const apiBase = getApiBase();
+  if (!apiBase) return null;
+  try {
+    const ik  = generateHexKeypair();
+    const spk = generateHexKeypair();
+
+    const res = await fetch(`${apiBase}/prekeys/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId,
+        ikPublicKey:  ik.pub,
+        spkPublicKey: spk.pub,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      console.warn("[REGISTER] Server registration failed:", err.error ?? res.status);
+      return null;
+    }
+
+    const data = await res.json() as { token: string; userId: string };
+    console.log(`[REGISTER] Registered ${userId} with server`);
+    return { token: data.token, ikPriv: ik.priv, spkPriv: spk.priv };
+  } catch (err) {
+    console.warn("[REGISTER] Failed to register with server:", err);
+    return null;
+  }
+}
+
+/**
+ * Simulate registration for a contact (demo only).
+ * Generates their IK + SPK + OPKs, uploads them, and stores private keys locally.
+ * Returns the contact identity record or null on failure.
+ */
+async function registerContactForSimulation(
+  contactAlias: string,
+): Promise<ContactIdentity | null> {
+  const apiBase = getApiBase();
+  if (!apiBase) return null;
+  try {
+    const ik  = generateHexKeypair();
+    const spk = generateHexKeypair();
+
+    const res = await fetch(`${apiBase}/prekeys/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId:       contactAlias,
+        ikPublicKey:  ik.pub,
+        spkPublicKey: spk.pub,
+      }),
+    });
+
+    const identity: ContactIdentity = { ikPub: ik.pub, ikPriv: ik.priv, spkPub: spk.pub, spkPriv: spk.priv };
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      // Already registered is OK — reload from local store if possible
+      if (res.status === 409) {
+        const store = await loadContactIdentityStore();
+        return store[contactAlias] ?? null;
+      }
+      console.warn("[REGISTER] Contact registration failed:", err.error ?? res.status);
+      return null;
+    }
+
+    const data = await res.json() as { token: string };
+    const contactToken = data.token;
+
+    // Upload initial OPKs on behalf of contact (authenticated with their token)
+    const opks = generateOneTimePreKeys(OPK_BATCH_SIZE);
+    const opkStore = await loadOPKStore();
+    for (const opk of opks) {
+      opkStore[opk.pub] = opk.priv;
+    }
+    await saveOPKStore(opkStore);
+
+    await fetch(`${apiBase}/prekeys/${encodeURIComponent(contactAlias)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${contactToken}`,
+      },
+      body: JSON.stringify({ keys: opks.map((k) => k.pub) }),
+    });
+
+    // Store contact's identity (both halves — demo only)
+    const idStore = await loadContactIdentityStore();
+    idStore[contactAlias] = identity;
+    await saveContactIdentityStore(idStore);
+
+    console.log(`[REGISTER] Simulated registration for contact ${contactAlias}`);
+    return identity;
+  } catch (err) {
+    console.warn("[REGISTER] Failed to register contact:", contactAlias, err);
+    return null;
+  }
+}
+
+/**
+ * Generate a batch of OPKs, save private keys locally, and upload public keys
+ * to the server with device-token authentication.
+ */
+async function generateAndUploadOPKs(userId: string, deviceToken: string): Promise<void> {
+  const apiBase = getApiBase();
+  if (!apiBase) return;
+  try {
+    const opks = generateOneTimePreKeys(OPK_BATCH_SIZE);
+    const store = await loadOPKStore();
+    for (const opk of opks) {
+      store[opk.pub] = opk.priv;
+    }
+    await saveOPKStore(store);
+
+    const res = await fetch(`${apiBase}/prekeys/${encodeURIComponent(userId)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${deviceToken}`,
+      },
+      body: JSON.stringify({ keys: opks.map((k) => k.pub) }),
+    });
+    if (res.ok) {
+      console.log(`[OPK] Uploaded ${opks.length} OPKs for ${userId}`);
+    } else {
+      console.warn(`[OPK] Upload returned ${res.status} for ${userId}`);
+    }
+  } catch (err) {
+    console.warn("[OPK] Failed to upload OPKs:", err);
+  }
+}
+
+/**
+ * Check whether the user's OPK supply is low and replenish if needed.
+ */
+async function replenishOPKsIfNeeded(userId: string, deviceToken: string): Promise<void> {
+  const apiBase = getApiBase();
+  if (!apiBase) return;
+  try {
+    const res = await fetch(`${apiBase}/prekeys/${encodeURIComponent(userId)}/count`, {
+      headers: { "Authorization": `Bearer ${deviceToken}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json() as { remaining: number; lowSupply: boolean };
+    if (data.lowSupply) {
+      await generateAndUploadOPKs(userId, deviceToken);
+    }
+  } catch {
+    // Non-critical — silently ignore
+  }
+}
+
+/**
+ * Fetch the full X3DH prekey bundle for a contact from the server.
+ * Atomically consumes one OPK (4-DH) if available, or returns IK+SPK only (3-DH fallback).
+ * Also retrieves contact's private identity keys from the local demo store.
+ *
+ * Demo simulation note:
+ *   In a real Signal deployment, the server returns only public keys and Alice
+ *   never sees Bob's private keys.  In this single-device demo we generated Bob's
+ *   keys locally and stored both halves, so we can compute both sides of the X3DH
+ *   handshake to verify correctness.
+ */
+async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | null> {
+  const apiBase = getApiBase();
+  if (!apiBase) return null;
+  try {
+    const bundleRes = await fetch(`${apiBase}/prekeys/${encodeURIComponent(contactAlias)}/bundle`);
+    if (!bundleRes.ok) {
+      console.warn("[BUNDLE] Bundle fetch failed:", bundleRes.status);
+      return null;
+    }
+    const data = await bundleRes.json() as {
+      ikPublicKey:  string;
+      spkPublicKey: string;
+      opk:          string | null;
+      remaining:    number;
+      lowSupply:    boolean;
+    };
+
+    // Alice uses the OPK public key for her DH4 computation — no private key needed.
+    // 3-DH fallback only when server returns opk: null (Bob exhausted his OPK supply).
+    const opkPublicKey = data.opk ?? null;
+
+    // Demo simulation: retrieve OPK private key from local store if available.
+    // This is only used so Bob's side of the X3DH can be locally verified.
+    let opkPrivKey: string | undefined;
+    if (opkPublicKey) {
+      const opkStore = await loadOPKStore();
+      opkPrivKey = opkStore[opkPublicKey];
+      if (opkPrivKey) {
+        delete opkStore[opkPublicKey];
+        await saveOPKStore(opkStore);
+      } else {
+        console.warn("[BUNDLE] OPK returned but private key not in local demo store (simulation only):", opkPublicKey);
+      }
+    }
+
+    // Retrieve contact's private identity keys for the demo simulation
+    const idStore  = await loadContactIdentityStore();
+    const identity = idStore[contactAlias];
+
+    const bundle: PreKeyBundle = {
+      ikPublicKey:  data.ikPublicKey,
+      spkPublicKey: data.spkPublicKey,
+      opkPublicKey,
+      ikPrivKey:    identity?.ikPriv,
+      spkPrivKey:   identity?.spkPriv,
+      opkPrivKey,
+    };
+
+    console.log(
+      opkPublicKey
+        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias}${opkPrivKey ? " (simulation keys available)" : " (no simulation privkey)"}`
+        : `[BUNDLE] 3-DH bundle fetched for ${contactAlias} (no OPKs remaining on server)`,
+    );
+
+    return bundle;
+  } catch (err) {
+    console.warn("[BUNDLE] Failed to fetch bundle for contact:", contactAlias, err);
+    return null;
+  }
 }
 
 async function fetchSolBalance(address: string): Promise<number> {
@@ -349,6 +659,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setState((prev) => ({ ...prev, solBalance: bal }))
           );
         }
+
+        // Replenish OPKs in the background if returning user's supply is low
+        if (alias && onboarded === "true") {
+          (async () => {
+            try {
+              const token = await secureGet(DEVICE_TOKEN_KEY);
+              if (token) {
+                await replenishOPKsIfNeeded(alias, token);
+              }
+            } catch {
+              // Non-critical
+            }
+          })();
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[AppContext] Failed to load persisted state:", msg);
@@ -393,6 +717,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await AsyncStorage.setItem("alias", alias);
       await AsyncStorage.setItem("isOnboarded", "true");
       setState((prev) => ({ ...prev, alias, isOnboarded: true, isLocked: false }));
+      // Register with server and upload initial OPK batch in the background
+      (async () => {
+        try {
+          const existing = await secureGet(DEVICE_TOKEN_KEY);
+          if (!existing) {
+            const reg = await registerWithServer(alias);
+            if (reg) {
+              await secureSet(DEVICE_TOKEN_KEY, reg.token);
+              await generateAndUploadOPKs(alias, reg.token);
+            }
+          } else {
+            await generateAndUploadOPKs(alias, existing);
+          }
+        } catch (e) {
+          console.warn("[AppContext] Background registration failed:", e);
+        }
+      })();
     } catch (err) {
       console.error("[AppContext] Failed to save alias:", err);
       throw err;
@@ -506,7 +847,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             try {
               const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, text);
               const { state: newBob } = ratchetDecrypt(drSession.bob, msg);
-              updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: msg.header };
+              updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: msg.header, usedOPK: drSession.usedOPK ?? false };
               aliceMsg = msg;
               break;
             } catch (e) {
@@ -575,7 +916,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               try {
                 const { state: newBob, message: msg } = ratchetEncrypt(drSession.bob, replyText);
                 const { state: newAlice } = ratchetDecrypt(drSession.alice, msg);
-                updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: null };
+                updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: null, usedOPK: drSession.usedOPK ?? false };
                 bobMsg = msg;
                 break;
               } catch (e) {
@@ -621,12 +962,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addConversation = useCallback(
-    (alias: string) => {
+    async (alias: string) => {
+      const aliasUpper = alias.toUpperCase();
+
+      // Step 1: Ensure contact is registered on server (demo: we simulate their device)
+      // This uploads their IK, SPK, and initial OPK batch.
+      await registerContactForSimulation(aliasUpper);
+
+      // Step 2: Fetch the full prekey bundle for the contact from server.
+      // The bundle includes: IK.pub, SPK.pub, and optionally an OPK (atomically consumed).
+      // Also loads the contact's private keys from local demo store for symmetric verification.
+      const bundle = await fetchContactBundle(aliasUpper);
+
+      // Step 3: Initiate the X3DH session.
+      // With bundle: use server-provided IK/SPK/OPK (4-DH if OPK present, else 3-DH).
+      // Without bundle: fall back to fully local initSession (no server involved).
+      let drSession;
+      let usedOPK = false;
+      if (bundle) {
+        drSession = initSessionFromBundle(bundle);
+        usedOPK = !!(bundle.opkPublicKey);
+        console.log(
+          `[X3DH] ${usedOPK ? "4-DH" : "3-DH"} session initiated with ${aliasUpper} using server bundle`,
+        );
+      } else {
+        drSession = initSession();
+        console.log(`[X3DH] Server unavailable — using local 3-DH for ${aliasUpper}`);
+      }
+
       setState((prev) => {
         const id = `${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-        const aliasUpper = alias.toUpperCase();
         const safetyNumber = generateSafetyNumber(prev.alias ?? "GHOST_USER", aliasUpper);
-        const drSession = initSession();
         const newConv: Conversation = {
           id,
           alias: aliasUpper,
@@ -637,7 +1003,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           drSession,
           messages: [
             buildMessage(
-              "Double Ratchet E2EE channel established. X3DH key exchange complete.",
+              usedOPK
+                ? "Double Ratchet E2EE channel established. X3DH key exchange complete (4-DH with one-time prekey)."
+                : "Double Ratchet E2EE channel established. X3DH key exchange complete.",
               false,
               id,
               aliasUpper,
@@ -648,6 +1016,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         persistConversations(updated);
         return { ...prev, conversations: updated };
       });
+
+      // Step 4: Replenish OPKs for ourselves in the background if supply is low
+      (async () => {
+        try {
+          const token = await secureGet(DEVICE_TOKEN_KEY);
+          const currentAlias = (await AsyncStorage.getItem("alias")) ?? "";
+          if (token && currentAlias) {
+            await replenishOPKsIfNeeded(currentAlias, token);
+          }
+        } catch {
+          // Non-critical
+        }
+      })();
     },
     [persistConversations]
   );
@@ -694,6 +1075,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await Promise.all([
         ...APP_STORAGE_KEYS.map((k) => AsyncStorage.removeItem(k)),
         secureDelete(SECURE_PIN_KEY),
+        secureDelete(DEVICE_TOKEN_KEY),
       ]);
     } catch (err) {
       console.error("[AppContext] Panic wipe storage error:", err);
