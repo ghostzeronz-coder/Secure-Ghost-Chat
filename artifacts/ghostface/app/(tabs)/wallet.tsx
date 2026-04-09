@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -50,6 +51,7 @@ export default function WalletScreen() {
   const [showSend, setShowSend] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
+  const [showDeploy, setShowDeploy] = useState(false);
   const [sendAmount, setSendAmount] = useState("");
   const [sendAddress, setSendAddress] = useState("");
   const [sent, setSent] = useState(false);
@@ -57,6 +59,19 @@ export default function WalletScreen() {
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState("");
   const [disconnecting, setDisconnecting] = useState(false);
+
+  // Deploy token state
+  const [deployName, setDeployName] = useState("");
+  const [deploySymbol, setDeploySymbol] = useState("");
+  const [deployDecimals, setDeployDecimals] = useState("9");
+  const [deploySupply, setDeploySupply] = useState("1000000");
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState("");
+  const [deployResult, setDeployResult] = useState<{
+    mintAddress: string;
+    explorerUrl: string;
+    symbol: string;
+  } | null>(null);
 
   const handleCopy = async () => {
     await Clipboard.setStringAsync(walletAddress);
@@ -83,6 +98,51 @@ export default function WalletScreen() {
       setSendAmount("");
       setSendAddress("");
     }, 2000);
+  };
+
+  const handleDeploy = async () => {
+    if (!deployName.trim() || !deploySymbol.trim()) {
+      setDeployError("Token name and symbol are required.");
+      return;
+    }
+    setDeploying(true);
+    setDeployError("");
+    setDeployResult(null);
+    try {
+      const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
+      const res = await fetch(`${API_BASE}/wallet/deploy-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: deployName.trim(),
+          symbol: deploySymbol.trim().toUpperCase(),
+          decimals: parseInt(deployDecimals) || 9,
+          supply: parseInt(deploySupply) || 1_000_000,
+          mintAuthority: connectedWalletAddress || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Deployment failed");
+      setDeployResult({
+        mintAddress: data.mintAddress,
+        explorerUrl: data.explorerUrl,
+        symbol: data.symbol,
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      setDeployError(err.message || "Token deployment failed. Try again.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setDeploying(false);
+    }
+  };
+
+  const [copiedMint, setCopiedMint] = useState(false);
+  const handleCopyMint = async (addr: string) => {
+    await Clipboard.setStringAsync(addr);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setCopiedMint(true);
+    setTimeout(() => setCopiedMint(false), 2000);
   };
 
   const handleConnect = async () => {
@@ -531,6 +591,134 @@ export default function WalletScreen() {
       marginBottom: 16,
       backgroundColor: colors.muted,
     },
+
+    // ── Deploy token styles ──────────────────────────────
+    deployCard: {
+      marginHorizontal: 20,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: "rgba(153,69,255,0.35)",
+      padding: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 14,
+    },
+    deployCardIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: "rgba(153,69,255,0.12)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    deployCardContent: {
+      flex: 1,
+    },
+    deployCardTitle: {
+      color: "#9945FF",
+      fontSize: 11,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    deployCardSub: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 1,
+      marginTop: 2,
+    },
+    deployBtn: {
+      backgroundColor: "#9945FF",
+      borderRadius: colors.radius,
+      paddingVertical: 14,
+      alignItems: "center",
+      flexDirection: "row" as const,
+      justifyContent: "center",
+      gap: 8,
+      marginBottom: 8,
+    },
+    deployBtnText: {
+      color: "#FFFFFF",
+      fontSize: 12,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    deployRow: {
+      flexDirection: "row" as const,
+      gap: 10,
+      marginBottom: 8,
+    },
+    deployInputHalf: {
+      flex: 1,
+      backgroundColor: colors.muted,
+      color: colors.foreground,
+      fontSize: 12,
+      letterSpacing: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: colors.radius,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    mintBox: {
+      width: "100%",
+      backgroundColor: "rgba(153,69,255,0.07)",
+      borderWidth: 1,
+      borderColor: "rgba(153,69,255,0.35)",
+      borderRadius: colors.radius,
+      padding: 14,
+      gap: 10,
+      marginBottom: 8,
+    },
+    mintLabel: {
+      color: "#9945FF",
+      fontSize: 9,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    mintAddressRow: {
+      flexDirection: "row" as const,
+      alignItems: "center",
+      gap: 10,
+    },
+    mintAddress: {
+      flex: 1,
+      color: colors.foreground,
+      fontSize: 11,
+      fontFamily: "monospace",
+      letterSpacing: 1,
+    },
+    mintCopyBtn: {
+      flexDirection: "row" as const,
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: "#9945FF",
+      borderRadius: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    mintCopyBtnText: {
+      color: "#fff",
+      fontSize: 9,
+      fontWeight: "800" as const,
+      letterSpacing: 1,
+    },
+    explorerBtn: {
+      flexDirection: "row" as const,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 10,
+      borderWidth: 1,
+      borderColor: "rgba(153,69,255,0.4)",
+      borderRadius: colors.radius,
+    },
+    explorerBtnText: {
+      color: "#9945FF",
+      fontSize: 11,
+      fontWeight: "700" as const,
+      letterSpacing: 2,
+    },
   });
 
   return (
@@ -729,6 +917,33 @@ export default function WalletScreen() {
           </View>
         ))}
 
+        {/* ── DEPLOY TOKEN ────────────────────────────────── */}
+        <Text style={styles.txSectionLabel}>TOKEN DEPLOYMENT</Text>
+        <Pressable
+          style={({ pressed }) => [styles.deployCard, { opacity: pressed ? 0.8 : 1 }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setDeployError("");
+            setDeployResult(null);
+            setDeployName("");
+            setDeploySymbol("");
+            setDeployDecimals("9");
+            setDeploySupply("1000000");
+            setShowDeploy(true);
+          }}
+        >
+          <View style={styles.deployCardIcon}>
+            <Ionicons name="rocket-outline" size={20} color="#9945FF" />
+          </View>
+          <View style={styles.deployCardContent}>
+            <Text style={styles.deployCardTitle}>DEPLOY SPL TOKEN</Text>
+            <Text style={styles.deployCardSub}>
+              Create a new token on Solana mainnet
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color="#9945FF" />
+        </Pressable>
+
         <View style={styles.padBottom} />
       </ScrollView>
 
@@ -861,6 +1076,139 @@ export default function WalletScreen() {
               <Pressable style={[styles.cancelBtn, { marginTop: 8 }]} onPress={() => setShowReceive(false)}>
                 <Text style={styles.cancelText}>CLOSE</Text>
               </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ── DEPLOY TOKEN MODAL ───────────────────────────── */}
+      <Modal
+        visible={showDeploy}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDeploy(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => !deploying && setShowDeploy(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              {deployResult ? (
+                <>
+                  <Text style={styles.successText}>TOKEN DEPLOYED</Text>
+                  <Text style={[styles.modalSubtitle, { textAlign: "center" }]}>
+                    Your {deployResult.symbol} token is live on Solana mainnet
+                  </Text>
+                  <View style={styles.mintBox}>
+                    <Text style={styles.mintLabel}>MINT ADDRESS</Text>
+                    <View style={styles.mintAddressRow}>
+                      <Text style={styles.mintAddress} numberOfLines={1} ellipsizeMode="middle">
+                        {deployResult.mintAddress}
+                      </Text>
+                      <Pressable
+                        style={styles.mintCopyBtn}
+                        onPress={() => handleCopyMint(deployResult.mintAddress)}
+                      >
+                        <Ionicons
+                          name={copiedMint ? "checkmark" : "copy-outline"}
+                          size={11}
+                          color="#fff"
+                        />
+                        <Text style={styles.mintCopyBtnText}>
+                          {copiedMint ? "COPIED" : "COPY"}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  <Pressable
+                    style={styles.explorerBtn}
+                    onPress={() => Linking.openURL(deployResult.explorerUrl)}
+                  >
+                    <Ionicons name="open-outline" size={14} color="#9945FF" />
+                    <Text style={styles.explorerBtnText}>VIEW ON SOLSCAN</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.cancelBtn, { marginTop: 12 }]}
+                    onPress={() => setShowDeploy(false)}
+                  >
+                    <Text style={styles.cancelText}>CLOSE</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.modalTitle}>DEPLOY SPL TOKEN</Text>
+                  <Text style={styles.modalSubtitle}>
+                    Create a new token on Solana mainnet.
+                    {connectedWalletAddress
+                      ? " Your linked wallet will be set as mint authority."
+                      : " The server deployer will hold mint authority."}
+                  </Text>
+
+                  <View style={styles.deployRow}>
+                    <TextInput
+                      style={[styles.deployInputHalf, { flex: 2 }]}
+                      value={deployName}
+                      onChangeText={(t) => { setDeployName(t); setDeployError(""); }}
+                      placeholder="Token Name"
+                      placeholderTextColor={colors.mutedForeground}
+                      autoCorrect={false}
+                    />
+                    <TextInput
+                      style={styles.deployInputHalf}
+                      value={deploySymbol}
+                      onChangeText={(t) => { setDeploySymbol(t.toUpperCase()); setDeployError(""); }}
+                      placeholder="SYMBOL"
+                      placeholderTextColor={colors.mutedForeground}
+                      autoCorrect={false}
+                      autoCapitalize="characters"
+                    />
+                  </View>
+
+                  <View style={styles.deployRow}>
+                    <TextInput
+                      style={styles.deployInputHalf}
+                      value={deployDecimals}
+                      onChangeText={setDeployDecimals}
+                      placeholder="Decimals"
+                      placeholderTextColor={colors.mutedForeground}
+                      keyboardType="number-pad"
+                    />
+                    <TextInput
+                      style={[styles.deployInputHalf, { flex: 2 }]}
+                      value={deploySupply}
+                      onChangeText={setDeploySupply}
+                      placeholder="Initial Supply"
+                      placeholderTextColor={colors.mutedForeground}
+                      keyboardType="number-pad"
+                    />
+                  </View>
+
+                  {deployError ? (
+                    <Text style={styles.errorText}>{deployError}</Text>
+                  ) : null}
+
+                  <Pressable
+                    style={[styles.deployBtn, deploying && { opacity: 0.6 }]}
+                    onPress={handleDeploy}
+                    disabled={deploying}
+                  >
+                    {deploying ? (
+                      <ActivityIndicator size="small" color="#FFF" />
+                    ) : (
+                      <Ionicons name="rocket" size={14} color="#FFF" />
+                    )}
+                    <Text style={styles.deployBtnText}>
+                      {deploying ? "DEPLOYING..." : "DEPLOY TOKEN"}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.cancelBtn}
+                    onPress={() => setShowDeploy(false)}
+                    disabled={deploying}
+                  >
+                    <Text style={styles.cancelText}>CANCEL</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           </Pressable>
         </Pressable>
