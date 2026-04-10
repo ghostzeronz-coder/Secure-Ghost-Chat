@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -29,7 +29,9 @@ function formatTime(ts: number): string {
 function formatExpiry(expiresAt: number): string {
   const secsLeft = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
   if (secsLeft < 60) return `${secsLeft}s`;
-  return `${Math.floor(secsLeft / 60)}m`;
+  if (secsLeft < 3600) return `${Math.floor(secsLeft / 60)}m`;
+  if (secsLeft < 86400) return `${Math.floor(secsLeft / 3600)}h`;
+  return `${Math.floor(secsLeft / 86400)}d`;
 }
 
 const DISAPPEAR_OPTIONS = [
@@ -38,6 +40,7 @@ const DISAPPEAR_OPTIONS = [
   { label: "5m", value: 300 },
   { label: "1h", value: 3600 },
   { label: "24h", value: 86400 },
+  { label: "7d", value: 604800 },
 ];
 
 export default function ChatScreen() {
@@ -48,9 +51,18 @@ export default function ChatScreen() {
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
+  const [, setTick] = useState(0);
   const listRef = useRef<FlatList>(null);
 
   const conv = conversations.find((c) => c.id === id);
+
+  // Tick every second when a disappear timer is active — keeps countdown badges live
+  useEffect(() => {
+    if (!conv?.disappearAfterSec) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv?.id, conv?.disappearAfterSec]);
 
   if (!conv) {
     return (
@@ -114,6 +126,21 @@ export default function ChatScreen() {
     headerAlias: { color: colors.foreground, fontSize: 14, fontWeight: "800", letterSpacing: 3 },
     headerSub: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
     headerSubText: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 2 },
+    headerTimerBadge: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      gap: 2,
+      backgroundColor: `${colors.destructive}20`,
+      borderRadius: 4,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+    },
+    headerTimerTxt: {
+      fontSize: 8,
+      fontWeight: "800" as const,
+      letterSpacing: 1,
+      color: colors.destructive,
+    },
     headerActions: { flexDirection: "row", gap: 12, alignItems: "center" },
     encBanner: {
       paddingHorizontal: 16,
@@ -279,6 +306,14 @@ export default function ChatScreen() {
             <Text style={styles.headerSubText}>
               {conv.drSession ? "DOUBLE RATCHET · X3DH · CHACHA20" : "SECURE · CHACHA20-POLY1305"}
             </Text>
+            {conv.disappearAfterSec && (
+              <View style={styles.headerTimerBadge}>
+                <Ionicons name="timer-outline" size={8} color={colors.destructive} />
+                <Text style={styles.headerTimerTxt}>
+                  {currentDisappear.label}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
         <View style={styles.headerActions}>
