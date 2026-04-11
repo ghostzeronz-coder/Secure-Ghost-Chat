@@ -656,3 +656,167 @@ export function isValidDRSession(session: unknown): session is DRSession {
   const s = session as Record<string, unknown>;
   return isValidRatchetState(s.alice) && isValidRatchetState(s.bob);
 }
+
+// ── Real multi-device X3DH ────────────────────────────────────────────────────
+
+/**
+ * X3DH header included in the very first message of a conversation.
+ * The sender (Alice) embeds her long-term IK public key, a fresh ephemeral
+ * public key, and optionally the one-time prekey ID she consumed, so the
+ * recipient (Bob) can independently derive the same shared secret using only
+ * his own private keys.
+ *
+ * This is the standard Signal "PreKeySignalMessage" header.
+ * Only needed for the first message — subsequent messages use the DR header.
+ */
+export interface X3DHHeader {
+  ikA:   string;  // Alice's IK public key (hex, 64 chars)
+  ekA:   string;  // Alice's ephemeral public key for this session (hex, 64 chars)
+  opkId?: string; // Bob's OPK public key that was consumed (hex, 64 chars). Null → 3-DH.
+}
+
+/**
+ * Initiate a real X3DH session from Alice's side.
+ *
+ * Uses Alice's stored long-term IK keypair (not re-generated).  Generates a fresh
+ * ephemeral key EK for this session.  Computes the shared secret SK using only
+ * Bob's PUBLIC keys from the prekey bundle (protocol-correct: no private keys cross
+ * the wire to the server).
+ *
+ * Returns:
+ *   session.alice — Alice's properly initialised DR state ready for ratchetEncrypt
+ *   session.bob   — stub only (Bob's real state lives on Bob's device)
+ *   x3dhHeader    — must be included in the first message payload so Bob can init
+ *
+ * ALL further DR operations on Alice's device use session.alice.
+ * Convention: drSession.alice always holds the CURRENT DEVICE's ratchet state.
+ */
+export function initSessionAliceWithHeader(
+  bundle: PreKeyBundle,
+  myIKPriv: string,
+  myIKPub:  string,
+): { session: DRSession; x3dhHeader: X3DHHeader } {
+  const IK_A: DHKeyPair = { priv: fromHex(myIKPriv), pub: fromHex(myIKPub) };
+  const EK_A = generateDH();
+
+  const ikBPub  = fromHex(bundle.ikPublicKey);
+  const spkBPub = fromHex(bundle.spkPublicKey);
+  const opkBPub: Uint8Array | undefined = bundle.opkPublicKey
+    ? fromHex(bundle.opkPublicKey)
+    : undefined;
+
+  const SK = x3dhShared(
+    dhCompute(IK_A, spkBPub),
+    dhCompute(EK_A, ikBPub),
+    dhCompute(EK_A, spkBPub),
+    opkBPub ? dhCompute(EK_A, opkBPub) : undefined,
+  );
+
+  const aliceDHs = generateDH();
+  const { rk: aliceRK, ck: aliceCKs } = kdfRk(SK, dhCompute(aliceDHs, spkBPub));
+
+  const aliceState: RatchetState = {
+    DHs: aliceDHs,
+    DHr: spkBPub,
+    RK:  aliceRK,
+    CKs: aliceCKs,
+    CKr: null,
+    Ns: 0, Nr: 0, PN: 0,
+    MKSKIPPED: new Map(),
+    step: 0,
+  };
+
+  const bobStub: RatchetState = {
+    DHs: generateDH(),
+    DHr: null,
+    RK:  SK,
+    CKs: null,
+    CKr: null,
+    Ns: 0, Nr: 0, PN: 0,
+    MKSKIPPED: new Map(),
+    step: 0,
+  };
+
+  const session: DRSession = {
+    alice:           serializeState(aliceState),
+    bob:             serializeState(bobStub),
+    lastAliceHeader: null,
+    usedOPK:         !!opkBPub,
+  };
+
+  const x3dhHeader: X3DHHeader = {
+    ikA:   myIKPub,
+    ekA:   toHex(EK_A.pub),
+    opkId: bundle.opkPublicKey ?? undefined,
+  };
+
+  return { session, x3dhHeader };
+}
+
+/**
+ * Set up Bob's DR session from an incoming X3DH header (the first message Alice sends).
+ *
+ * Bob uses his own stored private keys (IK, SPK, optionally OPK) to derive the
+ * same shared secret SK that Alice computed without either party exchanging private keys.
+ *
+ * Returns a DRSession where session.alice holds BOB'S initialised ratchet state.
+ * Convention: drSession.alice is always the CURRENT DEVICE's state, whether initiator
+ * or responder.  Callers should use ratchetDecrypt(drSession.alice, ...) to process
+ * Alice's first message immediately after calling this.
+ */
+export function initSessionBobFromHeader(
+  x3dhHeader: X3DHHeader,
+  bobIKPriv: string,
+  bobIKPub:  string,
+  bobSPKPriv: string,
+  bobSPKPub:  string,
+  opkPriv?:   string,
+): DRSession {
+  const IK_B:  DHKeyPair = { priv: fromHex(bobIKPriv),  pub: fromHex(bobIKPub)  };
+  const SPK_B: DHKeyPair = { priv: fromHex(bobSPKPriv), pub: fromHex(bobSPKPub) };
+
+  const ikAPub  = fromHex(x3dhHeader.ikA);
+  const ekAPub  = fromHex(x3dhHeader.ekA);
+  const opkPub: Uint8Array | undefined = x3dhHeader.opkId
+    ? fromHex(x3dhHeader.opkId)
+    : undefined;
+  const opkKP: DHKeyPair | undefined = (opkPriv && opkPub)
+    ? { priv: fromHex(opkPriv), pub: opkPub }
+    : undefined;
+
+  const SK = x3dhShared(
+    dhCompute(SPK_B, ikAPub),
+    dhCompute(IK_B,  ekAPub),
+    dhCompute(SPK_B, ekAPub),
+    opkKP ? dhCompute(opkKP, ekAPub) : undefined,
+  );
+
+  const bobState: RatchetState = {
+    DHs: SPK_B,
+    DHr: null,
+    RK:  SK,
+    CKs: null,
+    CKr: null,
+    Ns: 0, Nr: 0, PN: 0,
+    MKSKIPPED: new Map(),
+    step: 0,
+  };
+
+  const aliceStub: RatchetState = {
+    DHs: generateDH(),
+    DHr: null,
+    RK:  SK,
+    CKs: null,
+    CKr: null,
+    Ns: 0, Nr: 0, PN: 0,
+    MKSKIPPED: new Map(),
+    step: 0,
+  };
+
+  return {
+    alice:           serializeState(bobState),
+    bob:             serializeState(aliceStub),
+    lastAliceHeader: null,
+    usedOPK:         !!opkPub,
+  };
+}

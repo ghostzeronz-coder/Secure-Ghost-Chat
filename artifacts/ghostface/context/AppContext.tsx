@@ -18,6 +18,8 @@ import {
 import {
   initSession,
   initSessionFromBundle,
+  initSessionAliceWithHeader,
+  initSessionBobFromHeader,
   generateOneTimePreKeys,
   ratchetEncrypt,
   ratchetDecrypt,
@@ -25,6 +27,8 @@ import {
   type DRSession,
   type OneTimePreKey,
   type PreKeyBundle,
+  type X3DHHeader,
+  type RatchetMessage,
 } from "@/lib/doubleRatchet";
 import { x25519 } from "@noble/curves/ed25519";
 import { randomBytes } from "@noble/hashes/utils";
@@ -58,6 +62,8 @@ export interface Conversation {
   disappearAfterSec?: number;
   safetyNumber?: string;
   drSession?: DRSession;
+  pendingX3DHHeader?: string;
+  isRealContact?: boolean;
 }
 
 export interface Transaction {
@@ -109,7 +115,7 @@ interface AppContextType extends AppState {
   connectVPN: (server: VPNServer) => void;
   disconnectVPN: () => void;
   sendMessage: (conversationId: string, text: string) => void;
-  addConversation: (alias: string) => Promise<void>;
+  addConversation: (alias: string) => Promise<{ isReal: boolean }>;
   deleteMessage: (conversationId: string, messageId: string) => void;
   clearConversation: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => void;
@@ -244,6 +250,10 @@ const OPK_BATCH_SIZE = 10;
 const DEVICE_TOKEN_KEY = "ghostface_device_token";
 const CONTACT_IDENTITY_STORE_KEY = "ghostface_contact_identity_store";
 const AUTO_LOCK_TIMEOUT_KEY = "ghostface_auto_lock_timeout";
+const MY_IK_PRIV_KEY = "ghostface_my_ik_priv";
+const MY_IK_PUB_KEY = "ghostface_my_ik_pub";
+const MY_SPK_PRIV_KEY = "ghostface_my_spk_priv";
+const MY_SPK_PUB_KEY = "ghostface_my_spk_pub";
 const APP_STORAGE_KEYS = [
   "alias",
   "isOnboarded",
@@ -324,7 +334,7 @@ async function saveContactIdentityStore(store: Record<string, ContactIdentity>):
  */
 async function registerWithServer(
   userId: string,
-): Promise<{ token: string; ikPriv: string; spkPriv: string } | null> {
+): Promise<{ token: string; ikPriv: string; ikPub: string; spkPriv: string; spkPub: string } | null> {
   const apiBase = getApiBase();
   if (!apiBase) return null;
   try {
@@ -349,7 +359,7 @@ async function registerWithServer(
 
     const data = await res.json() as { token: string; userId: string };
     console.log(`[REGISTER] Registered ${userId} with server`);
-    return { token: data.token, ikPriv: ik.priv, spkPriv: spk.priv };
+    return { token: data.token, ikPriv: ik.priv, ikPub: ik.pub, spkPriv: spk.priv, spkPub: spk.pub };
   } catch (err) {
     console.warn("[REGISTER] Failed to register with server:", err);
     return null;
@@ -727,12 +737,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const wsRef = React.useRef<WebSocket | null>(null);
+  const latestStateRef = React.useRef(state);
+  useEffect(() => { latestStateRef.current = state; }, [state]);
+
   const setAlias = useCallback(async (alias: string) => {
     try {
       await AsyncStorage.setItem("alias", alias);
       await AsyncStorage.setItem("isOnboarded", "true");
       setState((prev) => ({ ...prev, alias, isOnboarded: true, isLocked: false }));
-      // Register with server and upload initial OPK batch in the background
       (async () => {
         try {
           const existing = await secureGet(DEVICE_TOKEN_KEY);
@@ -740,6 +753,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const reg = await registerWithServer(alias);
             if (reg) {
               await secureSet(DEVICE_TOKEN_KEY, reg.token);
+              await secureSet(MY_IK_PRIV_KEY, reg.ikPriv);
+              await secureSet(MY_IK_PUB_KEY, reg.ikPub);
+              await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
+              await secureSet(MY_SPK_PUB_KEY, reg.spkPub);
               await generateAndUploadOPKs(alias, reg.token);
             }
           } else {
@@ -851,45 +868,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const sendMessage = useCallback(
     (conversationId: string, text: string) => {
-      // Encrypt with Double Ratchet (if session available) or fall back to
-      // the legacy sealed-sender path.  Both Alice-send and Bob-advance happen
-      // inside the setState callback to always read the latest persisted state.
-      setState((prev) => {
-        const conv = prev.conversations.find((c) => c.id === conversationId);
-        if (!conv) return prev;
+      const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
+      if (!conv) return;
 
-        const myAlias = prev.alias ?? "GHOST_USER";
-        let newMsg: Message;
-        let updatedDRSession = conv.drSession;
+      const myAlias = latestStateRef.current.alias ?? "GHOST_USER";
+      const isRealContact = conv.isRealContact ?? false;
 
-        if (conv.drSession) {
-          // Double Ratchet path — no legacy fallback.  If the ratchet fails,
-          // reinitialise the session rather than downgrading to weaker keying.
-          let drSession = conv.drSession;
-          let aliceMsg: import("@/lib/doubleRatchet").RatchetMessage | undefined;
-          let attempts = 0;
-          while (attempts < 2) {
-            try {
-              const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, text);
+      let aliceMsg: RatchetMessage | undefined;
+      let updatedDRSession = conv.drSession;
+
+      if (conv.drSession) {
+        let drSession = conv.drSession;
+        let attempts = 0;
+        while (attempts < 2) {
+          try {
+            const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, text);
+            if (isRealContact) {
+              updatedDRSession = { ...drSession, alice: newAlice, lastAliceHeader: msg.header };
+            } else {
               const { state: newBob } = ratchetDecrypt(drSession.bob, msg);
               updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: msg.header, usedOPK: drSession.usedOPK ?? false };
-              aliceMsg = msg;
-              break;
-            } catch (e) {
-              console.error(`[DR] Encrypt attempt ${attempts + 1} failed:`, e);
-              drSession = initSession();
-              attempts += 1;
             }
+            aliceMsg = msg;
+            break;
+          } catch (e) {
+            console.error(`[DR] Encrypt attempt ${attempts + 1} failed:`, e);
+            drSession = initSession();
+            attempts += 1;
           }
-          if (!aliceMsg) {
-            // Both attempts failed — abort send rather than use legacy keying
-            console.error("[DR] Aborting send: could not encrypt with DR after reinit");
-            return prev;
-          }
-          const expiresAt = conv.disappearAfterSec
-            ? Date.now() + conv.disappearAfterSec * 1000
-            : undefined;
-          newMsg = {
+        }
+        if (!aliceMsg) {
+          console.error("[DR] Aborting send: could not encrypt with DR after reinit");
+          return;
+        }
+      }
+
+      const expiresAt = conv.disappearAfterSec
+        ? Date.now() + conv.disappearAfterSec * 1000
+        : undefined;
+
+      const newMsg: Message = conv.drSession && aliceMsg
+        ? {
             id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
             text,
             fromMe: true,
@@ -899,89 +918,106 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ciphertext: aliceMsg.ciphertext,
             fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`,
             expiresAt,
-          };
-        } else {
-          newMsg = buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec);
-        }
+          }
+        : buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec);
 
+      const headerToSend = conv.pendingX3DHHeader;
+
+      setState((prev) => {
         const updated = prev.conversations.map((c) =>
           c.id === conversationId
-            ? { ...c, messages: [...c.messages, newMsg!], lastMessage: text, timestamp: Date.now(), unread: 0, drSession: updatedDRSession }
+            ? {
+                ...c,
+                messages: [...c.messages, newMsg],
+                lastMessage: text,
+                timestamp: Date.now(),
+                unread: 0,
+                drSession: updatedDRSession,
+                pendingX3DHHeader: isRealContact ? undefined : c.pendingX3DHHeader,
+              }
             : c
         );
         persistConversations(updated);
         return { ...prev, conversations: updated };
       });
 
-      // Simulated encrypted reply (Bob → Alice ratchet step)
-      const delay = 1500 + Math.random() * 1000;
-      const REPLY_POOL = [
-        "Understood. Signal secure.",
-        "Roger. Transmission encrypted.",
-        "Copy. Awaiting further instructions.",
-        "Confirmed. No trace detected.",
-        "Acknowledged. Channel open.",
-      ];
-      const replyText = REPLY_POOL[Math.floor(Math.random() * REPLY_POOL.length)];
+      if (isRealContact && aliceMsg) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: "msg",
+            to: conv.alias,
+            payload: JSON.stringify(aliceMsg),
+            x3dhHeader: headerToSend,
+          }));
+        } else {
+          console.warn("[WS] Not connected — message sent to state but not delivered over WS");
+        }
+      } else if (!isRealContact) {
+        const delay = 1500 + Math.random() * 1000;
+        const REPLY_POOL = [
+          "Understood. Signal secure.",
+          "Roger. Transmission encrypted.",
+          "Copy. Awaiting further instructions.",
+          "Confirmed. No trace detected.",
+          "Acknowledged. Channel open.",
+        ];
+        const replyText = REPLY_POOL[Math.floor(Math.random() * REPLY_POOL.length)];
+        setTimeout(() => {
+          setState((prev) => {
+            const c2 = prev.conversations.find((c) => c.id === conversationId);
+            if (!c2) return prev;
 
-      setTimeout(() => {
-        setState((prev) => {
-          const conv = prev.conversations.find((c) => c.id === conversationId);
-          if (!conv) return prev;
+            let replyMsg: Message;
+            let updSess = c2.drSession;
 
-          let replyMsg: Message;
-          let updatedDRSession = conv.drSession;
-
-          if (conv.drSession) {
-            // Double Ratchet reply path — no legacy fallback.
-            let drSession = conv.drSession;
-            let bobMsg: import("@/lib/doubleRatchet").RatchetMessage | undefined;
-            let attempts = 0;
-            while (attempts < 2) {
-              try {
-                const { state: newBob, message: msg } = ratchetEncrypt(drSession.bob, replyText);
-                const { state: newAlice } = ratchetDecrypt(drSession.alice, msg);
-                updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: null, usedOPK: drSession.usedOPK ?? false };
-                bobMsg = msg;
-                break;
-              } catch (e) {
-                console.error(`[DR] Reply attempt ${attempts + 1} failed:`, e);
-                drSession = initSession();
-                attempts += 1;
+            if (c2.drSession) {
+              let ds = c2.drSession;
+              let bobMsg: RatchetMessage | undefined;
+              let att = 0;
+              while (att < 2) {
+                try {
+                  const { state: newBob, message: msg } = ratchetEncrypt(ds.bob, replyText);
+                  const { state: newAlice } = ratchetDecrypt(ds.alice, msg);
+                  updSess = { alice: newAlice, bob: newBob, lastAliceHeader: null, usedOPK: ds.usedOPK ?? false };
+                  bobMsg = msg;
+                  break;
+                } catch (e) {
+                  console.error(`[DR] Reply attempt ${att + 1} failed:`, e);
+                  ds = initSession();
+                  att += 1;
+                }
               }
+              if (!bobMsg) {
+                console.error("[DR] Aborting reply: could not encrypt with DR after reinit");
+                return prev;
+              }
+              const exp = c2.disappearAfterSec ? Date.now() + c2.disappearAfterSec * 1000 : undefined;
+              replyMsg = {
+                id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+                text: replyText,
+                fromMe: false,
+                timestamp: Date.now(),
+                encrypted: true,
+                sealed: true,
+                ciphertext: bobMsg.ciphertext,
+                fingerprint: `DR:${bobMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+                expiresAt: exp,
+              };
+            } else {
+              replyMsg = buildMessage(replyText, false, conversationId, c2.alias ?? "GHOST", c2.disappearAfterSec);
             }
-            if (!bobMsg) {
-              // Both attempts failed — skip the reply entirely rather than downgrade
-              console.error("[DR] Aborting reply: could not encrypt with DR after reinit");
-              return prev;
-            }
-            const expiresAt = conv.disappearAfterSec
-              ? Date.now() + conv.disappearAfterSec * 1000
-              : undefined;
-            replyMsg = {
-              id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-              text: replyText,
-              fromMe: false,
-              timestamp: Date.now(),
-              encrypted: true,
-              sealed: true,
-              ciphertext: bobMsg.ciphertext,
-              fingerprint: `DR:${bobMsg.ciphertext.slice(0, 8).toUpperCase()}`,
-              expiresAt,
-            };
-          } else {
-            replyMsg = buildMessage(replyText, false, conversationId, conv.alias ?? "GHOST", conv.disappearAfterSec);
-          }
 
-          const updated = prev.conversations.map((c) =>
-            c.id === conversationId
-              ? { ...c, messages: [...c.messages, replyMsg!], lastMessage: replyText, timestamp: Date.now(), drSession: updatedDRSession }
-              : c
-          );
-          persistConversations(updated);
-          return { ...prev, conversations: updated };
-        });
-      }, delay);
+            const updated = prev.conversations.map((c) =>
+              c.id === conversationId
+                ? { ...c, messages: [...c.messages, replyMsg!], lastMessage: replyText, timestamp: Date.now(), drSession: updSess }
+                : c
+            );
+            persistConversations(updated);
+            return { ...prev, conversations: updated };
+          });
+        }, delay);
+      }
     },
     [persistConversations]
   );
@@ -989,27 +1025,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addConversation = useCallback(
     async (alias: string) => {
       const aliasUpper = alias.toUpperCase();
+      const apiBase = getApiBase();
 
-      // Step 1: Ensure contact is registered on server (demo: we simulate their device)
-      // This uploads their IK, SPK, and initial OPK batch.
-      await registerContactForSimulation(aliasUpper);
+      // Step 1: Check if the user actually exists on the server
+      let userExistsOnServer = false;
+      if (apiBase) {
+        try {
+          const checkRes = await fetch(`${apiBase}/users/exists/${encodeURIComponent(aliasUpper)}`);
+          userExistsOnServer = checkRes.ok;
+        } catch {
+          // Server unreachable — fall back to simulation mode
+        }
+      }
 
-      // Step 2: Fetch the full prekey bundle for the contact from server.
-      // The bundle includes: IK.pub, SPK.pub, and optionally an OPK (atomically consumed).
-      // Also loads the contact's private keys from local demo store for symmetric verification.
-      const bundle = await fetchContactBundle(aliasUpper);
+      let bundle: PreKeyBundle | null = null;
+
+      if (userExistsOnServer) {
+        // Real user: fetch their actual public prekey bundle (no simulation)
+        bundle = await fetchContactBundle(aliasUpper);
+      } else {
+        // Not found on server — simulate their registration for single-device demo
+        await registerContactForSimulation(aliasUpper);
+        bundle = await fetchContactBundle(aliasUpper);
+      }
 
       // Step 3: Initiate the X3DH session.
-      // With bundle: use server-provided IK/SPK/OPK (4-DH if OPK present, else 3-DH).
-      // Without bundle: fall back to fully local initSession (no server involved).
-      let drSession;
+      // If real user + own keys available → use real X3DH (initSessionAliceWithHeader).
+      // Otherwise → fall back to single-device simulation (initSessionFromBundle / initSession).
+      let drSession: DRSession;
       let usedOPK = false;
-      if (bundle) {
+      let pendingX3DHHeader: string | undefined;
+
+      if (userExistsOnServer && bundle) {
+        // Try real X3DH first (requires own stored IK/SPK private keys)
+        try {
+          const [myIKPriv, myIKPub, mySpkPriv, mySpkPub] = await Promise.all([
+            secureGet(MY_IK_PRIV_KEY),
+            secureGet(MY_IK_PUB_KEY),
+            secureGet(MY_SPK_PRIV_KEY),
+            secureGet(MY_SPK_PUB_KEY),
+          ]);
+
+          if (myIKPriv && myIKPub && mySpkPriv && mySpkPub) {
+            const { session, x3dhHeader } = initSessionAliceWithHeader(bundle, myIKPriv, myIKPub);
+            drSession = session;
+            usedOPK = !!(bundle.opkPublicKey);
+            pendingX3DHHeader = JSON.stringify(x3dhHeader);
+            console.log(`[X3DH] Real ${usedOPK ? "4-DH" : "3-DH"} session initiated with ${aliasUpper}`);
+          } else {
+            // Own keys not yet saved (user registered before this update) — use simulation
+            console.warn("[X3DH] Own private keys not found — falling back to simulation for", aliasUpper);
+            drSession = initSessionFromBundle(bundle);
+            usedOPK = !!(bundle.opkPublicKey);
+          }
+        } catch (e) {
+          console.error("[X3DH] Real session init failed — falling back:", e);
+          drSession = initSessionFromBundle(bundle);
+          usedOPK = !!(bundle.opkPublicKey);
+        }
+      } else if (bundle) {
         drSession = initSessionFromBundle(bundle);
         usedOPK = !!(bundle.opkPublicKey);
-        console.log(
-          `[X3DH] ${usedOPK ? "4-DH" : "3-DH"} session initiated with ${aliasUpper} using server bundle`,
-        );
+        console.log(`[X3DH] ${usedOPK ? "4-DH" : "3-DH"} demo session initiated with ${aliasUpper}`);
       } else {
         drSession = initSession();
         console.log(`[X3DH] Server unavailable — using local 3-DH for ${aliasUpper}`);
@@ -1026,6 +1103,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           unread: 0,
           safetyNumber,
           drSession,
+          isRealContact: userExistsOnServer,
+          pendingX3DHHeader,
           messages: [
             buildMessage(
               usedOPK
@@ -1054,6 +1133,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Non-critical
         }
       })();
+
+      return { isReal: userExistsOnServer };
     },
     [persistConversations]
   );
@@ -1126,6 +1207,223 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       autoLockTimeout: 5 * 60 * 1000,
     });
   }, []);
+
+  const handleIncomingWsMessage = useCallback(async (raw: string) => {
+    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string };
+    try {
+      wsMsg = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    if (wsMsg.type !== "msg" || !wsMsg.from || !wsMsg.payload) return;
+
+    let ratchetMsg: RatchetMessage;
+    try {
+      ratchetMsg = JSON.parse(wsMsg.payload) as RatchetMessage;
+    } catch {
+      console.warn("[WS] Failed to parse ratchet message payload");
+      return;
+    }
+
+    const senderAlias = wsMsg.from.toUpperCase();
+    const currentConversations = latestStateRef.current.conversations;
+    const existing = currentConversations.find((c) => c.alias === senderAlias);
+
+    if (existing) {
+      if (!existing.drSession) return;
+      try {
+        const { state: newAlice, plaintext } = ratchetDecrypt(existing.drSession.alice, ratchetMsg);
+        const newMsgObj: Message = {
+          id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+          text: plaintext,
+          fromMe: false,
+          timestamp: Date.now(),
+          encrypted: true,
+          sealed: true,
+          fingerprint: `DR:${ratchetMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+        };
+        setState((prev) => {
+          const updated = prev.conversations.map((c) =>
+            c.id === existing.id
+              ? {
+                  ...c,
+                  messages: [...c.messages, newMsgObj],
+                  lastMessage: plaintext,
+                  timestamp: Date.now(),
+                  unread: c.unread + 1,
+                  drSession: { ...c.drSession!, alice: newAlice },
+                }
+              : c
+          );
+          persistConversations(updated);
+          return { ...prev, conversations: updated };
+        });
+      } catch (e) {
+        console.error("[DR] Failed to decrypt incoming message from", senderAlias, e);
+      }
+      return;
+    }
+
+    if (!wsMsg.x3dhHeader) {
+      console.warn("[WS] Received message from unknown sender without X3DH header — cannot decrypt", senderAlias);
+      return;
+    }
+
+    let x3dhHeader: X3DHHeader;
+    try {
+      x3dhHeader = JSON.parse(wsMsg.x3dhHeader) as X3DHHeader;
+    } catch {
+      console.warn("[WS] Failed to parse X3DH header from", senderAlias);
+      return;
+    }
+
+    try {
+      const [myIKPriv, myIKPub, mySpkPriv, mySpkPub] = await Promise.all([
+        secureGet(MY_IK_PRIV_KEY),
+        secureGet(MY_IK_PUB_KEY),
+        secureGet(MY_SPK_PRIV_KEY),
+        secureGet(MY_SPK_PUB_KEY),
+      ]);
+
+      if (!myIKPriv || !myIKPub || !mySpkPriv || !mySpkPub) {
+        console.warn("[X3DH] Own private keys not available — cannot init Bob session for", senderAlias);
+        return;
+      }
+
+      let opkPriv: string | undefined;
+      if (x3dhHeader.opkId) {
+        const opkStore = await loadOPKStore();
+        opkPriv = opkStore[x3dhHeader.opkId];
+        if (opkPriv) {
+          delete opkStore[x3dhHeader.opkId];
+          await saveOPKStore(opkStore);
+        }
+      }
+
+      const bobSession = initSessionBobFromHeader(
+        x3dhHeader,
+        myIKPriv,
+        myIKPub,
+        mySpkPriv,
+        mySpkPub,
+        opkPriv,
+      );
+
+      const { state: newAlice, plaintext } = ratchetDecrypt(bobSession.alice, ratchetMsg);
+      const safetyNumber = generateSafetyNumber(latestStateRef.current.alias ?? "GHOST_USER", senderAlias);
+
+      const initMsg: Message = {
+        id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+        text: "Double Ratchet E2EE channel established. Receiving first message.",
+        fromMe: false,
+        timestamp: Date.now() - 1,
+        encrypted: true,
+        sealed: false,
+      };
+      const firstMsg: Message = {
+        id: `${Date.now() + 1}${Math.random().toString(36).substr(2, 9)}`,
+        text: plaintext,
+        fromMe: false,
+        timestamp: Date.now(),
+        encrypted: true,
+        sealed: true,
+        fingerprint: `DR:${ratchetMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+      };
+
+      setState((prev) => {
+        const alreadyExists = prev.conversations.find((c) => c.alias === senderAlias);
+        if (alreadyExists) return prev;
+
+        const id = `${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
+        const newConv: Conversation = {
+          id,
+          alias: senderAlias,
+          lastMessage: plaintext,
+          timestamp: Date.now(),
+          unread: 1,
+          safetyNumber,
+          isRealContact: true,
+          drSession: { ...bobSession, alice: newAlice },
+          messages: [initMsg, firstMsg],
+        };
+        const updated = [newConv, ...prev.conversations];
+        persistConversations(updated);
+        return { ...prev, conversations: updated };
+      });
+
+      console.log(`[X3DH] Bob session established with ${senderAlias} — first message decrypted`);
+    } catch (e) {
+      console.error("[X3DH] Failed to init Bob session or decrypt first message from", senderAlias, e);
+    }
+  }, [persistConversations]);
+
+  useEffect(() => {
+    const alias = state.alias;
+    const isLocked = state.isLocked;
+    const isOnboarded = state.isOnboarded;
+
+    if (!alias || isLocked || !isOnboarded) {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      return;
+    }
+
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let mounted = true;
+
+    async function connect() {
+      const domain = process.env.EXPO_PUBLIC_DOMAIN;
+      if (!domain) return;
+
+      const deviceToken = await secureGet(DEVICE_TOKEN_KEY);
+      if (!deviceToken || !mounted) return;
+
+      try {
+        const wsUrl = `wss://${domain}/ws`;
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "auth", alias, token: deviceToken }));
+          console.log("[WS] Connection opened, authenticating as", alias);
+        };
+
+        ws.onmessage = (event) => {
+          handleIncomingWsMessage(event.data as string).catch(console.error);
+        };
+
+        ws.onerror = (e) => {
+          console.warn("[WS] Error:", e);
+        };
+
+        ws.onclose = () => {
+          console.log("[WS] Connection closed");
+          if (mounted) {
+            reconnectTimer = setTimeout(connect, 5000);
+          }
+        };
+      } catch (e) {
+        console.warn("[WS] Failed to connect:", e);
+        if (mounted) {
+          reconnectTimer = setTimeout(connect, 5000);
+        }
+      }
+    }
+
+    connect();
+
+    return () => {
+      mounted = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [state.alias, state.isLocked, state.isOnboarded, handleIncomingWsMessage]);
 
   return (
     <AppContext.Provider

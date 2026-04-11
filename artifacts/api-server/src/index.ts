@@ -1,7 +1,10 @@
+import { createServer } from "http";
+import { WebSocketServer } from "ws";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./stripeClient";
+import { createWsServer } from "./ws/manager";
 
 const rawPort = process.env["PORT"];
 
@@ -23,12 +26,10 @@ async function initStripe() {
   }
 
   try {
-    // Step 1: run migrations FIRST using a fresh direct connection
     logger.info("Running Stripe DB migrations…");
     await runMigrations({ databaseUrl });
     logger.info("Stripe schema ready");
 
-    // Step 2: NOW create the StripeSync instance (schema must exist first)
     const stripeSync = await getStripeSync();
 
     const domain =
@@ -41,7 +42,6 @@ async function initStripe() {
     await stripeSync.findOrCreateManagedWebhook(webhookUrl);
     logger.info({ webhookUrl }, "Stripe webhook configured");
 
-    // Step 3: kick off backfill async — don't block startup
     stripeSync
       .syncBackfill()
       .then(() => logger.info("Stripe backfill complete"))
@@ -53,10 +53,12 @@ async function initStripe() {
 
 await initStripe();
 
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
+const httpServer = createServer(app);
+
+const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+createWsServer(wss);
+logger.info("WebSocket server attached at /ws");
+
+httpServer.listen(port, () => {
   logger.info({ port }, "Server listening");
 });

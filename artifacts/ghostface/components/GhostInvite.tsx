@@ -76,19 +76,26 @@ export default function GhostInvite() {
     setRedeemInput(formatted);
   };
 
-  const handleRedeem = () => {
+  const handleRedeem = async () => {
     if (!CODE_REGEX.test(redeemInput)) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setRedeemState("error");
       return;
     }
     const alias = deriveAlias(redeemInput);
-    addConversation(alias);
-    setRedeemAlias(alias);
-    setRedeemInput("");
-    setRedeemState("success");
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setTimeout(() => setRedeemState("idle"), 4000);
+    try {
+      const result = await addConversation(alias);
+      setRedeemAlias(alias);
+      setRedeemInput("");
+      setRedeemState(result.isReal ? "success" : "error");
+      Haptics.notificationAsync(
+        result.isReal ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
+      );
+      setTimeout(() => setRedeemState("idle"), 4000);
+    } catch {
+      setRedeemState("error");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
   };
 
   const reset = useCallback((idx?: number) => {

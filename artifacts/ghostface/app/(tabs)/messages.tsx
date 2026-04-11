@@ -61,13 +61,29 @@ export default function MessagesScreen() {
     }
   };
 
-  const handleNewChat = () => {
+  const [addingChat, setAddingChat] = useState(false);
+
+  const handleNewChat = async () => {
     const trimmed = newAlias.trim();
-    if (trimmed.length < 2) return;
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    addConversation(trimmed);
-    setShowNew(false);
-    setNewAlias("");
+    if (trimmed.length < 2 || addingChat) return;
+    setAddingChat(true);
+    try {
+      const result = await addConversation(trimmed);
+      Haptics.notificationAsync(
+        result.isReal ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
+      );
+      if (!result.isReal) {
+        Alert.alert(
+          "User Not Found",
+          `${trimmed.toUpperCase()} is not on GHOSTFACE network. Starting local simulation instead.`,
+          [{ text: "OK" }]
+        );
+      }
+    } finally {
+      setAddingChat(false);
+      setShowNew(false);
+      setNewAlias("");
+    }
   };
 
   const sorted = [...conversations].sort((a, b) => b.timestamp - a.timestamp);
@@ -405,7 +421,14 @@ export default function MessagesScreen() {
                 </View>
                 <View style={styles.itemBody}>
                   <View style={styles.itemTop}>
-                    <Text style={styles.alias}>{item.alias}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
+                      <Text style={styles.alias}>{item.alias}</Text>
+                      {item.isRealContact && (
+                        <View style={{ backgroundColor: colors.success + "22", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                          <Text style={{ color: colors.success, fontSize: 8, fontWeight: "800", letterSpacing: 1.5 }}>LIVE</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.time}>{formatTime(item.timestamp)}</Text>
                   </View>
                   <Text style={styles.preview} numberOfLines={1}>{item.lastMessage}</Text>
@@ -446,11 +469,11 @@ export default function MessagesScreen() {
               />
 
               <Pressable
-                style={[styles.sheetBtn, newAlias.trim().length < 2 && { opacity: 0.38 }]}
+                style={[styles.sheetBtn, (newAlias.trim().length < 2 || addingChat) && { opacity: 0.38 }]}
                 onPress={handleNewChat}
-                disabled={newAlias.trim().length < 2}
+                disabled={newAlias.trim().length < 2 || addingChat}
               >
-                <Text style={styles.sheetBtnTxt}>ESTABLISH CHANNEL</Text>
+                <Text style={styles.sheetBtnTxt}>{addingChat ? "SEARCHING…" : "ESTABLISH CHANNEL"}</Text>
               </Pressable>
 
               <Pressable style={styles.cancelBtn} onPress={() => setShowNew(false)}>
