@@ -20,6 +20,7 @@
       "minimumOsVersion": "16.0",
       "infoPlist": {
         "NSFaceIDUsageDescription": "GHOSTFACE uses Face ID to protect your private messages and identity with biometric authentication.",
+        "NSCameraUsageDescription": "GHOSTFACE uses the camera to scan QR codes and add secure contacts.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "privacyManifests": {
@@ -44,7 +45,8 @@
       "permissions": [
         "android.permission.USE_BIOMETRIC",
         "android.permission.INTERNET",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -59,6 +61,12 @@
       ],
       "expo-font",
       "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "GHOSTFACE uses the camera to scan QR codes and add secure contacts."
+        }
+      ],
       [
         "expo-local-authentication",
         {

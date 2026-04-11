@@ -55,9 +55,9 @@ await initStripe();
 
 const httpServer = createServer(app);
 
-const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+const wss = new WebSocketServer({ server: httpServer, path: "/api/ws" });
 createWsServer(wss);
-logger.info("WebSocket server attached at /ws");
+logger.info("WebSocket server attached at /api/ws");
 
 httpServer.listen(port, () => {
   logger.info({ port }, "Server listening");

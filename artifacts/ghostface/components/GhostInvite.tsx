@@ -13,6 +13,7 @@ import {
 import QRCode from "react-native-qrcode-svg";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { QRScanner, encodeContactQR } from "@/components/QRScanner";
 
 const TIMER_OPTIONS = [
   { label: "10 MIN", ms: 10 * 60 * 1000 },
@@ -50,7 +51,8 @@ function deriveAlias(code: string): string {
 
 export default function GhostInvite() {
   const colors = useColors();
-  const { addConversation } = useApp();
+  const { addConversation, alias: myAlias } = useApp();
+  const [showScanner, setShowScanner] = useState(false);
   const [code, setCode] = useState(genCode);
   const [timerIdx, setTimerIdx] = useState(0);
   const [expiresAt, setExpiresAt] = useState(() => Date.now() + TIMER_OPTIONS[0].ms);
@@ -344,11 +346,89 @@ export default function GhostInvite() {
       fontWeight: "700",
       letterSpacing: 2,
     },
+    myQrCard: {
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      alignItems: "center",
+      padding: 24,
+      gap: 14,
+    },
+    myQrAlias: {
+      color: colors.primary,
+      fontSize: 20,
+      fontWeight: "800",
+      letterSpacing: 6,
+    },
+    myQrSub: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 2,
+      textAlign: "center",
+    },
+    scanBtn: {
+      backgroundColor: colors.primary,
+      borderRadius: colors.radius,
+      paddingVertical: 14,
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 8,
+    },
+    scanBtnTxt: {
+      color: colors.primaryForeground,
+      fontSize: 12,
+      fontWeight: "800",
+      letterSpacing: 3,
+    },
   });
 
+  const handleQRScan = async (alias: string) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const result = await addConversation(alias);
+    setRedeemAlias(alias);
+    setRedeemState(result.isReal ? "success" : "error");
+    setTimeout(() => setRedeemState("idle"), 4000);
+  };
+
   return (
+    <>
+    <QRScanner
+      visible={showScanner}
+      onClose={() => setShowScanner(false)}
+      onScan={handleQRScan}
+    />
     <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
       <View style={styles.content}>
+
+        {/* My QR code */}
+        {myAlias && (
+          <View>
+            <Text style={styles.sectionLabel}>MY GHOST QR CODE</Text>
+            <View style={styles.myQrCard}>
+              <View style={{ padding: 12, backgroundColor: "#FFFFFF", borderRadius: 8 }}>
+                <QRCode
+                  value={encodeContactQR(myAlias)}
+                  size={180}
+                  color="#000000"
+                  backgroundColor="#FFFFFF"
+                />
+              </View>
+              <Text style={styles.myQrAlias}>{myAlias}</Text>
+              <Text style={styles.myQrSub}>Let others scan this to add you instantly</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Scan button */}
+        <Pressable
+          style={styles.scanBtn}
+          onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowScanner(true); }}
+        >
+          <Ionicons name="qr-code-outline" size={18} color={colors.primaryForeground} />
+          <Text style={styles.scanBtnTxt}>SCAN THEIR QR CODE</Text>
+        </Pressable>
 
         {/* QR card */}
         <View>
@@ -503,5 +583,6 @@ export default function GhostInvite() {
 
       </View>
     </ScrollView>
+    </>
   );
 }

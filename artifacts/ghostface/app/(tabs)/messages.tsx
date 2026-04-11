@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import EncryptionTools from "@/components/EncryptionTools";
 import GhostInvite from "@/components/GhostInvite";
+import { QRScanner } from "@/components/QRScanner";
 import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
@@ -62,6 +63,25 @@ export default function MessagesScreen() {
   };
 
   const [addingChat, setAddingChat] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+
+  const handleQRScan = async (alias: string) => {
+    setShowScanner(false);
+    setAddingChat(true);
+    try {
+      const result = await addConversation(alias);
+      Haptics.notificationAsync(
+        result.isReal ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
+      );
+      if (!result.isReal) {
+        Alert.alert("User Not Found", `${alias} is not on GHOSTFACE network. Starting local simulation instead.`, [{ text: "OK" }]);
+      }
+    } finally {
+      setAddingChat(false);
+      setShowNew(false);
+      setNewAlias("");
+    }
+  };
 
   const handleNewChat = async () => {
     const trimmed = newAlias.trim();
@@ -310,6 +330,11 @@ export default function MessagesScreen() {
 
   return (
     <View style={styles.container}>
+      <QRScanner
+        visible={showScanner}
+        onClose={() => setShowScanner(false)}
+        onScan={handleQRScan}
+      />
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
@@ -453,7 +478,21 @@ export default function MessagesScreen() {
           <Pressable onPress={(e) => e.stopPropagation()}>
             <View style={styles.sheet}>
               <Text style={styles.sheetTitle}>NEW SECURE CHANNEL</Text>
-              <Text style={styles.sheetSub}>Enter the recipient's ghost alias</Text>
+              <Text style={styles.sheetSub}>Scan their QR code or enter alias manually</Text>
+
+              <Pressable
+                style={[styles.sheetBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.primary }]}
+                onPress={() => { setShowNew(false); setTimeout(() => setShowScanner(true), 300); }}
+              >
+                <Ionicons name="qr-code-outline" size={16} color={colors.primary} />
+                <Text style={[styles.sheetBtnTxt, { color: colors.primary }]}>SCAN QR CODE</Text>
+              </Pressable>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+                <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2 }}>OR</Text>
+                <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
+              </View>
 
               <TextInput
                 style={styles.aliasInput}

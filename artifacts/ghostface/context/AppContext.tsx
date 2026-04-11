@@ -1382,7 +1382,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!deviceToken || !mounted) return;
 
       try {
-        const wsUrl = `wss://${domain}/ws`;
+        const wsUrl = `wss://${domain}/api/ws`;
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
