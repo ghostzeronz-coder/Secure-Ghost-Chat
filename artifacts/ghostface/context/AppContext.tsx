@@ -107,10 +107,14 @@ interface AppState {
 
 interface AppContextType extends AppState {
   hasPin: boolean;
+  hasDuressPin: boolean;
   loadError: string | null;
   setAlias: (alias: string) => Promise<void>;
   setPin: (pin: string) => Promise<void>;
   checkPin: (input: string) => Promise<boolean>;
+  checkPinWithDuress: (input: string) => Promise<{ correct: boolean; isDuress: boolean }>;
+  setDuressPin: (pin: string) => Promise<void>;
+  clearDuressPin: () => Promise<void>;
   setBiometricEnabled: (enabled: boolean) => Promise<void>;
   setLocked: (locked: boolean) => void;
   connectVPN: (server: VPNServer) => void;
@@ -243,6 +247,7 @@ const VPN_SERVERS: VPNServer[] = [
 export { VPN_SERVERS };
 
 const SECURE_PIN_KEY = "ghostface_pin";
+const SECURE_DURESS_PIN_KEY = "ghostface_duress_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
 const STRIPE_EMAIL_KEY = "stripeEmail";
 const CONNECTED_WALLET_KEY = "ghostface_connected_wallet";
@@ -602,6 +607,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
+  const [hasDuressPin, setHasDuressPin] = useState(false);
   const [state, setState] = useState<AppState>({
     alias: null,
     deviceToken: null,
@@ -626,9 +632,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
+          secureGet(SECURE_DURESS_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
           AsyncStorage.getItem("isOnboarded"),
           AsyncStorage.getItem(CONVERSATIONS_KEY),
@@ -639,6 +646,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ]);
 
         const hasPinValue = !!pinValue;
+        setHasDuressPin(!!duressValue);
         const biometricOn = biometric === "true";
         const isOnboarded = onboarded === "true";
 
@@ -793,6 +801,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error("[AppContext] Failed to check PIN:", err);
       return false;
+    }
+  }, []);
+
+  const checkPinWithDuress = useCallback(async (input: string): Promise<{ correct: boolean; isDuress: boolean }> => {
+    try {
+      const [stored, duress] = await Promise.all([
+        secureGet(SECURE_PIN_KEY),
+        secureGet(SECURE_DURESS_PIN_KEY),
+      ]);
+      if (stored === input) return { correct: true, isDuress: false };
+      if (duress && duress === input) return { correct: true, isDuress: true };
+      return { correct: false, isDuress: false };
+    } catch (err) {
+      console.error("[AppContext] Failed to check PIN with duress:", err);
+      return { correct: false, isDuress: false };
+    }
+  }, []);
+
+  const setDuressPin = useCallback(async (pin: string) => {
+    try {
+      await secureSet(SECURE_DURESS_PIN_KEY, pin);
+      setHasDuressPin(true);
+    } catch (err) {
+      console.error("[AppContext] Failed to save duress PIN:", err);
+      throw err;
+    }
+  }, []);
+
+  const clearDuressPin = useCallback(async () => {
+    try {
+      await secureDelete(SECURE_DURESS_PIN_KEY);
+      setHasDuressPin(false);
+    } catch (err) {
+      console.error("[AppContext] Failed to clear duress PIN:", err);
+      throw err;
     }
   }, []);
 
@@ -1185,6 +1228,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await Promise.all([
         ...APP_STORAGE_KEYS.map((k) => AsyncStorage.removeItem(k)),
         secureDelete(SECURE_PIN_KEY),
+        secureDelete(SECURE_DURESS_PIN_KEY),
         secureDelete(DEVICE_TOKEN_KEY),
         secureDelete(MY_IK_PRIV_KEY),
         secureDelete(MY_IK_PUB_KEY),
@@ -1195,6 +1239,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error("[AppContext] Panic wipe storage error:", err);
     }
     setHasPin(false);
+    setHasDuressPin(false);
     setState({
       alias: null,
       biometricEnabled: false,
@@ -1438,10 +1483,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         ...state,
         hasPin,
+        hasDuressPin,
         loadError,
         setAlias,
         setPin,
         checkPin,
+        checkPinWithDuress,
+        setDuressPin,
+        clearDuressPin,
         setBiometricEnabled,
         setLocked,
         connectVPN,

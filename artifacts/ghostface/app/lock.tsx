@@ -81,7 +81,7 @@ function shuffleDigits(): string[] {
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { hasPin, biometricEnabled, checkPin, setLocked, panicWipe } = useApp();
+  const { hasPin, biometricEnabled, checkPinWithDuress, setLocked, panicWipe } = useApp();
 
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
@@ -201,13 +201,21 @@ export default function LockScreen() {
       };
 
       try {
-        const correct = await checkPin(next);
+        const { correct, isDuress } = await checkPinWithDuress(next);
         if (correct) {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           await clearFailCount();
           failedAttemptsRef.current = 0;
           setFailedAttempts(0);
-          setLocked(false);
+          if (isDuress) {
+            // Unlock first so the lock screen dismisses identically to a normal
+            // login — a coercer sees the same transition. Wipe fires after the
+            // state update propagates, resetting the app to onboarding.
+            setLocked(false);
+            await panicWipe();
+          } else {
+            setLocked(false);
+          }
         } else {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
           setError(true);
@@ -225,7 +233,7 @@ export default function LockScreen() {
         }
       } catch {
         // Intentionally count errors as failed attempts: treating a
-        // checkPin() exception as "unknown outcome" could be exploited
+        // checkPinWithDuress() exception as "unknown outcome" could be exploited
         // to bypass the wipe threshold by repeatedly triggering errors.
         setError(true);
         shake();

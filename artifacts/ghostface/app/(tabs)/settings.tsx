@@ -33,10 +33,13 @@ export default function SettingsScreen() {
   const {
     alias,
     biometricEnabled,
+    hasDuressPin,
     stripeEmail,
     autoLockTimeout,
     setBiometricEnabled,
     setPin,
+    setDuressPin,
+    clearDuressPin,
     setLocked,
     panicWipe,
     setStripeEmail,
@@ -80,6 +83,12 @@ export default function SettingsScreen() {
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinSaved, setPinSaved] = useState(false);
+
+  const [showDuressPin, setShowDuressPin] = useState(false);
+  const [duressPin, setDuressPinInput] = useState("");
+  const [duressPinConfirm, setDuressPinConfirm] = useState("");
+  const [duressPinError, setDuressPinError] = useState("");
+  const [duressPinSaved, setDuressPinSaved] = useState(false);
 
   const [showBilling, setShowBilling] = useState(false);
   const [billingEmail, setBillingEmail] = useState("");
@@ -167,6 +176,37 @@ export default function SettingsScreen() {
       setNewPinConfirm("");
       setPinError("");
     }, 1500);
+  };
+
+  const handleDuressPinSave = async () => {
+    if (duressPin.length < 4) {
+      setDuressPinError("Minimum 4 digits");
+      return;
+    }
+    if (duressPin !== duressPinConfirm) {
+      setDuressPinError("PINs do not match");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    await setDuressPin(duressPin);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setDuressPinSaved(true);
+    setTimeout(() => {
+      setDuressPinSaved(false);
+      setShowDuressPin(false);
+      setDuressPinInput("");
+      setDuressPinConfirm("");
+      setDuressPinError("");
+    }, 1500);
+  };
+
+  const handleClearDuressPin = async () => {
+    await clearDuressPin();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setShowDuressPin(false);
+    setDuressPinInput("");
+    setDuressPinConfirm("");
+    setDuressPinError("");
   };
 
   const styles = StyleSheet.create({
@@ -454,6 +494,35 @@ export default function SettingsScreen() {
           <View style={styles.settingDivider} />
           <Pressable
             style={styles.settingRow}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setDuressPinInput("");
+              setDuressPinConfirm("");
+              setDuressPinError("");
+              setShowDuressPin(true);
+            }}
+            testID="duress-pin-row"
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons name="skull-outline" size={18} color={colors.destructive} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.settingLabel, { color: colors.destructive }]}>DURESS PIN</Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
+                TRIGGERS SILENT WIPE ON ENTRY
+              </Text>
+            </View>
+            {hasDuressPin ? (
+              <View style={{ backgroundColor: colors.destructive, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 2 }}>ACTIVE</Text>
+              </View>
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+            )}
+          </Pressable>
+          <View style={styles.settingDivider} />
+          <Pressable
+            style={styles.settingRow}
             onPress={handleAutoLockPress}
             testID="auto-lock-row"
           >
@@ -637,6 +706,86 @@ export default function SettingsScreen() {
                   <Pressable
                     style={styles.cancelBtn}
                     onPress={() => setShowPinChange(false)}
+                  >
+                    <Text style={styles.cancelText}>CANCEL</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Duress PIN modal */}
+      <Modal
+        visible={showDuressPin}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDuressPin(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowDuressPin(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              {duressPinSaved ? (
+                <Text style={styles.successText}>DURESS PIN SAVED</Text>
+              ) : (
+                <>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                    <Ionicons name="skull-outline" size={20} color={colors.destructive} />
+                    <Text style={[styles.modalTitle, { color: colors.destructive, marginBottom: 0 }]}>DURESS PIN</Text>
+                  </View>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginBottom: 20, lineHeight: 16 }}>
+                    ENTERING THIS PIN ON THE LOCK SCREEN WILL SILENTLY WIPE ALL DATA — INDISTINGUISHABLE FROM A NORMAL LOGIN
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    value={duressPin}
+                    onChangeText={(t) => { setDuressPinInput(t); setDuressPinError(""); }}
+                    placeholder="DURESS PIN"
+                    placeholderTextColor={colors.mutedForeground}
+                    keyboardType="numeric"
+                    secureTextEntry
+                    maxLength={4}
+                    testID="duress-pin-input"
+                  />
+                  <TextInput
+                    style={styles.input}
+                    value={duressPinConfirm}
+                    onChangeText={(t) => { setDuressPinConfirm(t); setDuressPinError(""); }}
+                    placeholder="CONFIRM DURESS PIN"
+                    placeholderTextColor={colors.mutedForeground}
+                    keyboardType="numeric"
+                    secureTextEntry
+                    maxLength={4}
+                    testID="duress-pin-confirm-input"
+                  />
+                  {duressPinError ? (
+                    <Text style={styles.errorText}>{duressPinError}</Text>
+                  ) : null}
+                  <Pressable
+                    style={[
+                      styles.modalBtn,
+                      { backgroundColor: colors.destructive },
+                      duressPin.length < 4 && { opacity: 0.4 },
+                    ]}
+                    onPress={handleDuressPinSave}
+                    disabled={duressPin.length < 4}
+                    testID="duress-pin-save-btn"
+                  >
+                    <Text style={styles.modalBtnText}>SET DURESS PIN</Text>
+                  </Pressable>
+                  {hasDuressPin && (
+                    <Pressable
+                      style={[styles.modalBtn, { backgroundColor: colors.muted, marginBottom: 4 }]}
+                      onPress={handleClearDuressPin}
+                      testID="duress-pin-clear-btn"
+                    >
+                      <Text style={[styles.modalBtnText, { color: colors.destructive }]}>REMOVE DURESS PIN</Text>
+                    </Pressable>
+                  )}
+                  <Pressable
+                    style={styles.cancelBtn}
+                    onPress={() => setShowDuressPin(false)}
                   >
                     <Text style={styles.cancelText}>CANCEL</Text>
                   </Pressable>
