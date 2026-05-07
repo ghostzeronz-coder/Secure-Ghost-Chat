@@ -30,14 +30,27 @@ import {
   type X3DHHeader,
   type RatchetMessage,
 } from "@/lib/doubleRatchet";
-import { x25519 } from "@noble/curves/ed25519";
+import { x25519, ed25519 } from "@noble/curves/ed25519";
 import { randomBytes } from "@noble/hashes/utils";
+
+const toHex = (b: Uint8Array) => Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
 
 function generateHexKeypair(): { pub: string; priv: string } {
   const priv = randomBytes(32);
   const pub  = x25519.getPublicKey(priv);
-  const toHex = (b: Uint8Array) => Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
   return { pub: toHex(pub), priv: toHex(priv) };
+}
+
+function generateEd25519Keypair(): { pub: string; priv: string } {
+  const priv = randomBytes(32);
+  const pub  = ed25519.getPublicKey(priv);
+  return { pub: toHex(pub), priv: toHex(priv) };
+}
+
+function signSPKLocal(spkPubHex: string, ikSignPrivHex: string): string {
+  const fromHex = (h: string) => Uint8Array.from(h.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+  const sig = ed25519.sign(fromHex(spkPubHex), fromHex(ikSignPrivHex));
+  return toHex(sig);
 }
 
 export interface Message {
@@ -305,14 +318,20 @@ async function saveOPKStore(store: Record<string, string>): Promise<void> {
 }
 
 /**
- * Contact identity store: maps contactAlias → { ikPriv, ikPub, spkPriv, spkPub }.
+ * Contact identity store: maps contactAlias → full identity key material.
  * Populated when we simulate registration for a contact in the single-device demo.
+ *
+ * ikSign* fields: Ed25519 signing key pair (Signal X3DH §2.4).
+ * spkSignature:   Ed25519 signature of spkPub bytes signed by ikSignPriv.
  */
 interface ContactIdentity {
-  ikPub:  string;
-  ikPriv: string;
-  spkPub: string;
-  spkPriv: string;
+  ikPub:        string;
+  ikPriv:       string;
+  spkPub:       string;
+  spkPriv:      string;
+  ikSignPub?:   string;
+  ikSignPriv?:  string;
+  spkSignature?: string;
 }
 
 async function loadContactIdentityStore(): Promise<Record<string, ContactIdentity>> {
@@ -335,25 +354,39 @@ async function saveContactIdentityStore(store: Record<string, ContactIdentity>):
 
 /**
  * Register a user's identity with the server.
- * Generates IK + SPK, uploads to server, stores device token.
- * Returns the device token or null on failure.
+ * Generates IK (X25519 DH) + SPK (X25519 DH) + ikSign (Ed25519 signing).
+ * Signs the SPK with the ikSign private key (Signal X3DH §2.4).
+ * Returns the device token and all key material or null on failure.
  */
 async function registerWithServer(
   userId: string,
-): Promise<{ token: string; ikPriv: string; ikPub: string; spkPriv: string; spkPub: string } | null> {
+): Promise<{
+  token:        string;
+  ikPriv:       string;
+  ikPub:        string;
+  spkPriv:      string;
+  spkPub:       string;
+  ikSignPriv:   string;
+  ikSignPub:    string;
+  spkSignature: string;
+} | null> {
   const apiBase = getApiBase();
   if (!apiBase) return null;
   try {
-    const ik  = generateHexKeypair();
-    const spk = generateHexKeypair();
+    const ik     = generateHexKeypair();
+    const spk    = generateHexKeypair();
+    const ikSign = generateEd25519Keypair();
+    const spkSig = signSPKLocal(spk.pub, ikSign.priv);
 
     const res = await fetch(`${apiBase}/prekeys/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userId,
-        ikPublicKey:  ik.pub,
-        spkPublicKey: spk.pub,
+        ikPublicKey:     ik.pub,
+        spkPublicKey:    spk.pub,
+        ikSignPublicKey: ikSign.pub,
+        spkSignature:    spkSig,
       }),
     });
 
@@ -364,8 +397,17 @@ async function registerWithServer(
     }
 
     const data = await res.json() as { token: string; userId: string };
-    console.log(`[REGISTER] Registered ${userId} with server`);
-    return { token: data.token, ikPriv: ik.priv, ikPub: ik.pub, spkPriv: spk.priv, spkPub: spk.pub };
+    console.log(`[REGISTER] Registered ${userId} with server (SPK signed with Ed25519 IK)`);
+    return {
+      token:        data.token,
+      ikPriv:       ik.priv,
+      ikPub:        ik.pub,
+      spkPriv:      spk.priv,
+      spkPub:       spk.pub,
+      ikSignPriv:   ikSign.priv,
+      ikSignPub:    ikSign.pub,
+      spkSignature: spkSig,
+    };
   } catch (err) {
     console.warn("[REGISTER] Failed to register with server:", err);
     return null;
@@ -383,20 +425,32 @@ async function registerContactForSimulation(
   const apiBase = getApiBase();
   if (!apiBase) return null;
   try {
-    const ik  = generateHexKeypair();
-    const spk = generateHexKeypair();
+    const ik     = generateHexKeypair();
+    const spk    = generateHexKeypair();
+    const ikSign = generateEd25519Keypair();
+    const spkSig = signSPKLocal(spk.pub, ikSign.priv);
 
     const res = await fetch(`${apiBase}/prekeys/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId:       contactAlias,
-        ikPublicKey:  ik.pub,
-        spkPublicKey: spk.pub,
+        userId:          contactAlias,
+        ikPublicKey:     ik.pub,
+        spkPublicKey:    spk.pub,
+        ikSignPublicKey: ikSign.pub,
+        spkSignature:    spkSig,
       }),
     });
 
-    const identity: ContactIdentity = { ikPub: ik.pub, ikPriv: ik.priv, spkPub: spk.pub, spkPriv: spk.priv };
+    const identity: ContactIdentity = {
+      ikPub:        ik.pub,
+      ikPriv:       ik.priv,
+      spkPub:       spk.pub,
+      spkPriv:      spk.priv,
+      ikSignPub:    ikSign.pub,
+      ikSignPriv:   ikSign.priv,
+      spkSignature: spkSig,
+    };
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({})) as { error?: string };
@@ -516,11 +570,13 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
       return null;
     }
     const data = await bundleRes.json() as {
-      ikPublicKey:  string;
-      spkPublicKey: string;
-      opk:          string | null;
-      remaining:    number;
-      lowSupply:    boolean;
+      ikPublicKey:     string;
+      spkPublicKey:    string;
+      opk:             string | null;
+      remaining:       number;
+      lowSupply:       boolean;
+      ikSignPublicKey?: string;
+      spkSignature?:   string;
     };
 
     // Alice uses the OPK public key for her DH4 computation — no private key needed.
@@ -546,18 +602,21 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
     const identity = idStore[contactAlias];
 
     const bundle: PreKeyBundle = {
-      ikPublicKey:  data.ikPublicKey,
-      spkPublicKey: data.spkPublicKey,
+      ikPublicKey:     data.ikPublicKey,
+      spkPublicKey:    data.spkPublicKey,
       opkPublicKey,
-      ikPrivKey:    identity?.ikPriv,
-      spkPrivKey:   identity?.spkPriv,
+      ikSignPublicKey: data.ikSignPublicKey,
+      spkSignature:    data.spkSignature,
+      ikPrivKey:       identity?.ikPriv,
+      spkPrivKey:      identity?.spkPriv,
       opkPrivKey,
     };
 
+    const sigStatus = data.spkSignature ? "✓ SPK signature present" : "⚠ no SPK signature (legacy)";
     console.log(
       opkPublicKey
-        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias}${opkPrivKey ? " (simulation keys available)" : " (no simulation privkey)"}`
-        : `[BUNDLE] 3-DH bundle fetched for ${contactAlias} (no OPKs remaining on server)`,
+        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias} — ${sigStatus}${opkPrivKey ? " (simulation keys available)" : ""}`
+        : `[BUNDLE] 3-DH bundle fetched for ${contactAlias} — ${sigStatus} (no OPKs remaining on server)`,
     );
 
     return bundle;

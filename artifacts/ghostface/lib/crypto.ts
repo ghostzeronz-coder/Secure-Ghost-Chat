@@ -3,7 +3,7 @@
  *
  * Algorithms:
  *   - ChaCha20-Poly1305 (256-bit key, 96-bit managed nonce, AEAD)
- *   - PBKDF2-SHA256 (310,000 iterations) for PIN-derived keys
+ *   - PBKDF2-SHA256 (600,000 iterations) for PIN-derived keys — OWASP 2023 recommendation
  *   - SHA-256 for fingerprints and deterministic demo keys
  *
  * Sealed Sender (Signal-compatible concept)
@@ -17,6 +17,13 @@
  *     → sender identity ("ALICE") is hidden inside the encrypted payload
  *     → only BOB can decrypt and discover the true sender
  *     → server/storage is completely blind to who sent the message
+ *
+ * Safety Numbers
+ * ──────────────
+ *   generateSafetyNumber()         — legacy alias-based (kept for compatibility)
+ *   generateSafetyNumberFromKeys() — cryptographically correct: derived from
+ *                                    both parties' Ed25519 identity signing public keys,
+ *                                    matching Signal's safety number design.
  *
  * All operations run 100% on-device. Nothing leaves the device unencrypted.
  */
@@ -56,10 +63,11 @@ function hexToBytes(hex: string): Uint8Array {
 
 /**
  * Derive a 256-bit session key from a PIN + salt using PBKDF2-SHA256.
- * NIST SP 800-132 compliant — 310,000 iterations.
+ * 600,000 iterations — OWASP 2023 recommendation for PBKDF2-HMAC-SHA256.
+ * Exceeds NIST SP 800-132 minimum and matches modern password hashing guidance.
  */
 export function deriveKeyFromPin(pin: string, salt: Uint8Array): Uint8Array {
-  return pbkdf2(sha256, strToBytes(pin), salt, { c: 310_000, dkLen: 32 });
+  return pbkdf2(sha256, strToBytes(pin), salt, { c: 600_000, dkLen: 32 });
 }
 
 export function generateSalt(): Uint8Array {
@@ -175,18 +183,44 @@ export function messageFingerprint(msg: AnyEncryptedMessage): string {
   return bytesToHex(hash).substring(0, 8).toUpperCase();
 }
 
-// ── Safety number ─────────────────────────────────────────────────────────────
+// ── Safety numbers ────────────────────────────────────────────────────────────
 
 /**
- * Derive a human-readable safety number from two aliases (like Signal).
- * Display in 6 groups of 5 digits for out-of-band verification.
+ * Derive a human-readable safety number from two Ed25519 identity signing public keys.
+ *
+ * Cryptographically correct approach — matches Signal's safety number design:
+ *   - Uses the actual cryptographic identity material (IK signing public keys)
+ *   - Keys are sorted canonically so A↔B and B↔A produce the same number
+ *   - Displayed as 6 groups of 5 digits for out-of-band verification
+ *
+ * Preferred over generateSafetyNumber() when IK public keys are available.
+ */
+export function generateSafetyNumberFromKeys(
+  myIKSignPub: string,
+  theirIKSignPub: string,
+): string {
+  const [keyA, keyB] = [myIKSignPub, theirIKSignPub].sort();
+  const combined = strToBytes(`GHOSTFACE_SAFETY_NUMBER_v2:${keyA}:${keyB}`);
+  const hash = sha256(combined);
+  return Array.from({ length: 6 }, (_, i) => {
+    const slice = hash.slice(i * 5, i * 5 + 5);
+    const num = Array.from(slice).reduce((acc: number, b: number) => acc * 256 + b, 0);
+    return (num % 100000).toString().padStart(5, "0");
+  }).join(" ");
+}
+
+/**
+ * Derive a human-readable safety number from two aliases (legacy).
+ * Kept for backward compatibility — prefer generateSafetyNumberFromKeys()
+ * when Ed25519 identity keys are available, as aliases are not cryptographic
+ * identity material and can be impersonated.
  */
 export function generateSafetyNumber(myAlias: string, theirAlias: string): string {
   const combined = strToBytes(`${myAlias}:${theirAlias}`);
   const hash = sha256(combined);
   return Array.from({ length: 6 }, (_, i) => {
     const slice = hash.slice(i * 5, i * 5 + 5);
-    const num = slice.reduce((acc, b) => acc * 256 + b, 0);
+    const num = Array.from(slice).reduce((acc: number, b: number) => acc * 256 + b, 0);
     return (num % 100000).toString().padStart(5, "0");
   }).join(" ");
 }

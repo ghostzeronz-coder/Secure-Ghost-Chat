@@ -23,14 +23,14 @@
  *   https://signal.org/docs/specifications/x3dh/
  */
 
-import { x25519 } from "@noble/curves/ed25519";
+import { x25519, ed25519 } from "@noble/curves/ed25519";
 import { chacha20poly1305 } from "@noble/ciphers/chacha";
 import { hkdf } from "@noble/hashes/hkdf";
 import { hmac } from "@noble/hashes/hmac";
 import { sha256 } from "@noble/hashes/sha2";
 import { randomBytes } from "@noble/hashes/utils";
 
-const MAX_SKIP = 100;
+const MAX_SKIP = 1000;
 
 // ── Byte helpers ──────────────────────────────────────────────────────────────
 
@@ -208,6 +208,67 @@ export interface OneTimePreKey {
   priv: string;
 }
 
+// ── Ed25519 SPK Signing ───────────────────────────────────────────────────────
+//
+// Signal X3DH §2.4 requires the Signed PreKey (SPK) to be signed by the
+// Identity Key.  Without this, a malicious server can substitute its own
+// SPK and silently MITM every new session — the recipient would derive a
+// different shared secret and authentication would fail, but the initiator
+// would be talking to the attacker.
+//
+// Implementation:
+//   - A separate Ed25519 signing key pair (ikSign) is generated at registration.
+//   - The SPK X25519 public key bytes are signed: sig = Ed25519.sign(spkPub, ikSignPriv)
+//   - ikSignPublicKey (Ed25519 pub) and spkSignature are stored on the server.
+//   - Alice verifies: Ed25519.verify(spkSignature, spkPub, ikSignPublicKey)
+//     before proceeding with X3DH.  A bad signature throws immediately.
+
+export interface SigningKeyPair {
+  priv: string; // Ed25519 private key, hex (32 bytes = 64 chars)
+  pub:  string; // Ed25519 public key,  hex (32 bytes = 64 chars)
+}
+
+/**
+ * Generate a fresh Ed25519 signing key pair.
+ * Used to create the IK signing key at device registration time.
+ */
+export function generateSigningKeyPair(): SigningKeyPair {
+  const priv = randomBytes(32);
+  const pub  = ed25519.getPublicKey(priv);
+  return { priv: toHex(priv), pub: toHex(pub) };
+}
+
+/**
+ * Sign a SPK X25519 public key (hex) with the IK Ed25519 signing private key (hex).
+ * Returns the 64-byte signature as hex (128 chars).
+ *
+ * Signal spec: sign(spkPub, ikSignPriv)
+ */
+export function signSPK(spkPublicKeyHex: string, ikSignPrivHex: string): string {
+  const sig = ed25519.sign(fromHex(spkPublicKeyHex), fromHex(ikSignPrivHex));
+  return toHex(sig);
+}
+
+/**
+ * Verify that a SPK public key was signed by the given IK Ed25519 signing key.
+ * Returns true if the signature is valid, false otherwise (never throws).
+ *
+ * Alice MUST call this before proceeding with X3DH.
+ */
+export function verifySPKSignature(
+  spkPublicKeyHex:  string,
+  signatureHex:     string,
+  ikSignPublicHex:  string,
+): boolean {
+  try {
+    return ed25519.verify(fromHex(signatureHex), fromHex(spkPublicKeyHex), fromHex(ikSignPublicHex));
+  } catch {
+    return false;
+  }
+}
+
+// ── One-time prekeys ───────────────────────────────────────────────────────────
+
 /**
  * Generate a batch of one-time prekeys for upload.
  * @param count Number of prekeys to generate (default 10).
@@ -237,15 +298,27 @@ export function generateOneTimePreKeys(count = 10): OneTimePreKey[] {
  * Alice never sees Bob's private keys; Bob keeps them on his own device.
  */
 export interface PreKeyBundle {
-  ikPublicKey:   string;
-  spkPublicKey:  string;
-  opkPublicKey:  string | null;
+  ikPublicKey:     string;
+  spkPublicKey:    string;
+  opkPublicKey:    string | null;
+  /**
+   * Ed25519 signature of the SPK X25519 public key bytes, produced by the
+   * registering device using ikSignPriv.  Alice MUST verify this before
+   * accepting the bundle.  Without it, the server can MITM every new session.
+   * Signal X3DH spec §2.4.
+   */
+  spkSignature?:    string;
+  /**
+   * Ed25519 public key of the IK signing key pair — used to verify spkSignature.
+   * Separate from the X25519 ikPublicKey used for DH operations.
+   */
+  ikSignPublicKey?: string;
   /** Demo-only: Bob's IK private key for local simulation. */
-  ikPrivKey?:    string;
+  ikPrivKey?:      string;
   /** Demo-only: Bob's SPK private key for local simulation. */
-  spkPrivKey?:   string;
+  spkPrivKey?:     string;
   /** Demo-only: Bob's OPK private key for local simulation. */
-  opkPrivKey?:   string;
+  opkPrivKey?:     string;
 }
 
 /**
@@ -268,6 +341,19 @@ export interface PreKeyBundle {
  * demo generates Bob's keys on Alice's behalf.
  */
 export function initSessionFromBundle(bundle: PreKeyBundle): DRSession {
+  // ── SPK signature verification (Signal X3DH §2.4) ─────────────────────────
+  // Reject the bundle if the SPK was not signed by the claimed IK signing key.
+  // A bad/missing signature means the server may have substituted a different
+  // SPK — proceeding would mean encrypting to an attacker's key.
+  if (bundle.spkSignature && bundle.ikSignPublicKey) {
+    const valid = verifySPKSignature(bundle.spkPublicKey, bundle.spkSignature, bundle.ikSignPublicKey);
+    if (!valid) {
+      throw new Error("[X3DH] SPK signature verification FAILED — bundle rejected (possible MITM)");
+    }
+  } else {
+    console.warn("[X3DH] Bundle has no SPK signature — proceeding without MITM protection (legacy registration)");
+  }
+
   const IK_A = generateDH();
   const EK_A = generateDH();
 
@@ -696,6 +782,18 @@ export function initSessionAliceWithHeader(
   myIKPriv: string,
   myIKPub:  string,
 ): { session: DRSession; x3dhHeader: X3DHHeader } {
+  // ── SPK signature verification (Signal X3DH §2.4) ─────────────────────────
+  // Must verify before performing any DH operations. An invalid signature means
+  // the server returned a tampered bundle — reject immediately.
+  if (bundle.spkSignature && bundle.ikSignPublicKey) {
+    const valid = verifySPKSignature(bundle.spkPublicKey, bundle.spkSignature, bundle.ikSignPublicKey);
+    if (!valid) {
+      throw new Error("[X3DH] SPK signature verification FAILED — bundle rejected (possible MITM)");
+    }
+  } else {
+    console.warn("[X3DH] Bundle has no SPK signature — proceeding without MITM protection (legacy registration)");
+  }
+
   const IK_A: DHKeyPair = { priv: fromHex(myIKPriv), pub: fromHex(myIKPub) };
   const EK_A = generateDH();
 

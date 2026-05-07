@@ -37,9 +37,19 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-/** Validate a 64-char hex string (32-byte X25519 public key). */
+/** Validate a hex string with an exact expected length in chars. */
+function isValidHex(k: unknown, chars: number): k is string {
+  return typeof k === "string" && k.length === chars && /^[0-9a-f]+$/i.test(k);
+}
+
+/** Validate a 64-char hex string (32-byte X25519 or Ed25519 public key). */
 function isValidPubKey(k: unknown): k is string {
-  return typeof k === "string" && /^[0-9a-f]{64}$/i.test(k);
+  return isValidHex(k, 64);
+}
+
+/** Validate a 128-char hex string (64-byte Ed25519 signature). */
+function isValidSignature(k: unknown): k is string {
+  return isValidHex(k, 128);
 }
 
 /**
@@ -86,10 +96,12 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
       return res.status(429).json({ error: "Too many registration attempts. Try again later." });
     }
 
-    const { userId, ikPublicKey, spkPublicKey } = req.body as {
+    const { userId, ikPublicKey, spkPublicKey, ikSignPublicKey, spkSignature } = req.body as {
       userId?: string;
       ikPublicKey?: string;
       spkPublicKey?: string;
+      ikSignPublicKey?: string;
+      spkSignature?: string;
     };
 
     if (!userId || typeof userId !== "string" || userId.length > 128) {
@@ -100,6 +112,12 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
     }
     if (!isValidPubKey(spkPublicKey)) {
       return res.status(400).json({ error: "spkPublicKey must be a 64-char hex string" });
+    }
+    if (ikSignPublicKey !== undefined && !isValidPubKey(ikSignPublicKey)) {
+      return res.status(400).json({ error: "ikSignPublicKey must be a 64-char hex string (Ed25519 pub key)" });
+    }
+    if (spkSignature !== undefined && !isValidSignature(spkSignature)) {
+      return res.status(400).json({ error: "spkSignature must be a 128-char hex string (Ed25519 signature)" });
     }
 
     // Check for existing registration
@@ -117,7 +135,13 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
 
     await db.transaction(async (tx) => {
       await tx.insert(deviceTokensTable).values({ userId, tokenHash });
-      await tx.insert(identityKeysTable).values({ userId, ikPublicKey, spkPublicKey });
+      await tx.insert(identityKeysTable).values({
+        userId,
+        ikPublicKey,
+        spkPublicKey,
+        ikSignPublicKey: ikSignPublicKey ?? null,
+        spkSignature:    spkSignature    ?? null,
+      });
     });
 
     // Return the plain-text token — client must store this securely
@@ -213,11 +237,13 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
 
     const remainingNum = Number(remaining);
     return res.json({
-      ikPublicKey:  identityKey.ikPublicKey,
-      spkPublicKey: identityKey.spkPublicKey,
+      ikPublicKey:     identityKey.ikPublicKey,
+      spkPublicKey:    identityKey.spkPublicKey,
+      ikSignPublicKey: identityKey.ikSignPublicKey ?? undefined,
+      spkSignature:    identityKey.spkSignature    ?? undefined,
       opk,
-      remaining:    remainingNum,
-      lowSupply:    remainingNum < OPK_LOW_WATERMARK,
+      remaining:       remainingNum,
+      lowSupply:       remainingNum < OPK_LOW_WATERMARK,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

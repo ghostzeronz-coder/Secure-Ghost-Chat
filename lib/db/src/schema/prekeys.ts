@@ -2,16 +2,27 @@ import { pgTable, serial, text, boolean, timestamp } from "drizzle-orm/pg-core";
 
 /**
  * Stores Bob's long-term public identity keys (IK) and signed prekeys (SPK).
- * These are uploaded once per device registration and are part of the prekey bundle
- * that Alice fetches when initiating a new X3DH session.
+ *
+ * Security additions (Signal X3DH spec §2.4):
+ *   ikSignPublicKey — Ed25519 public key used to verify the SPK signature.
+ *                     Separate from the X25519 IK used for DH operations.
+ *   spkSignature    — Ed25519 signature of the SPK X25519 public key bytes,
+ *                     produced by the device at registration time using ikSign.
+ *                     Alice MUST verify this before accepting a prekey bundle.
+ *                     Without this, a malicious server can substitute its own SPK
+ *                     and perform an undetected man-in-the-middle attack.
+ *
+ * Nullable for backward compatibility with pre-signature registrations.
  */
 export const identityKeysTable = pgTable("identity_keys", {
-  id:           serial("id").primaryKey(),
-  userId:       text("user_id").notNull().unique(),
-  ikPublicKey:  text("ik_public_key").notNull(),
-  spkPublicKey: text("spk_public_key").notNull(),
-  createdAt:    timestamp("created_at").defaultNow().notNull(),
-  updatedAt:    timestamp("updated_at").defaultNow().notNull(),
+  id:              serial("id").primaryKey(),
+  userId:          text("user_id").notNull().unique(),
+  ikPublicKey:     text("ik_public_key").notNull(),
+  spkPublicKey:    text("spk_public_key").notNull(),
+  ikSignPublicKey: text("ik_sign_public_key"),
+  spkSignature:    text("spk_signature"),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+  updatedAt:       timestamp("updated_at").defaultNow().notNull(),
 });
 
 /**
