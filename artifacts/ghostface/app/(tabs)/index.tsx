@@ -22,7 +22,7 @@ import { useColors } from "@/hooks/useColors";
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alias, vpnConnected, fdBalance, casperBalance, panicWipe } = useApp();
+  const { alias, vpnConnected, vpnServer, fdBalance, casperBalance, panicWipe } = useApp();
   const { height: screenHeight } = useWindowDimensions();
   const [panicModalVisible, setPanicModalVisible] = useState(false);
   const [wiping, setWiping] = useState(false);
@@ -262,7 +262,7 @@ export default function HomeScreen() {
                 styles.statusItem,
                 pressed && { opacity: 0.6 },
               ]}
-              accessibilityLabel={vpnConnected ? "VPN connected, tap to manage" : "VPN disconnected, tap to connect"}
+              accessibilityLabel={vpnConnected ? `VPN connected via ${vpnServer?.name ?? "server"}, tap to manage` : "VPN disconnected, tap to connect"}
               accessibilityRole="button"
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -276,7 +276,7 @@ export default function HomeScreen() {
                   { color: vpnConnected ? colors.success : colors.mutedForeground },
                 ]}
               >
-                {vpnConnected ? "VPN ON" : "VPN OFF"}
+                {vpnConnected ? `VPN · ${vpnServer?.flag ?? vpnServer?.name ?? "ACTIVE"}` : "VPN OFF"}
               </Text>
             </Pressable>
 
