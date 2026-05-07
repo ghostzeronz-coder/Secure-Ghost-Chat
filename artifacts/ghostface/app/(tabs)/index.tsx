@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  Animated,
   Modal,
   Pressable,
   ScrollView,
@@ -26,6 +27,25 @@ export default function HomeScreen() {
   const { height: screenHeight } = useWindowDimensions();
   const [panicModalVisible, setPanicModalVisible] = useState(false);
   const [wiping, setWiping] = useState(false);
+
+  const stripAnims = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
+
+  useEffect(() => {
+    Animated.stagger(
+      100,
+      stripAnims.map((anim) =>
+        Animated.timing(anim, {
+          toValue: 1,
+          duration: 320,
+          useNativeDriver: true,
+        })
+      )
+    ).start();
+  }, []);
 
   const logoSize = Math.round(screenHeight * 0.48);
 
@@ -257,68 +277,74 @@ export default function HomeScreen() {
           <Text style={styles.tagline}>SECURE IDENTITY</Text>
 
           <View style={styles.statusStrip}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.statusItem,
-                pressed && { opacity: 0.6 },
-              ]}
-              accessibilityLabel={vpnConnected ? `VPN connected via ${vpnServer?.name ?? "server"}, tap to manage` : "VPN disconnected, tap to connect"}
-              accessibilityRole="button"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/(tabs)/vpn");
-              }}
-            >
-              <StatusDot active={vpnConnected} size={5} pulse={vpnConnected} />
-              <Text
-                style={[
-                  styles.statusLabel,
-                  { color: vpnConnected ? colors.success : colors.mutedForeground },
+            <Animated.View style={{ opacity: stripAnims[0] }}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.statusItem,
+                  pressed && { opacity: 0.6 },
                 ]}
+                accessibilityLabel={vpnConnected ? `VPN connected via ${vpnServer?.name ?? "server"}, tap to manage` : "VPN disconnected, tap to connect"}
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/(tabs)/vpn");
+                }}
               >
-                {vpnConnected ? `VPN · ${vpnServer?.flag ?? vpnServer?.name ?? "ACTIVE"}` : "VPN OFF"}
-              </Text>
-            </Pressable>
+                <StatusDot active={vpnConnected} size={5} pulse={vpnConnected} />
+                <Text
+                  style={[
+                    styles.statusLabel,
+                    { color: vpnConnected ? colors.success : colors.mutedForeground },
+                  ]}
+                >
+                  {vpnConnected ? `VPN · ${vpnServer?.flag ?? vpnServer?.name ?? "ACTIVE"}` : "VPN OFF"}
+                </Text>
+              </Pressable>
+            </Animated.View>
 
             <View style={styles.statusDivider} />
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.statusItem,
-                pressed && { opacity: 0.6 },
-              ]}
-              accessibilityLabel="End-to-end encryption active, tap for settings"
-              accessibilityRole="button"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/(tabs)/settings");
-              }}
-            >
-              <StatusDot active size={5} pulse={false} />
-              <Text style={[styles.statusLabel, { color: colors.success }]}>
-                E2EE
-              </Text>
-            </Pressable>
+            <Animated.View style={{ opacity: stripAnims[1] }}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.statusItem,
+                  pressed && { opacity: 0.6 },
+                ]}
+                accessibilityLabel="End-to-end encryption active, tap for settings"
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/(tabs)/settings");
+                }}
+              >
+                <StatusDot active size={5} pulse={false} />
+                <Text style={[styles.statusLabel, { color: colors.success }]}>
+                  E2EE
+                </Text>
+              </Pressable>
+            </Animated.View>
 
             <View style={styles.statusDivider} />
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.statusItem,
-                pressed && { opacity: 0.6 },
-              ]}
-              accessibilityLabel="Identity masked, tap for settings"
-              accessibilityRole="button"
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/(tabs)/settings");
-              }}
-            >
-              <StatusDot active size={5} pulse={false} />
-              <Text style={[styles.statusLabel, { color: colors.success }]}>
-                ID MASKED
-              </Text>
-            </Pressable>
+            <Animated.View style={{ opacity: stripAnims[2] }}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.statusItem,
+                  pressed && { opacity: 0.6 },
+                ]}
+                accessibilityLabel="Identity masked, tap for settings"
+                accessibilityRole="button"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/(tabs)/settings");
+                }}
+              >
+                <StatusDot active size={5} pulse={false} />
+                <Text style={[styles.statusLabel, { color: colors.success }]}>
+                  ID MASKED
+                </Text>
+              </Pressable>
+            </Animated.View>
           </View>
         </View>
 
