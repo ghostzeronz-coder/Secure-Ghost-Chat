@@ -3,13 +3,13 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React from "react";
 import {
-  Dimensions,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
@@ -17,14 +17,13 @@ import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { alias, vpnConnected, fdBalance, casperBalance } = useApp();
+  const { height: screenHeight } = useWindowDimensions();
 
-  const logoSize = Math.round(SCREEN_HEIGHT * 0.48);
+  const logoSize = Math.round(screenHeight * 0.48);
 
   const styles = StyleSheet.create({
     container: {
