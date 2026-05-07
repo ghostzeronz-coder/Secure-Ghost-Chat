@@ -27,6 +27,54 @@ import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
+function getPinStrength(pin: string): { level: 0 | 1 | 2; label: string } | null {
+  if (pin.length === 0) return null;
+  if (pin.length < 4) return { level: 0, label: "WEAK" };
+  const digits = pin.split("").map(Number);
+  const allSame = digits.every((d) => d === digits[0]);
+  if (allSame) return { level: 0, label: "WEAK" };
+  const ascending = digits.every((d, i) => i === 0 || d === digits[i - 1] + 1);
+  const descending = digits.every((d, i) => i === 0 || d === digits[i - 1] - 1);
+  if (ascending || descending) return { level: 0, label: "WEAK" };
+  const common = [
+    "0000","1111","2222","3333","4444","5555","6666","7777","8888","9999",
+    "1234","4321","0123","9876","1122","1212","2121","1010","0101",
+  ];
+  if (common.includes(pin)) return { level: 0, label: "WEAK" };
+  const counts = digits.reduce(
+    (acc, d) => { acc[d] = (acc[d] || 0) + 1; return acc; },
+    {} as Record<number, number>
+  );
+  const maxCount = Math.max(...Object.values(counts));
+  if (maxCount >= 3) return { level: 1, label: "FAIR" };
+  const pairs = Object.values(counts).filter((c) => c === 2).length;
+  if (pairs === 2) return { level: 1, label: "FAIR" };
+  return { level: 2, label: "STRONG" };
+}
+
+function PinStrengthIndicator({
+  pin,
+  barColor,
+  mutedColor,
+}: {
+  pin: string;
+  barColor: (level: number) => string;
+  mutedColor: string;
+}) {
+  const strength = getPinStrength(pin);
+  if (!strength) return null;
+  const color = barColor(strength.level);
+  const fillPct = ((strength.level + 1) / 3) * 100;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: -4, marginBottom: 12 }}>
+      <View style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: mutedColor, overflow: "hidden" }}>
+        <View style={{ width: `${fillPct}%`, height: "100%", backgroundColor: color, borderRadius: 2 }} />
+      </View>
+      <Text style={{ color, fontSize: 9, fontWeight: "800" as const, letterSpacing: 2 }}>{strength.label}</Text>
+    </View>
+  );
+}
+
 export default function SettingsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -691,6 +739,11 @@ export default function SettingsScreen() {
                     secureTextEntry
                     maxLength={4}
                   />
+                  <PinStrengthIndicator
+                    pin={newPin}
+                    barColor={(level) => ["#ef4444", "#f59e0b", "#22c55e"][level]}
+                    mutedColor={colors.border}
+                  />
                   <TextInput
                     style={styles.input}
                     value={newPinConfirm}
@@ -761,6 +814,11 @@ export default function SettingsScreen() {
                     secureTextEntry
                     maxLength={4}
                     testID="duress-pin-input"
+                  />
+                  <PinStrengthIndicator
+                    pin={duressPin}
+                    barColor={(level) => ["#ef4444", "#f59e0b", "#22c55e"][level]}
+                    mutedColor={colors.border}
                   />
                   <TextInput
                     style={styles.input}
