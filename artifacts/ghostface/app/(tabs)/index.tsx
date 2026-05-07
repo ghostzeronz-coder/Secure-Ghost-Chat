@@ -11,12 +11,9 @@ import {
   Text,
   View,
   Platform,
-  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
-import { SecureBadge } from "@/components/SecureBadge";
-import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
@@ -24,178 +21,224 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { alias, vpnConnected, vpnServer, fdBalance, casperBalance, panicWipe } = useApp();
-  const { height: screenHeight } = useWindowDimensions();
   const [panicModalVisible, setPanicModalVisible] = useState(false);
   const [wiping, setWiping] = useState(false);
 
-  const stripAnims = useRef([
+  const chipAnims = useRef([
     new Animated.Value(0),
     new Animated.Value(0),
     new Animated.Value(0),
   ]).current;
 
+  const pulseAnims = useRef([
+    new Animated.Value(1),
+    new Animated.Value(1),
+    new Animated.Value(1),
+  ]).current;
+
   useEffect(() => {
     Animated.stagger(
-      100,
-      stripAnims.map((anim) =>
+      80,
+      chipAnims.map((anim) =>
         Animated.timing(anim, {
           toValue: 1,
-          duration: 320,
+          duration: 280,
           useNativeDriver: true,
         })
       )
     ).start();
+
+    pulseAnims.forEach((anim) => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(anim, { toValue: 0.3, duration: 900, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
+        ])
+      ).start();
+    });
   }, []);
 
-  const logoSize = Math.round(screenHeight * 0.36);
+  const vpnLabel = vpnConnected
+    ? ["VPN ·", vpnServer?.flag, vpnServer?.shortRegion ?? vpnServer?.name ?? "ACTIVE"]
+        .filter(Boolean)
+        .join(" ")
+    : "VPN OFF";
 
   const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
     },
-    header: {
+
+    // ── Top Command Bar ──────────────────────────────────────────
+    commandBar: {
       flexDirection: "row",
-      alignItems: "flex-start",
-      justifyContent: "flex-end",
-      paddingHorizontal: 20,
-      paddingTop: insets.top + (Platform.OS === "web" ? 67 : 16),
-      paddingBottom: 8,
+      paddingHorizontal: 12,
+      paddingTop: insets.top + (Platform.OS === "web" ? 67 : 8),
+      paddingBottom: 10,
+      gap: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
     },
-    divider: {
-      height: 1,
-      backgroundColor: colors.border,
-      marginHorizontal: 20,
-    },
-    heroBlock: {
+    chip: {
+      flex: 1,
+      backgroundColor: colors.card,
+      borderRadius: 6,
+      borderLeftWidth: 2,
+      paddingVertical: 8,
+      paddingHorizontal: 4,
       alignItems: "center",
       justifyContent: "center",
-      paddingTop: 16,
-      paddingBottom: 8,
+    },
+    chipPulseDot: {
+      position: "absolute",
+      top: 5,
+      right: 5,
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: colors.success,
+    },
+    chipLabel: {
+      fontSize: 9,
+      fontWeight: "700" as const,
+      letterSpacing: 1.5,
+      textAlign: "center",
+    },
+
+    // ── Identity Section ─────────────────────────────────────────
+    identity: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingTop: 32,
+      paddingBottom: 28,
+      paddingHorizontal: 24,
     },
     aliasText: {
       color: colors.foreground,
-      fontSize: 18,
-      fontWeight: "800" as const,
-      letterSpacing: 4,
-      marginTop: 12,
+      fontSize: 28,
+      fontWeight: "300" as const,
+      letterSpacing: 10,
+      marginTop: 20,
+      marginBottom: 6,
     },
     tagline: {
       color: colors.mutedForeground,
       fontSize: 10,
-      letterSpacing: 3,
-      marginTop: 4,
-    },
-    statusStrip: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      marginTop: 14,
-      gap: 0,
-    },
-    statusItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 5,
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-    },
-    statusLabel: {
-      fontSize: 9,
-      letterSpacing: 2,
+      letterSpacing: 4,
       fontWeight: "700" as const,
     },
-    statusDivider: {
-      width: 1,
-      height: 10,
+
+    divider: {
+      height: 1,
       backgroundColor: colors.border,
+      marginHorizontal: 0,
     },
-    section: {
+
+    // ── Wallet Stack ─────────────────────────────────────────────
+    walletSection: {
       paddingHorizontal: 20,
       paddingTop: 20,
-    },
-    sectionLabel: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 3,
-      fontWeight: "700" as const,
-      marginBottom: 12,
-    },
-    balanceRow: {
-      flexDirection: "row",
+      paddingBottom: 8,
       gap: 12,
     },
-    balanceCard: {
-      flex: 1,
+    walletCard: {
       backgroundColor: colors.card,
-      borderRadius: colors.radius,
+      borderRadius: 12,
       borderWidth: 1,
       borderColor: colors.border,
-      padding: 14,
+      padding: 16,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
     },
-    balanceToken: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 3,
-      fontWeight: "700" as const,
-      marginBottom: 4,
+    walletLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 14,
     },
-    balanceAmount: {
-      color: colors.primary,
-      fontSize: 18,
+    walletCircle: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: "#1A1A1A",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    walletCircleText: {
+      color: colors.foreground,
+      fontSize: 12,
       fontWeight: "800" as const,
       letterSpacing: 1,
     },
-    balanceLabel: {
+    walletAmount: {
+      color: colors.primary,
+      fontSize: 20,
+      fontWeight: "700" as const,
+      letterSpacing: 1,
+      fontVariant: ["tabular-nums"],
+    },
+    walletCoinLabel: {
       color: colors.mutedForeground,
       fontSize: 9,
-      letterSpacing: 1,
-      marginTop: 2,
+      letterSpacing: 3,
+      fontWeight: "700" as const,
     },
-    quickActions: {
+
+    // ── Quick Actions ─────────────────────────────────────────────
+    actionsSection: {
+      paddingHorizontal: 20,
+      paddingTop: 24,
+      paddingBottom: 20,
       flexDirection: "row",
-      gap: 12,
+      justifyContent: "space-between",
+      alignItems: "center",
     },
-    quickAction: {
-      flex: 1,
+    actionItem: {
+      alignItems: "center",
+      gap: 10,
+    },
+    actionCircle: {
+      width: 54,
+      height: 54,
+      borderRadius: 27,
       backgroundColor: colors.card,
-      borderRadius: colors.radius,
       borderWidth: 1,
       borderColor: colors.border,
-      padding: 14,
       alignItems: "center",
-      gap: 8,
+      justifyContent: "center",
     },
-    quickActionText: {
-      color: colors.foreground,
-      fontSize: 10,
+    actionLabel: {
+      color: colors.mutedForeground,
+      fontSize: 9,
       letterSpacing: 2,
       fontWeight: "700" as const,
     },
-    scrollPad: {
-      height: 120,
-    },
+
+    // ── Panic Button ──────────────────────────────────────────────
     panicSection: {
       paddingHorizontal: 20,
-      paddingTop: 24,
+      paddingBottom: 20,
     },
     panicButton: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
       gap: 10,
-      backgroundColor: "transparent",
-      borderRadius: colors.radius,
-      borderWidth: 1,
+      borderRadius: 12,
+      borderWidth: 2,
       borderColor: "#7f1d1d",
-      paddingVertical: 14,
+      backgroundColor: "rgba(239,68,68,0.08)",
+      paddingVertical: 16,
     },
     panicButtonText: {
       color: "#ef4444",
-      fontSize: 11,
-      letterSpacing: 3,
+      fontSize: 12,
+      letterSpacing: 4,
       fontWeight: "800" as const,
     },
+
+    // ── Panic Modal ───────────────────────────────────────────────
     modalOverlay: {
       flex: 1,
       backgroundColor: "rgba(0,0,0,0.85)",
@@ -261,188 +304,182 @@ export default function HomeScreen() {
       letterSpacing: 2,
       fontWeight: "700" as const,
     },
+    scrollPad: {
+      height: 20,
+    },
   });
+
+  const chipData = [
+    {
+      label: vpnLabel,
+      color: vpnConnected ? colors.success : colors.mutedForeground,
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        router.push("/(tabs)/vpn");
+      },
+    },
+    {
+      label: "E2EE",
+      color: colors.success,
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        router.push("/(tabs)/settings");
+      },
+    },
+    {
+      label: "ID MASKED",
+      color: colors.success,
+      onPress: () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        router.push("/(tabs)/settings");
+      },
+    },
+  ];
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <SecureBadge type="no-trace" />
+      {/* ── Command Bar ── */}
+      <View style={styles.commandBar}>
+        {chipData.map((chip, i) => (
+          <Animated.View key={i} style={{ flex: 1, opacity: chipAnims[i] }}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.chip,
+                { borderLeftColor: chip.color },
+                pressed && { opacity: 0.6 },
+              ]}
+              onPress={chip.onPress}
+            >
+              <Animated.View
+                style={[styles.chipPulseDot, { backgroundColor: chip.color, opacity: pulseAnims[i] }]}
+              />
+              <Text style={[styles.chipLabel, { color: chip.color }]}>
+                {chip.label}
+              </Text>
+            </Pressable>
+          </Animated.View>
+        ))}
       </View>
-      <View style={styles.divider} />
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        <View style={styles.heroBlock}>
-          <GhostLogo size={logoSize} color={colors.foreground} />
+        {/* ── Identity ── */}
+        <View style={styles.identity}>
+          <GhostLogo size={100} color={colors.foreground} />
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
           <Text style={styles.tagline}>SECURE IDENTITY</Text>
-
-          <View style={styles.statusStrip}>
-            <Animated.View style={{ opacity: stripAnims[0] }}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.statusItem,
-                  pressed && { opacity: 0.6 },
-                ]}
-                accessibilityLabel={vpnConnected ? `VPN connected via ${vpnServer?.name ?? "server"}, tap to manage` : "VPN disconnected, tap to connect"}
-                accessibilityRole="button"
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push("/(tabs)/vpn");
-                }}
-              >
-                <StatusDot active={vpnConnected} size={5} pulse={vpnConnected} />
-                <Text
-                  style={[
-                    styles.statusLabel,
-                    { color: vpnConnected ? colors.success : colors.mutedForeground },
-                  ]}
-                >
-                  {vpnConnected
-                    ? ["VPN ·", vpnServer?.flag, vpnServer?.shortRegion ?? vpnServer?.name ?? "ACTIVE"].filter(Boolean).join(" ")
-                    : "VPN OFF"}
-                </Text>
-              </Pressable>
-            </Animated.View>
-
-            <View style={styles.statusDivider} />
-
-            <Animated.View style={{ opacity: stripAnims[1] }}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.statusItem,
-                  pressed && { opacity: 0.6 },
-                ]}
-                accessibilityLabel="End-to-end encryption active, tap for settings"
-                accessibilityRole="button"
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push("/(tabs)/settings");
-                }}
-              >
-                <StatusDot active size={5} pulse={false} />
-                <Text style={[styles.statusLabel, { color: colors.success }]}>
-                  E2EE
-                </Text>
-              </Pressable>
-            </Animated.View>
-
-            <View style={styles.statusDivider} />
-
-            <Animated.View style={{ opacity: stripAnims[2] }}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.statusItem,
-                  pressed && { opacity: 0.6 },
-                ]}
-                accessibilityLabel="Identity masked, tap for settings"
-                accessibilityRole="button"
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  router.push("/(tabs)/settings");
-                }}
-              >
-                <StatusDot active size={5} pulse={false} />
-                <Text style={[styles.statusLabel, { color: colors.success }]}>
-                  ID MASKED
-                </Text>
-              </Pressable>
-            </Animated.View>
-          </View>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>WALLET</Text>
-          <View style={styles.balanceRow}>
-            <View style={styles.balanceCard}>
-              <Text style={styles.balanceToken}>FD</Text>
-              <Text style={styles.balanceAmount}>
-                {fdBalance.toLocaleString()}
-              </Text>
-              <Text style={styles.balanceLabel}>FACE DOLLAR</Text>
+        <View style={styles.divider} />
+
+        {/* ── Wallet Stack ── */}
+        <View style={styles.walletSection}>
+          <Pressable
+            style={({ pressed }) => [styles.walletCard, pressed && { opacity: 0.75 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/(tabs)/wallet");
+            }}
+          >
+            <View style={styles.walletLeft}>
+              <View style={styles.walletCircle}>
+                <Text style={styles.walletCircleText}>FD</Text>
+              </View>
+              <Text style={styles.walletAmount}>{fdBalance.toLocaleString()}</Text>
             </View>
-            <View style={styles.balanceCard}>
-              <Text style={styles.balanceToken}>CSPR</Text>
-              <Text style={styles.balanceAmount}>
-                {casperBalance.toLocaleString()}
-              </Text>
-              <Text style={styles.balanceLabel}>CASPER</Text>
+            <Text style={styles.walletCoinLabel}>FACE DOLLAR</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.walletCard, pressed && { opacity: 0.75 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/(tabs)/wallet");
+            }}
+          >
+            <View style={styles.walletLeft}>
+              <View style={styles.walletCircle}>
+                <Text style={styles.walletCircleText}>CS</Text>
+              </View>
+              <Text style={styles.walletAmount}>{casperBalance.toLocaleString()}</Text>
             </View>
-          </View>
+            <Text style={styles.walletCoinLabel}>CASPER</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
-          <View style={styles.quickActions}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.quickAction,
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/(tabs)/messages");
-              }}
-            >
+        {/* ── Quick Actions ── */}
+        <View style={styles.actionsSection}>
+          <Pressable
+            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/(tabs)/messages");
+            }}
+          >
+            <View style={styles.actionCircle}>
               <Ionicons name="chatbubble-ellipses" size={22} color={colors.primary} />
-              <Text style={styles.quickActionText}>NEW MSG</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.quickAction,
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({
-                  pathname: "/call",
-                  params: { alias: "SECURE_LINE", mode: "voice" },
-                });
-              }}
-            >
+            </View>
+            <Text style={styles.actionLabel}>NEW MSG</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push({ pathname: "/call", params: { alias: "SECURE_LINE", mode: "voice" } });
+            }}
+          >
+            <View style={styles.actionCircle}>
               <Ionicons name="call" size={22} color={colors.primary} />
-              <Text style={styles.quickActionText}>CALL</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.quickAction,
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/(tabs)/vpn");
-              }}
-            >
-              <Ionicons name="shield" size={22} color={vpnConnected ? colors.success : colors.mutedForeground} />
-              <Text style={styles.quickActionText}>{vpnConnected ? "VPN ON" : "VPN OFF"}</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.quickAction,
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push("/(tabs)/wallet");
-              }}
-            >
+            </View>
+            <Text style={styles.actionLabel}>CALL</Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/(tabs)/vpn");
+            }}
+          >
+            <View style={[
+              styles.actionCircle,
+              vpnConnected && { borderColor: colors.success, shadowColor: colors.primary, shadowOpacity: 0.2, shadowRadius: 8 },
+            ]}>
+              <Ionicons
+                name="shield"
+                size={22}
+                color={vpnConnected ? colors.success : colors.mutedForeground}
+              />
+            </View>
+            <Text style={[styles.actionLabel, vpnConnected && { color: colors.success }]}>
+              {vpnConnected ? "VPN ON" : "VPN OFF"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/(tabs)/wallet");
+            }}
+          >
+            <View style={styles.actionCircle}>
               <Ionicons name="wallet" size={22} color={colors.primary} />
-              <Text style={styles.quickActionText}>WALLET</Text>
-            </Pressable>
-          </View>
+            </View>
+            <Text style={styles.actionLabel}>WALLET</Text>
+          </Pressable>
         </View>
 
+        {/* ── Panic Button ── */}
         <View style={styles.panicSection}>
           <Pressable
-            style={({ pressed }) => [
-              styles.panicButton,
-              pressed && { opacity: 0.7 },
-            ]}
+            style={({ pressed }) => [styles.panicButton, pressed && { opacity: 0.7 }]}
             onPress={() => {
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
               setPanicModalVisible(true);
             }}
           >
-            <Ionicons name="warning" size={16} color="#ef4444" />
+            <Ionicons name="warning" size={18} color="#ef4444" />
             <Text style={styles.panicButtonText}>PANIC WIPE</Text>
           </Pressable>
         </View>
@@ -450,13 +487,12 @@ export default function HomeScreen() {
         <View style={styles.scrollPad} />
       </ScrollView>
 
+      {/* ── Panic Modal ── */}
       <Modal
         visible={panicModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => {
-          if (!wiping) setPanicModalVisible(false);
-        }}
+        onRequestClose={() => { if (!wiping) setPanicModalVisible(false); }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -466,25 +502,13 @@ export default function HomeScreen() {
             </Text>
             <View style={styles.modalButtons}>
               <Pressable
-                style={({ pressed }) => [
-                  styles.modalCancel,
-                  pressed && { opacity: 0.7 },
-                ]}
-                onPress={() => {
-                  if (!wiping) {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setPanicModalVisible(false);
-                  }
-                }}
+                style={({ pressed }) => [styles.modalCancel, pressed && { opacity: 0.7 }]}
+                onPress={() => { if (!wiping) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPanicModalVisible(false); } }}
               >
                 <Text style={styles.modalCancelText}>CANCEL</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [
-                  styles.modalConfirm,
-                  pressed && { opacity: 0.7 },
-                  wiping && { opacity: 0.5 },
-                ]}
+                style={({ pressed }) => [styles.modalConfirm, pressed && { opacity: 0.7 }, wiping && { opacity: 0.5 }]}
                 onPress={async () => {
                   if (wiping) return;
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -494,9 +518,7 @@ export default function HomeScreen() {
                   setPanicModalVisible(false);
                 }}
               >
-                <Text style={styles.modalConfirmText}>
-                  {wiping ? "WIPING..." : "WIPE ALL"}
-                </Text>
+                <Text style={styles.modalConfirmText}>{wiping ? "WIPING..." : "WIPE ALL"}</Text>
               </Pressable>
             </View>
           </View>
