@@ -87,6 +87,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="ghostnumber"
+        options={{
+          title: "NUMBER",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="phone-portrait-outline" size={20} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: "SETTINGS",

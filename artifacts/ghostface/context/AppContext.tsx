@@ -86,6 +86,7 @@ export interface VPNServer {
 
 interface AppState {
   alias: string | null;
+  deviceToken: string | null;
   biometricEnabled: boolean;
   isLocked: boolean;
   isOnboarded: boolean;
@@ -603,6 +604,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hasPin, setHasPin] = useState(false);
   const [state, setState] = useState<AppState>({
     alias: null,
+    deviceToken: null,
     biometricEnabled: false,
     isLocked: true,
     isOnboarded: false,
@@ -624,7 +626,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw] = await Promise.all([
+        const [alias, pinValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
@@ -633,6 +635,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(STRIPE_EMAIL_KEY),
           AsyncStorage.getItem(CONNECTED_WALLET_KEY),
           AsyncStorage.getItem(AUTO_LOCK_TIMEOUT_KEY),
+          secureGet(DEVICE_TOKEN_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -669,6 +672,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState((prev) => ({
           ...prev,
           alias,
+          deviceToken: storedToken ?? null,
           biometricEnabled: biometricOn,
           isOnboarded,
           isLocked: true,
