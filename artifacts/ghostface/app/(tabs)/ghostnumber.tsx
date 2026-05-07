@@ -47,6 +47,7 @@ export default function GhostNumberScreen() {
 
   const [numbers, setNumbers] = useState<GhostNumber[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [provisioning, setProvisioning] = useState(false);
   const [releasing, setReleasing] = useState<number | null>(null);
@@ -60,19 +61,26 @@ export default function GhostNumberScreen() {
     [deviceToken]
   );
 
-  const fetchNumbers = useCallback(async () => {
-    if (!alias || !deviceToken) return;
+  const fetchNumbers = useCallback(async (): Promise<boolean> => {
+    if (!alias || !deviceToken) return false;
     try {
       const res = await fetch(`${API_BASE}/numbers?alias=${alias}`, {
         headers: authHeaders(),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setNumbers(json.data ?? []);
-    } catch {}
+      setFetchError(false);
+      return true;
+    } catch {
+      setFetchError(true);
+      return false;
+    }
   }, [alias, deviceToken, authHeaders]);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setFetchError(false);
     await fetchNumbers();
     setLoading(false);
   }, [fetchNumbers]);
@@ -352,6 +360,31 @@ export default function GhostNumberScreen() {
       {loading ? (
         <View style={styles.emptyWrap}>
           <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : fetchError ? (
+        <View style={styles.emptyWrap}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="warning-outline" size={28} color={colors.destructive} />
+          </View>
+          <Text style={[styles.emptyTitle, { color: colors.destructive }]}>LOAD FAILED</Text>
+          <Text style={styles.emptyBody}>
+            Could not retrieve your ghost numbers. Check your connection and try again.
+          </Text>
+          <Pressable
+            style={{
+              marginTop: 16,
+              borderWidth: 1,
+              borderColor: colors.primary,
+              borderRadius: colors.radius,
+              paddingHorizontal: 20,
+              paddingVertical: 10,
+            }}
+            onPress={load}
+          >
+            <Text style={{ color: colors.primary, fontSize: 11, fontWeight: "800", letterSpacing: 2 }}>
+              RETRY
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView
