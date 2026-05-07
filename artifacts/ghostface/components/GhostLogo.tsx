@@ -9,7 +9,7 @@ export function GhostLogo({ size = 64 }: GhostLogoProps) {
   return (
     <Image
       source={require("../assets/images/ghostlogo.png")}
-      style={{ width: size, height: size, borderRadius: size * 0.18 }}
+      style={{ width: size, height: size }}
       resizeMode="contain"
     />
   );
