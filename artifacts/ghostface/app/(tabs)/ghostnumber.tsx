@@ -317,7 +317,7 @@ export default function GhostNumberScreen() {
       fontWeight: "700",
       letterSpacing: 2,
     },
-    divider: {
+    cardDivider: {
       height: 1,
       backgroundColor: colors.border,
       marginBottom: 12,
@@ -497,7 +497,7 @@ export default function GhostNumberScreen() {
                   </View>
                 </Pressable>
 
-                <View style={styles.divider} />
+                <View style={styles.cardDivider} />
 
                 <Pressable
                   style={styles.releaseBtn}
