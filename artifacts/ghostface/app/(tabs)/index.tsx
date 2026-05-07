@@ -297,7 +297,9 @@ export default function HomeScreen() {
                     { color: vpnConnected ? colors.success : colors.mutedForeground },
                   ]}
                 >
-                  {vpnConnected ? `VPN · ${vpnServer?.flag ?? vpnServer?.name ?? "ACTIVE"}` : "VPN OFF"}
+                  {vpnConnected
+                    ? ["VPN ·", vpnServer?.flag, vpnServer?.shortRegion ?? vpnServer?.name ?? "ACTIVE"].filter(Boolean).join(" ")
+                    : "VPN OFF"}
                 </Text>
               </Pressable>
             </Animated.View>

@@ -93,6 +93,7 @@ export interface VPNServer {
   name: string;
   country: string;
   region: string;
+  shortRegion: string;
   latency: number;
   flag: string;
 }
@@ -249,12 +250,12 @@ const DEFAULT_TRANSACTIONS: Transaction[] = [
 ];
 
 const VPN_SERVERS: VPNServer[] = [
-  { id: "1", name: "US East", country: "United States", region: "New York", latency: 12, flag: "🇺🇸" },
-  { id: "2", name: "EU West", country: "Germany", region: "Frankfurt", latency: 24, flag: "🇩🇪" },
-  { id: "3", name: "Asia Pacific", country: "Japan", region: "Tokyo", latency: 68, flag: "🇯🇵" },
-  { id: "4", name: "Nordic", country: "Sweden", region: "Stockholm", latency: 31, flag: "🇸🇪" },
-  { id: "5", name: "Offshore", country: "Iceland", region: "Reykjavik", latency: 45, flag: "🇮🇸" },
-  { id: "6", name: "SE Asia", country: "Singapore", region: "Singapore", latency: 92, flag: "🇸🇬" },
+  { id: "1", name: "US East", country: "United States", region: "New York", shortRegion: "NYC", latency: 12, flag: "🇺🇸" },
+  { id: "2", name: "EU West", country: "Germany", region: "Frankfurt", shortRegion: "FRA", latency: 24, flag: "🇩🇪" },
+  { id: "3", name: "Asia Pacific", country: "Japan", region: "Tokyo", shortRegion: "TYO", latency: 68, flag: "🇯🇵" },
+  { id: "4", name: "Nordic", country: "Sweden", region: "Stockholm", shortRegion: "ARN", latency: 31, flag: "🇸🇪" },
+  { id: "5", name: "Offshore", country: "Iceland", region: "Reykjavik", shortRegion: "KEF", latency: 45, flag: "🇮🇸" },
+  { id: "6", name: "SE Asia", country: "Singapore", region: "Singapore", shortRegion: "SIN", latency: 92, flag: "🇸🇬" },
 ];
 
 export { VPN_SERVERS };
