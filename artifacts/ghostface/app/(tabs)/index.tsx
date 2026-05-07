@@ -47,7 +47,7 @@ export default function HomeScreen() {
     ).start();
   }, []);
 
-  const logoSize = Math.round(screenHeight * 0.48);
+  const logoSize = Math.round(screenHeight * 0.72);
 
   const styles = StyleSheet.create({
     container: {
