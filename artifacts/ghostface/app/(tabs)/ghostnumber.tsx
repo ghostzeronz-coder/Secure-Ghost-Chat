@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -302,6 +303,25 @@ export default function GhostNumberScreen() {
       letterSpacing: 1,
       fontWeight: "600",
     },
+    inboxHint: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingTop: 2,
+      paddingBottom: 14,
+    },
+    inboxHintText: {
+      flex: 1,
+      color: colors.mutedForeground,
+      fontSize: 9,
+      fontWeight: "700",
+      letterSpacing: 2,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginBottom: 12,
+    },
     releaseBtn: {
       flexDirection: "row",
       alignItems: "center",
@@ -412,50 +432,72 @@ export default function GhostNumberScreen() {
           ) : (
             numbers.map((n) => (
               <View key={n.id} style={styles.card}>
-                <View style={styles.cardHead}>
-                  <View style={styles.statusBadge}>
-                    <View style={styles.statusDot} />
-                    <Text style={styles.statusText}>{n.status.toUpperCase()}</Text>
-                  </View>
-                  <View style={styles.planBadge}>
-                    <Text style={styles.planText}>{n.plan.toUpperCase()}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.phoneRow}>
-                  <Text style={styles.phoneNumber}>{n.phoneNumber}</Text>
-                  <Pressable style={styles.copyBtn} onPress={() => handleCopy(n)}>
-                    <Ionicons
-                      name={copied === n.id ? "checkmark" : "copy-outline"}
-                      size={12}
-                      color={copied === n.id ? colors.success : colors.foreground}
-                    />
-                    <Text style={[styles.copyBtnText, copied === n.id && { color: colors.success }]}>
-                      {copied === n.id ? "COPIED" : "COPY"}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <View style={styles.metaRow}>
-                  <View style={styles.metaChip}>
-                    <Ionicons name="globe-outline" size={10} color={colors.mutedForeground} />
-                    <Text style={styles.metaChipText}>{n.country}</Text>
-                  </View>
-                  {(n.capabilities as string[]).map((cap) => (
-                    <View key={cap} style={styles.metaChip}>
-                      <Ionicons
-                        name={cap === "SMS" ? "chatbubble-outline" : "call-outline"}
-                        size={10}
-                        color={colors.mutedForeground}
-                      />
-                      <Text style={styles.metaChipText}>{cap}</Text>
+                {/* Tappable upper area → SMS inbox */}
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: "/sms-inbox/[numberId]",
+                      params: {
+                        numberId: String(n.id),
+                        phoneNumber: n.phoneNumber,
+                      },
+                    })
+                  }
+                >
+                  <View style={styles.cardHead}>
+                    <View style={styles.statusBadge}>
+                      <View style={styles.statusDot} />
+                      <Text style={styles.statusText}>{n.status.toUpperCase()}</Text>
                     </View>
-                  ))}
-                  <View style={styles.metaChip}>
-                    <Ionicons name="time-outline" size={10} color={colors.mutedForeground} />
-                    <Text style={styles.metaChipText}>{formatTime(n.createdAt)}</Text>
+                    <View style={styles.planBadge}>
+                      <Text style={styles.planText}>{n.plan.toUpperCase()}</Text>
+                    </View>
                   </View>
-                </View>
+
+                  <View style={styles.phoneRow}>
+                    <Text style={styles.phoneNumber}>{n.phoneNumber}</Text>
+                    <Pressable style={styles.copyBtn} onPress={() => handleCopy(n)}>
+                      <Ionicons
+                        name={copied === n.id ? "checkmark" : "copy-outline"}
+                        size={12}
+                        color={copied === n.id ? colors.success : colors.foreground}
+                      />
+                      <Text style={[styles.copyBtnText, copied === n.id && { color: colors.success }]}>
+                        {copied === n.id ? "COPIED" : "COPY"}
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <View style={styles.metaChip}>
+                      <Ionicons name="globe-outline" size={10} color={colors.mutedForeground} />
+                      <Text style={styles.metaChipText}>{n.country}</Text>
+                    </View>
+                    {(n.capabilities as string[]).map((cap) => (
+                      <View key={cap} style={styles.metaChip}>
+                        <Ionicons
+                          name={cap === "SMS" ? "chatbubble-outline" : "call-outline"}
+                          size={10}
+                          color={colors.mutedForeground}
+                        />
+                        <Text style={styles.metaChipText}>{cap}</Text>
+                      </View>
+                    ))}
+                    <View style={styles.metaChip}>
+                      <Ionicons name="time-outline" size={10} color={colors.mutedForeground} />
+                      <Text style={styles.metaChipText}>{formatTime(n.createdAt)}</Text>
+                    </View>
+                  </View>
+
+                  {/* Inbox chevron hint */}
+                  <View style={styles.inboxHint}>
+                    <Ionicons name="mail-outline" size={12} color={colors.mutedForeground} />
+                    <Text style={styles.inboxHintText}>VIEW SMS INBOX</Text>
+                    <Ionicons name="chevron-forward" size={12} color={colors.mutedForeground} />
+                  </View>
+                </Pressable>
+
+                <View style={styles.divider} />
 
                 <Pressable
                   style={styles.releaseBtn}
