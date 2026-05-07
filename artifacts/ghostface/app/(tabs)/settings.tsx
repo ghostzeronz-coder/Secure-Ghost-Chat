@@ -38,6 +38,7 @@ export default function SettingsScreen() {
     autoLockTimeout,
     setBiometricEnabled,
     setPin,
+    checkPin,
     setDuressPin,
     clearDuressPin,
     setLocked,
@@ -185,6 +186,12 @@ export default function SettingsScreen() {
     }
     if (duressPin !== duressPinConfirm) {
       setDuressPinError("PINs do not match");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    const matchesMain = await checkPin(duressPin);
+    if (matchesMain) {
+      setDuressPinError("DURESS PIN CANNOT MATCH YOUR MAIN PIN");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
