@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -79,7 +80,7 @@ export default function OnboardingScreen() {
     header: {
       alignItems: "center",
       marginTop: 32,
-      marginBottom: 40,
+      marginBottom: 32,
     },
     tagline: {
       color: colors.primary,
@@ -119,7 +120,7 @@ export default function OnboardingScreen() {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 8,
-      marginBottom: 32,
+      marginBottom: 20,
     },
     suggestionChip: {
       borderWidth: 1,
@@ -195,6 +196,62 @@ export default function OnboardingScreen() {
       textAlign: "center",
       marginBottom: 16,
     },
+    promoBanner: {
+      borderWidth: 1,
+      borderColor: "#00C8FF",
+      borderRadius: colors.radius,
+      backgroundColor: "rgba(0,200,255,0.07)",
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      marginBottom: 20,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    promoIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: "rgba(0,200,255,0.15)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    promoTextWrap: {
+      flex: 1,
+    },
+    promoLabel: {
+      color: "#00C8FF",
+      fontSize: 10,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+      marginBottom: 2,
+    },
+    promoHeadline: {
+      color: colors.foreground,
+      fontSize: 13,
+      fontWeight: "700" as const,
+      letterSpacing: 1,
+    },
+    promoSub: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 0.5,
+      marginTop: 2,
+    },
+    promoBadge: {
+      backgroundColor: "#00C8FF",
+      borderRadius: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      alignSelf: "flex-start",
+      marginTop: 6,
+    },
+    promoBadgeText: {
+      color: "#000",
+      fontSize: 9,
+      fontWeight: "800" as const,
+      letterSpacing: 2,
+    },
   });
 
   return (
@@ -202,9 +259,14 @@ export default function OnboardingScreen() {
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <View style={styles.container}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.header}>
-          <GhostLogo size={140} color={colors.foreground} />
+          <GhostLogo size={210} color={colors.foreground} />
           <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
           <Text style={styles.appName}>GHOSTFACE</Text>
         </View>
@@ -234,6 +296,23 @@ export default function OnboardingScreen() {
                   <Text style={styles.suggestionText}>{s}</Text>
                 </Pressable>
               ))}
+            </View>
+
+            {/* First Login Special — Free Ghost Number */}
+            <View style={styles.promoBanner}>
+              <View style={styles.promoIconWrap}>
+                <Ionicons name="call" size={18} color="#00C8FF" />
+              </View>
+              <View style={styles.promoTextWrap}>
+                <Text style={styles.promoLabel}>FIRST LOGIN SPECIAL</Text>
+                <Text style={styles.promoHeadline}>FREE Ghost Number</Text>
+                <Text style={styles.promoSub}>
+                  Claim a real virtual phone number — receive calls & SMS anonymously.
+                </Text>
+                <View style={styles.promoBadge}>
+                  <Text style={styles.promoBadgeText}>CLAIM AFTER SETUP →</Text>
+                </View>
+              </View>
             </View>
 
             <Pressable
@@ -335,7 +414,7 @@ export default function OnboardingScreen() {
             </View>
           </>
         )}
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
