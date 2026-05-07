@@ -1186,6 +1186,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...APP_STORAGE_KEYS.map((k) => AsyncStorage.removeItem(k)),
         secureDelete(SECURE_PIN_KEY),
         secureDelete(DEVICE_TOKEN_KEY),
+        secureDelete(MY_IK_PRIV_KEY),
+        secureDelete(MY_IK_PUB_KEY),
+        secureDelete(MY_SPK_PRIV_KEY),
+        secureDelete(MY_SPK_PUB_KEY),
       ]);
     } catch (err) {
       console.error("[AppContext] Panic wipe storage error:", err);
@@ -1198,7 +1202,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isOnboarded: false,
       vpnConnected: false,
       vpnServer: null,
-      conversations: createDefaultConversations(),
+      conversations: [],
       fdBalance: 4250.75,
       casperBalance: 8920.5,
       walletAddress: "GhFc3...x9mKr4",

@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React from "react";
+import React, { useState } from "react";
 import {
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -20,8 +21,10 @@ import { useColors } from "@/hooks/useColors";
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alias, vpnConnected, fdBalance, casperBalance } = useApp();
+  const { alias, vpnConnected, fdBalance, casperBalance, panicWipe } = useApp();
   const { height: screenHeight } = useWindowDimensions();
+  const [panicModalVisible, setPanicModalVisible] = useState(false);
+  const [wiping, setWiping] = useState(false);
 
   const logoSize = Math.round(screenHeight * 0.48);
 
@@ -127,6 +130,92 @@ export default function HomeScreen() {
     scrollPad: {
       height: 120,
     },
+    panicSection: {
+      paddingHorizontal: 20,
+      paddingTop: 24,
+    },
+    panicButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 10,
+      backgroundColor: "transparent",
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: "#7f1d1d",
+      paddingVertical: 14,
+    },
+    panicButtonText: {
+      color: "#ef4444",
+      fontSize: 11,
+      letterSpacing: 3,
+      fontWeight: "800" as const,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.85)",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 24,
+    },
+    modalCard: {
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: "#7f1d1d",
+      padding: 28,
+      width: "100%",
+      maxWidth: 360,
+      alignItems: "center",
+    },
+    modalTitle: {
+      color: "#ef4444",
+      fontSize: 14,
+      fontWeight: "800" as const,
+      letterSpacing: 4,
+      marginBottom: 12,
+    },
+    modalBody: {
+      color: colors.mutedForeground,
+      fontSize: 12,
+      letterSpacing: 1,
+      textAlign: "center",
+      lineHeight: 20,
+      marginBottom: 28,
+    },
+    modalButtons: {
+      flexDirection: "row",
+      gap: 12,
+      width: "100%",
+    },
+    modalCancel: {
+      flex: 1,
+      backgroundColor: colors.card,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: 12,
+      alignItems: "center",
+    },
+    modalCancelText: {
+      color: colors.foreground,
+      fontSize: 11,
+      letterSpacing: 2,
+      fontWeight: "700" as const,
+    },
+    modalConfirm: {
+      flex: 1,
+      backgroundColor: "#7f1d1d",
+      borderRadius: colors.radius,
+      paddingVertical: 12,
+      alignItems: "center",
+    },
+    modalConfirmText: {
+      color: "#fca5a5",
+      fontSize: 11,
+      letterSpacing: 2,
+      fontWeight: "700" as const,
+    },
   });
 
   return (
@@ -224,8 +313,77 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        <View style={styles.panicSection}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.panicButton,
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={() => {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              setPanicModalVisible(true);
+            }}
+          >
+            <Ionicons name="warning" size={16} color="#ef4444" />
+            <Text style={styles.panicButtonText}>PANIC WIPE</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.scrollPad} />
       </ScrollView>
+
+      <Modal
+        visible={panicModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!wiping) setPanicModalVisible(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>PANIC WIPE</Text>
+            <Text style={styles.modalBody}>
+              This will permanently erase all messages, contacts, keys, and session data. The app will reset to onboarding.{"\n\n"}This cannot be undone.
+            </Text>
+            <View style={styles.modalButtons}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalCancel,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => {
+                  if (!wiping) {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setPanicModalVisible(false);
+                  }
+                }}
+              >
+                <Text style={styles.modalCancelText}>CANCEL</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirm,
+                  pressed && { opacity: 0.7 },
+                  wiping && { opacity: 0.5 },
+                ]}
+                onPress={async () => {
+                  if (wiping) return;
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                  setWiping(true);
+                  await panicWipe();
+                  setWiping(false);
+                  setPanicModalVisible(false);
+                }}
+              >
+                <Text style={styles.modalConfirmText}>
+                  {wiping ? "WIPING..." : "WIPE ALL"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
