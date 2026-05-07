@@ -270,6 +270,7 @@ const OPK_BATCH_SIZE = 10;
 const DEVICE_TOKEN_KEY = "ghostface_device_token";
 const CONTACT_IDENTITY_STORE_KEY = "ghostface_contact_identity_store";
 const AUTO_LOCK_TIMEOUT_KEY = "ghostface_auto_lock_timeout";
+const LAST_VPN_SERVER_KEY = "ghostface_last_vpn_server_id";
 const MY_IK_PRIV_KEY = "ghostface_my_ik_priv";
 const MY_IK_PUB_KEY = "ghostface_my_ik_pub";
 const MY_SPK_PRIV_KEY = "ghostface_my_spk_priv";
@@ -284,6 +285,7 @@ const APP_STORAGE_KEYS = [
   OPK_STORE_KEY,
   CONTACT_IDENTITY_STORE_KEY,
   AUTO_LOCK_TIMEOUT_KEY,
+  LAST_VPN_SERVER_KEY,
 ] as const;
 
 function getApiBase(): string {
@@ -692,7 +694,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
@@ -703,6 +705,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(CONNECTED_WALLET_KEY),
           AsyncStorage.getItem(AUTO_LOCK_TIMEOUT_KEY),
           secureGet(DEVICE_TOKEN_KEY),
+          AsyncStorage.getItem(LAST_VPN_SERVER_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -736,6 +739,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!isNaN(parsed)) autoLockTimeout = parsed;
         }
 
+        const restoredVpnServer = lastVpnServerId
+          ? (VPN_SERVERS.find((s) => s.id === lastVpnServerId) ?? null)
+          : null;
+
         setHasPin(hasPinValue);
         setState((prev) => ({
           ...prev,
@@ -748,6 +755,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           stripeEmail: stripeEmailVal,
           connectedWalletAddress: connectedWallet ?? null,
           autoLockTimeout,
+          vpnServer: restoredVpnServer,
+          vpnConnected: !!restoredVpnServer,
         }));
 
         // Fetch SOL balance in background after state is set
@@ -925,6 +934,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const connectVPN = useCallback((server: VPNServer) => {
     setState((prev) => ({ ...prev, vpnConnected: true, vpnServer: server }));
+    AsyncStorage.setItem(LAST_VPN_SERVER_KEY, server.id).catch((err) =>
+      console.warn("[VPN] Failed to persist last VPN server:", err)
+    );
   }, []);
 
   const disconnectVPN = useCallback(() => {
