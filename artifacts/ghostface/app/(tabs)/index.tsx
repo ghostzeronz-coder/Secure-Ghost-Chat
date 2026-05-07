@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
 import { SecureBadge } from "@/components/SecureBadge";
+import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
@@ -64,6 +65,30 @@ export default function HomeScreen() {
       fontSize: 10,
       letterSpacing: 3,
       marginTop: 4,
+    },
+    statusStrip: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 14,
+      gap: 0,
+    },
+    statusItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
+    statusLabel: {
+      fontSize: 9,
+      letterSpacing: 2,
+      fontWeight: "700" as const,
+    },
+    statusDivider: {
+      width: 1,
+      height: 10,
+      backgroundColor: colors.border,
     },
     section: {
       paddingHorizontal: 20,
@@ -230,6 +255,71 @@ export default function HomeScreen() {
           <GhostLogo size={logoSize} color={colors.foreground} />
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
           <Text style={styles.tagline}>SECURE IDENTITY</Text>
+
+          <View style={styles.statusStrip}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.statusItem,
+                pressed && { opacity: 0.6 },
+              ]}
+              accessibilityLabel={vpnConnected ? "VPN connected, tap to manage" : "VPN disconnected, tap to connect"}
+              accessibilityRole="button"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/(tabs)/vpn");
+              }}
+            >
+              <StatusDot active={vpnConnected} size={5} pulse={vpnConnected} />
+              <Text
+                style={[
+                  styles.statusLabel,
+                  { color: vpnConnected ? colors.success : colors.mutedForeground },
+                ]}
+              >
+                {vpnConnected ? "VPN ON" : "VPN OFF"}
+              </Text>
+            </Pressable>
+
+            <View style={styles.statusDivider} />
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.statusItem,
+                pressed && { opacity: 0.6 },
+              ]}
+              accessibilityLabel="End-to-end encryption active, tap for settings"
+              accessibilityRole="button"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/(tabs)/settings");
+              }}
+            >
+              <StatusDot active size={5} pulse={false} />
+              <Text style={[styles.statusLabel, { color: colors.success }]}>
+                E2EE
+              </Text>
+            </Pressable>
+
+            <View style={styles.statusDivider} />
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.statusItem,
+                pressed && { opacity: 0.6 },
+              ]}
+              accessibilityLabel="Identity masked, tap for settings"
+              accessibilityRole="button"
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push("/(tabs)/settings");
+              }}
+            >
+              <StatusDot active size={5} pulse={false} />
+              <Text style={[styles.statusLabel, { color: colors.success }]}>
+                ID MASKED
+              </Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.section}>
