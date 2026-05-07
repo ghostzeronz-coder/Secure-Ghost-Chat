@@ -11,6 +11,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -91,6 +92,16 @@ export default function LockScreen() {
   const failedAttemptsRef = useRef(0);
   const [failCountLoaded, setFailCountLoaded] = useState(false);
 
+  // Duress grace-period state
+  const [duressCountdown, setDuressCountdown] = useState<number | null>(null);
+  const duressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (duressIntervalRef.current) clearInterval(duressIntervalRef.current);
+    };
+  }, []);
+
   // Scrambled digit layout — randomised on every mount and app-foreground event
   const [digits, setDigits] = useState<string[]>(() => shuffleDigits());
 
@@ -150,6 +161,9 @@ export default function LockScreen() {
   const tryBiometric = async () => {
     if (Platform.OS === "web") return;
     if (!biometricEnabled) return;
+    // Block biometric unlock while a duress wipe countdown is running to prevent
+    // an unintended bypass (lock-screen unmount would cancel the interval).
+    if (duressIntervalRef.current !== null) return;
     try {
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Authenticate to unlock GHOSTFACE",
@@ -208,11 +222,26 @@ export default function LockScreen() {
           failedAttemptsRef.current = 0;
           setFailedAttempts(0);
           if (isDuress) {
-            // Unlock first so the lock screen dismisses identically to a normal
-            // login — a coercer sees the same transition. Wipe fires after the
-            // state update propagates, resetting the app to onboarding.
-            setLocked(false);
-            await panicWipe();
+            // Start a 3-second grace period so the user can cancel an accidental
+            // duress trigger. The countdown is subtle — a bystander watching
+            // the brief animation won't register it. If not cancelled, the wipe
+            // fires exactly as it would have before this change.
+            const GRACE = 3;
+            setDuressCountdown(GRACE);
+            let remaining = GRACE;
+            duressIntervalRef.current = setInterval(() => {
+              remaining -= 1;
+              if (remaining <= 0) {
+                clearInterval(duressIntervalRef.current!);
+                duressIntervalRef.current = null;
+                setDuressCountdown(null);
+                setLocked(false);
+                panicWipe();
+              } else {
+                setDuressCountdown(remaining);
+              }
+            }, 1000);
+            // Keep isVerifying true during the countdown so keypad is locked
           } else {
             setLocked(false);
           }
@@ -249,6 +278,16 @@ export default function LockScreen() {
         }, 650);
       }
     }
+  };
+
+  const handleDuressCancel = () => {
+    if (duressIntervalRef.current) {
+      clearInterval(duressIntervalRef.current);
+      duressIntervalRef.current = null;
+    }
+    setDuressCountdown(null);
+    setIsVerifying(false);
+    rescramble();
   };
 
   const handleDelete = () => {
@@ -388,6 +427,26 @@ export default function LockScreen() {
       marginTop: 16,
       textAlign: "center",
     },
+    duressBar: {
+      position: "absolute",
+      bottom: insets.bottom + (Platform.OS === "web" ? 34 : 16),
+      right: 24,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 6,
+      backgroundColor: `${colors.background}cc`,
+      borderWidth: 1,
+      borderColor: `${colors.mutedForeground}20`,
+      opacity: 0.7,
+    },
+    duressCountText: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      fontVariant: ["tabular-nums"],
+    },
   });
 
   return (
@@ -479,11 +538,23 @@ export default function LockScreen() {
         </>
       )}
 
-      {biometricEnabled && hasPin && (
+      {biometricEnabled && hasPin && duressCountdown === null && (
         <Pressable style={styles.biometricBtn} onPress={tryBiometric}>
           <Ionicons name="finger-print" size={22} color={colors.primary} />
           <Text style={styles.biometricText}>USE BIOMETRIC</Text>
         </Pressable>
+      )}
+
+      {duressCountdown !== null && (
+        <TouchableOpacity
+          style={styles.duressBar}
+          onPress={handleDuressCancel}
+          activeOpacity={0.6}
+          testID="duress-cancel-bar"
+        >
+          <Text style={styles.duressCountText}>{duressCountdown}</Text>
+          <Ionicons name="close" size={12} color={colors.mutedForeground} style={{ opacity: 0.6 }} />
+        </TouchableOpacity>
       )}
     </View>
   );
