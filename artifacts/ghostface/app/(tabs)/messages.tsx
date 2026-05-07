@@ -21,6 +21,7 @@ import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 
 function formatTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -329,6 +330,7 @@ export default function MessagesScreen() {
   });
 
   return (
+    <TabScreenWrapper>
     <View style={styles.container}>
       <QRScanner
         visible={showScanner}
@@ -523,5 +525,6 @@ export default function MessagesScreen() {
         </Pressable>
       </Modal>
     </View>
+    </TabScreenWrapper>
   );
 }

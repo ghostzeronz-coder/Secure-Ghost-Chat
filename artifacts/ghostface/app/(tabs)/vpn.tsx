@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
+import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 import { VPN_SERVERS } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
@@ -258,6 +259,7 @@ export default function VPNScreen() {
   });
 
   return (
+    <TabScreenWrapper>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>VPN</Text>
@@ -499,5 +501,6 @@ export default function VPNScreen() {
         ListFooterComponent={<View style={styles.padBottom} />}
       />
     </View>
+    </TabScreenWrapper>
   );
 }

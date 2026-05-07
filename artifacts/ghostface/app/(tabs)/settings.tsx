@@ -26,6 +26,7 @@ import { PanicButton } from "@/components/PanicButton";
 import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 
 function getPinStrength(pin: string): { level: 0 | 1 | 2; label: string } | null {
   if (pin.length === 0) return null;
@@ -437,6 +438,7 @@ export default function SettingsScreen() {
   });
 
   return (
+    <TabScreenWrapper>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>SETTINGS</Text>
@@ -925,5 +927,6 @@ export default function SettingsScreen() {
         </Pressable>
       </Modal>
     </View>
+    </TabScreenWrapper>
   );
 }

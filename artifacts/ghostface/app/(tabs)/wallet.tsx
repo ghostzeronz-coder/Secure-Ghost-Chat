@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 
 function formatDate(ts: number): string {
   const d = new Date(ts);
@@ -536,6 +537,7 @@ export default function WalletScreen() {
   });
 
   return (
+    <TabScreenWrapper>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>WALLET</Text>
@@ -869,5 +871,6 @@ export default function WalletScreen() {
       </Modal>
 
     </View>
+    </TabScreenWrapper>
   );
 }

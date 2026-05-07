@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 
+// NOTE: Every tab screen added here must wrap its root view in <TabScreenWrapper>
+// (see components/TabScreenWrapper.tsx) to get the consistent slide-up transition.
 export default function TabLayout() {
   const colors = useColors();
   const safeAreaInsets = useSafeAreaInsets();

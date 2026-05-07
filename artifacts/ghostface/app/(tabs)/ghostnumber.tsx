@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 
 const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
@@ -370,6 +371,7 @@ export default function GhostNumberScreen() {
   });
 
   return (
+    <TabScreenWrapper>
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>GHOST NUMBER</Text>
@@ -536,5 +538,6 @@ export default function GhostNumberScreen() {
         </Pressable>
       </View>
     </View>
+    </TabScreenWrapper>
   );
 }

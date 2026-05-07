@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -182,6 +183,7 @@ export default function HomeScreen() {
   });
 
   return (
+    <TabScreenWrapper>
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* ── Identity ── */}
@@ -321,5 +323,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
     </View>
+    </TabScreenWrapper>
   );
 }
