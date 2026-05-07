@@ -24,7 +24,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { alias, vpnConnected, fdBalance, casperBalance } = useApp();
 
-  const logoSize = Math.round(SCREEN_HEIGHT * 0.38);
+  const logoSize = Math.round(SCREEN_HEIGHT * 0.48);
 
   const styles = StyleSheet.create({
     container: {
@@ -138,14 +138,12 @@ export default function HomeScreen() {
       <View style={styles.divider} />
 
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* ── HERO LOGO ─────────────────────────────────── */}
         <View style={styles.heroBlock}>
           <GhostLogo size={logoSize} color={colors.foreground} />
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
-          <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
+          <Text style={styles.tagline}>SECURE IDENTITY</Text>
         </View>
 
-        {/* ── WALLET ────────────────────────────────────── */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>WALLET</Text>
           <View style={styles.balanceRow}>
@@ -166,7 +164,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* ── QUICK ACTIONS ─────────────────────────────── */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>QUICK ACTIONS</Text>
           <View style={styles.quickActions}>
