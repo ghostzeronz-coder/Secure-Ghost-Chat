@@ -126,6 +126,7 @@ interface AppContextType extends AppState {
   setAlias: (alias: string) => Promise<void>;
   setPin: (pin: string) => Promise<void>;
   checkPin: (input: string) => Promise<boolean>;
+  checkDuressPin: (input: string) => Promise<boolean>;
   checkPinWithDuress: (input: string) => Promise<{ correct: boolean; isDuress: boolean }>;
   setDuressPin: (pin: string) => Promise<void>;
   clearDuressPin: () => Promise<void>;
@@ -873,6 +874,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const checkDuressPin = useCallback(async (input: string): Promise<boolean> => {
+    try {
+      const stored = await secureGet(SECURE_DURESS_PIN_KEY);
+      return stored !== null && stored === input;
+    } catch (err) {
+      console.error("[AppContext] Failed to check duress PIN:", err);
+      return false;
+    }
+  }, []);
+
   const checkPinWithDuress = useCallback(async (input: string): Promise<{ correct: boolean; isDuress: boolean }> => {
     try {
       const [stored, duress] = await Promise.all([
@@ -1560,6 +1571,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setAlias,
         setPin,
         checkPin,
+        checkDuressPin,
         checkPinWithDuress,
         setDuressPin,
         clearDuressPin,
