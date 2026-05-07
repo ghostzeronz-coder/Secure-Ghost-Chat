@@ -1,16 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import {
-  Animated,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
@@ -20,49 +19,9 @@ import { useColors } from "@/hooks/useColors";
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alias, vpnConnected, vpnServer, fdBalance, casperBalance, panicWipe } = useApp();
+  const { alias, vpnConnected, panicWipe } = useApp();
   const [panicModalVisible, setPanicModalVisible] = useState(false);
   const [wiping, setWiping] = useState(false);
-
-  const chipAnims = useRef([
-    new Animated.Value(0),
-    new Animated.Value(0),
-    new Animated.Value(0),
-  ]).current;
-
-  const pulseAnims = useRef([
-    new Animated.Value(1),
-    new Animated.Value(1),
-    new Animated.Value(1),
-  ]).current;
-
-  useEffect(() => {
-    Animated.stagger(
-      80,
-      chipAnims.map((anim) =>
-        Animated.timing(anim, {
-          toValue: 1,
-          duration: 280,
-          useNativeDriver: true,
-        })
-      )
-    ).start();
-
-    pulseAnims.forEach((anim) => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(anim, { toValue: 0.3, duration: 900, useNativeDriver: true }),
-          Animated.timing(anim, { toValue: 1, duration: 900, useNativeDriver: true }),
-        ])
-      ).start();
-    });
-  }, []);
-
-  const vpnLabel = vpnConnected
-    ? ["VPN ·", vpnServer?.flag, vpnServer?.shortRegion ?? vpnServer?.name ?? "ACTIVE"]
-        .filter(Boolean)
-        .join(" ")
-    : "VPN OFF";
 
   const styles = StyleSheet.create({
     container: {
@@ -70,48 +29,12 @@ export default function HomeScreen() {
       backgroundColor: colors.background,
     },
 
-    // ── Top Command Bar ──────────────────────────────────────────
-    commandBar: {
-      flexDirection: "row",
-      paddingHorizontal: 12,
-      paddingTop: insets.top + (Platform.OS === "web" ? 67 : 8),
-      paddingBottom: 10,
-      gap: 6,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    chip: {
-      flex: 1,
-      backgroundColor: colors.card,
-      borderRadius: 6,
-      borderLeftWidth: 2,
-      paddingVertical: 8,
-      paddingHorizontal: 4,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    chipPulseDot: {
-      position: "absolute",
-      top: 5,
-      right: 5,
-      width: 5,
-      height: 5,
-      borderRadius: 3,
-      backgroundColor: colors.success,
-    },
-    chipLabel: {
-      fontSize: 9,
-      fontWeight: "700" as const,
-      letterSpacing: 1.5,
-      textAlign: "center",
-    },
-
     // ── Identity Section ─────────────────────────────────────────
     identity: {
       alignItems: "center",
       justifyContent: "center",
-      paddingTop: 32,
-      paddingBottom: 28,
+      paddingTop: insets.top + (Platform.OS === "web" ? 72 : 40),
+      paddingBottom: 32,
       paddingHorizontal: 24,
     },
     aliasText: {
@@ -119,7 +42,7 @@ export default function HomeScreen() {
       fontSize: 28,
       fontWeight: "300" as const,
       letterSpacing: 10,
-      marginTop: 20,
+      marginTop: 24,
       marginBottom: 6,
     },
     tagline: {
@@ -132,64 +55,13 @@ export default function HomeScreen() {
     divider: {
       height: 1,
       backgroundColor: colors.border,
-      marginHorizontal: 0,
-    },
-
-    // ── Wallet Stack ─────────────────────────────────────────────
-    walletSection: {
-      paddingHorizontal: 20,
-      paddingTop: 20,
-      paddingBottom: 8,
-      gap: 12,
-    },
-    walletCard: {
-      backgroundColor: colors.card,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 16,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-    },
-    walletLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 14,
-    },
-    walletCircle: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: "#1A1A1A",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    walletCircleText: {
-      color: colors.foreground,
-      fontSize: 12,
-      fontWeight: "800" as const,
-      letterSpacing: 1,
-    },
-    walletAmount: {
-      color: colors.primary,
-      fontSize: 20,
-      fontWeight: "700" as const,
-      letterSpacing: 1,
-      fontVariant: ["tabular-nums"],
-    },
-    walletCoinLabel: {
-      color: colors.mutedForeground,
-      fontSize: 9,
-      letterSpacing: 3,
-      fontWeight: "700" as const,
     },
 
     // ── Quick Actions ─────────────────────────────────────────────
     actionsSection: {
       paddingHorizontal: 20,
-      paddingTop: 24,
-      paddingBottom: 20,
+      paddingTop: 32,
+      paddingBottom: 24,
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
@@ -218,7 +90,7 @@ export default function HomeScreen() {
     // ── Panic Button ──────────────────────────────────────────────
     panicSection: {
       paddingHorizontal: 20,
-      paddingBottom: 20,
+      paddingBottom: 24,
     },
     panicButton: {
       flexDirection: "row",
@@ -305,106 +177,21 @@ export default function HomeScreen() {
       fontWeight: "700" as const,
     },
     scrollPad: {
-      height: 20,
+      height: 40,
     },
   });
 
-  const chipData = [
-    {
-      label: vpnLabel,
-      color: vpnConnected ? colors.success : colors.mutedForeground,
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.push("/(tabs)/vpn");
-      },
-    },
-    {
-      label: "E2EE",
-      color: colors.success,
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.push("/(tabs)/settings");
-      },
-    },
-    {
-      label: "ID MASKED",
-      color: colors.success,
-      onPress: () => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        router.push("/(tabs)/settings");
-      },
-    },
-  ];
-
   return (
     <View style={styles.container}>
-      {/* ── Command Bar ── */}
-      <View style={styles.commandBar}>
-        {chipData.map((chip, i) => (
-          <Animated.View key={i} style={{ flex: 1, opacity: chipAnims[i] }}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.chip,
-                { borderLeftColor: chip.color },
-                pressed && { opacity: 0.6 },
-              ]}
-              onPress={chip.onPress}
-            >
-              <Animated.View
-                style={[styles.chipPulseDot, { backgroundColor: chip.color, opacity: pulseAnims[i] }]}
-              />
-              <Text style={[styles.chipLabel, { color: chip.color }]}>
-                {chip.label}
-              </Text>
-            </Pressable>
-          </Animated.View>
-        ))}
-      </View>
-
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* ── Identity ── */}
         <View style={styles.identity}>
-          <GhostLogo size={100} color={colors.foreground} />
+          <GhostLogo size={150} color={colors.foreground} />
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
           <Text style={styles.tagline}>SECURE IDENTITY</Text>
         </View>
 
         <View style={styles.divider} />
-
-        {/* ── Wallet Stack ── */}
-        <View style={styles.walletSection}>
-          <Pressable
-            style={({ pressed }) => [styles.walletCard, pressed && { opacity: 0.75 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/(tabs)/wallet");
-            }}
-          >
-            <View style={styles.walletLeft}>
-              <View style={styles.walletCircle}>
-                <Text style={styles.walletCircleText}>FD</Text>
-              </View>
-              <Text style={styles.walletAmount}>{fdBalance.toLocaleString()}</Text>
-            </View>
-            <Text style={styles.walletCoinLabel}>FACE DOLLAR</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.walletCard, pressed && { opacity: 0.75 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/(tabs)/wallet");
-            }}
-          >
-            <View style={styles.walletLeft}>
-              <View style={styles.walletCircle}>
-                <Text style={styles.walletCircleText}>CS</Text>
-              </View>
-              <Text style={styles.walletAmount}>{casperBalance.toLocaleString()}</Text>
-            </View>
-            <Text style={styles.walletCoinLabel}>CASPER</Text>
-          </Pressable>
-        </View>
 
         {/* ── Quick Actions ── */}
         <View style={styles.actionsSection}>
@@ -416,7 +203,7 @@ export default function HomeScreen() {
             }}
           >
             <View style={styles.actionCircle}>
-              <Ionicons name="chatbubble-ellipses" size={22} color={colors.primary} />
+              <Ionicons name="chatbubble-ellipses" size={22} color={colors.foreground} />
             </View>
             <Text style={styles.actionLabel}>NEW MSG</Text>
           </Pressable>
@@ -429,7 +216,7 @@ export default function HomeScreen() {
             }}
           >
             <View style={styles.actionCircle}>
-              <Ionicons name="call" size={22} color={colors.primary} />
+              <Ionicons name="call" size={22} color={colors.foreground} />
             </View>
             <Text style={styles.actionLabel}>CALL</Text>
           </Pressable>
@@ -443,16 +230,16 @@ export default function HomeScreen() {
           >
             <View style={[
               styles.actionCircle,
-              vpnConnected && { borderColor: colors.success, shadowColor: colors.primary, shadowOpacity: 0.2, shadowRadius: 8 },
+              vpnConnected && { borderColor: colors.border },
             ]}>
               <Ionicons
                 name="shield"
                 size={22}
-                color={vpnConnected ? colors.success : colors.mutedForeground}
+                color={colors.foreground}
               />
             </View>
-            <Text style={[styles.actionLabel, vpnConnected && { color: colors.success }]}>
-              {vpnConnected ? "VPN ON" : "VPN OFF"}
+            <Text style={styles.actionLabel}>
+              {vpnConnected ? "VPN ON" : "VPN"}
             </Text>
           </Pressable>
 
@@ -464,7 +251,7 @@ export default function HomeScreen() {
             }}
           >
             <View style={styles.actionCircle}>
-              <Ionicons name="wallet" size={22} color={colors.primary} />
+              <Ionicons name="wallet" size={22} color={colors.foreground} />
             </View>
             <Text style={styles.actionLabel}>WALLET</Text>
           </Pressable>
@@ -503,12 +290,21 @@ export default function HomeScreen() {
             <View style={styles.modalButtons}>
               <Pressable
                 style={({ pressed }) => [styles.modalCancel, pressed && { opacity: 0.7 }]}
-                onPress={() => { if (!wiping) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setPanicModalVisible(false); } }}
+                onPress={() => {
+                  if (!wiping) {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setPanicModalVisible(false);
+                  }
+                }}
               >
                 <Text style={styles.modalCancelText}>CANCEL</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [styles.modalConfirm, pressed && { opacity: 0.7 }, wiping && { opacity: 0.5 }]}
+                style={({ pressed }) => [
+                  styles.modalConfirm,
+                  pressed && { opacity: 0.7 },
+                  wiping && { opacity: 0.5 },
+                ]}
                 onPress={async () => {
                   if (wiping) return;
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

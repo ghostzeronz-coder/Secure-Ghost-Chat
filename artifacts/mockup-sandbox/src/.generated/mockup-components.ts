@@ -3,5 +3,7 @@ type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/ghostface-home/AliasFocus.tsx": () => import("../components/mockups/ghostface-home/AliasFocus.tsx"),
   "./components/mockups/ghostface-home/CommandDeck.tsx": () => import("../components/mockups/ghostface-home/CommandDeck.tsx"),
-  "./components/mockups/ghostface-home/SplitIdentity.tsx": () => import("../components/mockups/ghostface-home/SplitIdentity.tsx")
+  "./components/mockups/ghostface-home/SplitIdentity.tsx": () => import("../components/mockups/ghostface-home/SplitIdentity.tsx"),
+  "./components/mockups/ghostface-home/SplitIdentityElevated.tsx": () => import("../components/mockups/ghostface-home/SplitIdentityElevated.tsx"),
+  "./components/mockups/ghostface-home/SplitIdentityTight.tsx": () => import("../components/mockups/ghostface-home/SplitIdentityTight.tsx")
 };
