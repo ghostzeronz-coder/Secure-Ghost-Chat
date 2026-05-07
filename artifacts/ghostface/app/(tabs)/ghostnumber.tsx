@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -15,21 +14,10 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
 const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
-type Plan = {
-  id: string;
-  name: string;
-  priceNzd: number;
-  numbers: number;
-  capabilities: string[];
-  countries: string[];
-  description: string;
-};
 
 type GhostNumber = {
   id: number;
@@ -39,31 +27,6 @@ type GhostNumber = {
   plan: string;
   status: string;
   createdAt: string;
-};
-
-type Sms = {
-  id: number;
-  fromNumber: string;
-  body: string;
-  createdAt: string;
-};
-
-const COUNTRY_FLAGS: Record<string, string> = {
-  NZ: "🇳🇿",
-  AU: "🇦🇺",
-  US: "🇺🇸",
-  GB: "🇬🇧",
-  CA: "🇨🇦",
-  DE: "🇩🇪",
-};
-
-const COUNTRY_NAMES: Record<string, string> = {
-  NZ: "New Zealand",
-  AU: "Australia",
-  US: "United States",
-  GB: "United Kingdom",
-  CA: "Canada",
-  DE: "Germany",
 };
 
 function formatTime(ts: string): string {
@@ -82,31 +45,20 @@ export default function GhostNumberScreen() {
   const insets = useSafeAreaInsets();
   const { alias, deviceToken } = useApp();
 
-  const [plans, setPlans] = useState<Plan[]>([]);
   const [numbers, setNumbers] = useState<GhostNumber[]>([]);
-  const [sms, setSms] = useState<Record<number, Sms[]>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [provisioning, setProvisioning] = useState(false);
   const [releasing, setReleasing] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
-  const [showProvision, setShowProvision] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-  const [selectedCountry, setSelectedCountry] = useState("NZ");
-
-  const authHeaders = useCallback(() => ({
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${deviceToken ?? ""}`,
-  }), [deviceToken]);
-
-  const fetchPlans = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/numbers/plans`);
-      const json = await res.json();
-      if (json.data) setPlans(json.data);
-    } catch {}
-  }, []);
+  const authHeaders = useCallback(
+    () => ({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${deviceToken ?? ""}`,
+    }),
+    [deviceToken]
+  );
 
   const fetchNumbers = useCallback(async () => {
     if (!alias || !deviceToken) return;
@@ -115,30 +67,15 @@ export default function GhostNumberScreen() {
         headers: authHeaders(),
       });
       const json = await res.json();
-      const nums: GhostNumber[] = json.data ?? [];
-      setNumbers(nums);
-      for (const n of nums) {
-        fetchSms(n.id);
-      }
-    } catch {}
-  }, [alias, deviceToken, authHeaders]);
-
-  const fetchSms = useCallback(async (numberId: number) => {
-    if (!alias || !deviceToken) return;
-    try {
-      const res = await fetch(`${API_BASE}/numbers/${numberId}/sms?alias=${alias}`, {
-        headers: authHeaders(),
-      });
-      const json = await res.json();
-      setSms((prev) => ({ ...prev, [numberId]: json.data ?? [] }));
+      setNumbers(json.data ?? []);
     } catch {}
   }, [alias, deviceToken, authHeaders]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchPlans(), fetchNumbers()]);
+    await fetchNumbers();
     setLoading(false);
-  }, [fetchPlans, fetchNumbers]);
+  }, [fetchNumbers]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -146,24 +83,28 @@ export default function GhostNumberScreen() {
     setRefreshing(false);
   }, [fetchNumbers]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const handleProvision = async () => {
-    if (!selectedPlan) return;
+  const handleAcquire = async () => {
+    if (!alias || !deviceToken) {
+      Alert.alert("NOT READY", "Finish onboarding before acquiring a ghost number.");
+      return;
+    }
     setProvisioning(true);
     try {
       const res = await fetch(`${API_BASE}/numbers/provision?alias=${alias}`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ country: selectedCountry, plan: selectedPlan.id }),
+        body: JSON.stringify({ country: "NZ", capabilities: ["sms"] }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Provisioning failed");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setShowProvision(false);
       await fetchNumbers();
     } catch (err: any) {
-      Alert.alert("Error", err.message);
+      Alert.alert("ERROR", err.message);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setProvisioning(false);
@@ -173,7 +114,7 @@ export default function GhostNumberScreen() {
   const handleRelease = (number: GhostNumber) => {
     Alert.alert(
       "RELEASE NUMBER",
-      `Release ${number.phoneNumber}? This cannot be undone.`,
+      `Release ${number.phoneNumber}?\n\nThis cannot be undone.`,
       [
         { text: "CANCEL", style: "cancel" },
         {
@@ -182,16 +123,16 @@ export default function GhostNumberScreen() {
           onPress: async () => {
             setReleasing(number.id);
             try {
-              const res = await fetch(`${API_BASE}/numbers/${number.id}?alias=${alias}`, {
-                method: "DELETE",
-                headers: authHeaders(),
-              });
+              const res = await fetch(
+                `${API_BASE}/numbers/${number.id}?alias=${alias}`,
+                { method: "DELETE", headers: authHeaders() }
+              );
               const json = await res.json();
               if (!res.ok) throw new Error(json.error ?? "Release failed");
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               await fetchNumbers();
             } catch (err: any) {
-              Alert.alert("Error", err.message);
+              Alert.alert("ERROR", err.message);
             } finally {
               setReleasing(null);
             }
@@ -224,60 +165,81 @@ export default function GhostNumberScreen() {
       fontWeight: "800",
       letterSpacing: 4,
     },
-    divider: { height: 1, backgroundColor: colors.border, marginHorizontal: 20 },
-    sectionLabel: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 3,
-      fontWeight: "700",
-      marginBottom: 12,
-      marginHorizontal: 20,
-      marginTop: 24,
+    divider: { height: 1, backgroundColor: colors.border },
+    scroll: { flex: 1 },
+    listContent: { padding: 20, paddingBottom: 120 },
+    emptyWrap: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingTop: 80,
+      gap: 12,
     },
-    // ── active number card ───────────────────────────────
-    numberCard: {
-      marginHorizontal: 20,
+    emptyIcon: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: "rgba(0,200,255,0.08)",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 4,
+    },
+    emptyTitle: {
+      color: colors.foreground,
+      fontSize: 13,
+      fontWeight: "800",
+      letterSpacing: 4,
+    },
+    emptyBody: {
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 1,
+      textAlign: "center",
+      lineHeight: 18,
+      maxWidth: 240,
+    },
+    card: {
       backgroundColor: colors.card,
       borderRadius: colors.radius,
       borderWidth: 1,
-      borderColor: "rgba(0,200,255,0.3)",
+      borderColor: "rgba(0,200,255,0.25)",
       padding: 18,
-      marginBottom: 12,
+      marginBottom: 14,
     },
-    numberCardHead: {
+    cardHead: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 10,
+      marginBottom: 14,
     },
-    numberBadge: {
+    statusBadge: {
       flexDirection: "row",
       alignItems: "center",
       gap: 6,
       backgroundColor: "rgba(0,200,255,0.1)",
-      borderRadius: 6,
+      borderRadius: 4,
       paddingHorizontal: 10,
       paddingVertical: 4,
     },
-    numberBadgeDot: {
-      width: 6,
-      height: 6,
+    statusDot: {
+      width: 5,
+      height: 5,
       borderRadius: 3,
       backgroundColor: colors.primary,
     },
-    numberBadgeText: {
+    statusText: {
       color: colors.primary,
       fontSize: 9,
       fontWeight: "800",
       letterSpacing: 2,
     },
-    planChip: {
-      backgroundColor: "rgba(153,69,255,0.15)",
+    planBadge: {
+      backgroundColor: "rgba(153,69,255,0.12)",
       borderRadius: 4,
       paddingHorizontal: 8,
-      paddingVertical: 3,
+      paddingVertical: 4,
     },
-    planChipText: {
+    planText: {
       color: "#9945FF",
       fontSize: 9,
       fontWeight: "800",
@@ -287,7 +249,7 @@ export default function GhostNumberScreen() {
       flexDirection: "row",
       alignItems: "center",
       gap: 10,
-      marginBottom: 12,
+      marginBottom: 14,
     },
     phoneNumber: {
       color: colors.foreground,
@@ -303,7 +265,7 @@ export default function GhostNumberScreen() {
       backgroundColor: colors.muted,
       borderRadius: 6,
       paddingHorizontal: 10,
-      paddingVertical: 6,
+      paddingVertical: 7,
     },
     copyBtnText: {
       color: colors.foreground,
@@ -311,12 +273,13 @@ export default function GhostNumberScreen() {
       fontWeight: "700",
       letterSpacing: 1,
     },
-    capRow: {
+    metaRow: {
       flexDirection: "row",
+      alignItems: "center",
       gap: 8,
       marginBottom: 14,
     },
-    capChip: {
+    metaChip: {
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
@@ -325,7 +288,7 @@ export default function GhostNumberScreen() {
       paddingHorizontal: 8,
       paddingVertical: 3,
     },
-    capChipText: {
+    metaChipText: {
       color: colors.mutedForeground,
       fontSize: 9,
       letterSpacing: 1,
@@ -337,7 +300,7 @@ export default function GhostNumberScreen() {
       justifyContent: "center",
       gap: 6,
       borderWidth: 1,
-      borderColor: "rgba(255,59,48,0.4)",
+      borderColor: "rgba(255,59,48,0.35)",
       borderRadius: colors.radius,
       paddingVertical: 10,
     },
@@ -347,423 +310,156 @@ export default function GhostNumberScreen() {
       fontWeight: "800",
       letterSpacing: 2,
     },
-    // ── SMS inbox ────────────────────────────────────────
-    smsCard: {
-      marginHorizontal: 20,
-      backgroundColor: colors.card,
-      borderRadius: colors.radius,
-      borderWidth: 1,
-      borderColor: colors.border,
-      marginBottom: 8,
-      overflow: "hidden",
+    footer: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      padding: 20,
+      paddingBottom: insets.bottom + 20,
+      backgroundColor: colors.background,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
     },
-    smsItem: {
-      padding: 14,
-      flexDirection: "row",
-      gap: 12,
-      alignItems: "flex-start",
-    },
-    smsIcon: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: "rgba(0,200,255,0.1)",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    smsContent: { flex: 1 },
-    smsFrom: {
-      color: colors.foreground,
-      fontSize: 11,
-      fontWeight: "700",
-      letterSpacing: 1,
-      marginBottom: 2,
-    },
-    smsBody: {
-      color: colors.mutedForeground,
-      fontSize: 12,
-      lineHeight: 16,
-    },
-    smsTime: {
-      color: colors.mutedForeground,
-      fontSize: 9,
-      letterSpacing: 1,
-      marginTop: 4,
-    },
-    smsDivider: { height: 1, backgroundColor: colors.border, marginLeft: 58 },
-    emptyInbox: {
-      padding: 24,
-      alignItems: "center",
-      gap: 8,
-    },
-    emptyInboxText: {
-      color: colors.mutedForeground,
-      fontSize: 11,
-      letterSpacing: 2,
-    },
-    // ── pricing cards ────────────────────────────────────
-    planCard: {
-      marginHorizontal: 20,
-      backgroundColor: colors.card,
-      borderRadius: colors.radius,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 18,
-      marginBottom: 12,
-    },
-    planCardFeatured: {
-      borderColor: "rgba(0,200,255,0.4)",
-    },
-    planHead: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      marginBottom: 6,
-    },
-    planName: {
-      color: colors.foreground,
-      fontSize: 13,
-      fontWeight: "800",
-      letterSpacing: 4,
-    },
-    planPrice: {
-      alignItems: "flex-end",
-    },
-    planPriceAmount: {
-      color: colors.primary,
-      fontSize: 20,
-      fontWeight: "800",
-      letterSpacing: 1,
-    },
-    planPricePer: {
-      color: colors.mutedForeground,
-      fontSize: 9,
-      letterSpacing: 1,
-    },
-    planDesc: {
-      color: colors.mutedForeground,
-      fontSize: 11,
-      letterSpacing: 1,
-      marginBottom: 12,
-    },
-    planFeatures: { gap: 6, marginBottom: 16 },
-    planFeature: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    planFeatureText: {
-      color: colors.foreground,
-      fontSize: 11,
-      letterSpacing: 1,
-    },
-    getBtn: {
+    acquireBtn: {
       backgroundColor: colors.primary,
       borderRadius: colors.radius,
-      paddingVertical: 13,
+      paddingVertical: 16,
       alignItems: "center",
-    },
-    getBtnText: {
-      color: "#000",
-      fontSize: 11,
-      fontWeight: "800",
-      letterSpacing: 3,
-    },
-    // ── provision modal ──────────────────────────────────
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.85)",
-      justifyContent: "flex-end",
-    },
-    modalContent: {
-      backgroundColor: colors.card,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: 24,
-      paddingBottom: insets.bottom + 24,
-    },
-    modalTitle: {
-      color: colors.foreground,
-      fontSize: 14,
-      fontWeight: "800",
-      letterSpacing: 4,
-      marginBottom: 4,
-    },
-    modalSub: {
-      color: colors.mutedForeground,
-      fontSize: 11,
-      letterSpacing: 1,
-      marginBottom: 20,
-    },
-    countryRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-      marginBottom: 20,
-    },
-    countryChip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      backgroundColor: colors.muted,
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderWidth: 1,
-      borderColor: "transparent",
-    },
-    countryChipActive: {
-      borderColor: colors.primary,
-      backgroundColor: "rgba(0,200,255,0.1)",
-    },
-    countryChipText: {
-      color: colors.foreground,
-      fontSize: 11,
-      fontWeight: "600",
-      letterSpacing: 1,
-    },
-    confirmBtn: {
-      backgroundColor: colors.primary,
-      borderRadius: colors.radius,
-      paddingVertical: 14,
-      alignItems: "center",
-      flexDirection: "row",
       justifyContent: "center",
+      flexDirection: "row",
       gap: 8,
-      marginBottom: 10,
     },
-    confirmBtnText: {
+    acquireBtnDisabled: {
+      opacity: 0.5,
+    },
+    acquireBtnText: {
       color: "#000",
       fontSize: 12,
       fontWeight: "800",
       letterSpacing: 3,
     },
-    cancelBtn: {
-      paddingVertical: 12,
-      alignItems: "center",
-    },
-    cancelBtnText: {
-      color: colors.mutedForeground,
-      fontSize: 11,
-      letterSpacing: 2,
-    },
-    pad: { height: 100 },
   });
-
-  const planFeatureMap: Record<string, string[]> = {
-    basic: ["1 ghost number", "SMS only", "5 countries"],
-    private: ["1 ghost number", "SMS + voice calls", "6 countries"],
-    phantom: ["2 ghost numbers", "SMS + voice calls", "6 countries", "Priority routing"],
-  };
-
-  if (loading) {
-    return (
-      <View style={[styles.container, { alignItems: "center", justifyContent: "center" }]}>
-        <ActivityIndicator color={colors.primary} />
-      </View>
-    );
-  }
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>GHOST NUMBER</Text>
-        <SecureBadge type="encrypted" />
+        <Ionicons name="phone-portrait-outline" size={18} color={colors.primary} />
       </View>
       <View style={styles.divider} />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
-      >
-        {numbers.length > 0 ? (
-          <>
-            <Text style={styles.sectionLabel}>YOUR NUMBERS</Text>
-            {numbers.map((number) => (
-              <View key={number.id} style={styles.numberCard}>
-                <View style={styles.numberCardHead}>
-                  <View style={styles.numberBadge}>
-                    <View style={styles.numberBadgeDot} />
-                    <Text style={styles.numberBadgeText}>ACTIVE</Text>
+      {loading ? (
+        <View style={styles.emptyWrap}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          {numbers.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name="phone-portrait-outline" size={28} color={colors.primary} />
+              </View>
+              <Text style={styles.emptyTitle}>NO GHOST NUMBERS</Text>
+              <Text style={styles.emptyBody}>
+                Acquire a number to receive SMS anonymously. Your identity stays hidden.
+              </Text>
+            </View>
+          ) : (
+            numbers.map((n) => (
+              <View key={n.id} style={styles.card}>
+                <View style={styles.cardHead}>
+                  <View style={styles.statusBadge}>
+                    <View style={styles.statusDot} />
+                    <Text style={styles.statusText}>{n.status.toUpperCase()}</Text>
                   </View>
-                  <View style={styles.planChip}>
-                    <Text style={styles.planChipText}>{number.plan.toUpperCase()}</Text>
+                  <View style={styles.planBadge}>
+                    <Text style={styles.planText}>{n.plan.toUpperCase()}</Text>
                   </View>
                 </View>
 
                 <View style={styles.phoneRow}>
-                  <Text style={styles.phoneNumber}>{number.phoneNumber}</Text>
-                  <Pressable style={styles.copyBtn} onPress={() => handleCopy(number)}>
+                  <Text style={styles.phoneNumber}>{n.phoneNumber}</Text>
+                  <Pressable style={styles.copyBtn} onPress={() => handleCopy(n)}>
                     <Ionicons
-                      name={copied === number.id ? "checkmark" : "copy-outline"}
+                      name={copied === n.id ? "checkmark" : "copy-outline"}
                       size={12}
-                      color={copied === number.id ? colors.success : colors.foreground}
+                      color={copied === n.id ? colors.success : colors.foreground}
                     />
-                    <Text style={styles.copyBtnText}>{copied === number.id ? "COPIED" : "COPY"}</Text>
+                    <Text style={[styles.copyBtnText, copied === n.id && { color: colors.success }]}>
+                      {copied === n.id ? "COPIED" : "COPY"}
+                    </Text>
                   </Pressable>
                 </View>
 
-                <View style={styles.capRow}>
-                  <View style={styles.capChip}>
-                    <Text style={styles.capChipText}>
-                      {COUNTRY_FLAGS[number.country] ?? "🌐"} {COUNTRY_NAMES[number.country] ?? number.country}
-                    </Text>
+                <View style={styles.metaRow}>
+                  <View style={styles.metaChip}>
+                    <Ionicons name="globe-outline" size={10} color={colors.mutedForeground} />
+                    <Text style={styles.metaChipText}>{n.country}</Text>
                   </View>
-                  {(number.capabilities as string[]).map((cap) => (
-                    <View key={cap} style={styles.capChip}>
+                  {(n.capabilities as string[]).map((cap) => (
+                    <View key={cap} style={styles.metaChip}>
                       <Ionicons
                         name={cap === "SMS" ? "chatbubble-outline" : "call-outline"}
                         size={10}
                         color={colors.mutedForeground}
                       />
-                      <Text style={styles.capChipText}>{cap}</Text>
+                      <Text style={styles.metaChipText}>{cap}</Text>
                     </View>
                   ))}
+                  <View style={styles.metaChip}>
+                    <Ionicons name="time-outline" size={10} color={colors.mutedForeground} />
+                    <Text style={styles.metaChipText}>{formatTime(n.createdAt)}</Text>
+                  </View>
                 </View>
 
                 <Pressable
                   style={styles.releaseBtn}
-                  onPress={() => handleRelease(number)}
-                  disabled={releasing === number.id}
+                  onPress={() => handleRelease(n)}
+                  disabled={releasing === n.id}
                 >
-                  {releasing === number.id ? (
+                  {releasing === n.id ? (
                     <ActivityIndicator size="small" color={colors.destructive} />
                   ) : (
-                    <Ionicons name="trash-outline" size={12} color={colors.destructive} />
+                    <>
+                      <Ionicons name="trash-outline" size={12} color={colors.destructive} />
+                      <Text style={styles.releaseBtnText}>RELEASE NUMBER</Text>
+                    </>
                   )}
-                  <Text style={styles.releaseBtnText}>
-                    {releasing === number.id ? "RELEASING..." : "RELEASE NUMBER"}
-                  </Text>
                 </Pressable>
               </View>
-            ))}
+            ))
+          )}
+        </ScrollView>
+      )}
 
-            {numbers.map((number) => (
-              <View key={`sms-${number.id}`}>
-                <Text style={styles.sectionLabel}>
-                  SMS INBOX — {number.phoneNumber}
-                </Text>
-                <View style={styles.smsCard}>
-                  {(sms[number.id] ?? []).length === 0 ? (
-                    <View style={styles.emptyInbox}>
-                      <Ionicons name="mail-outline" size={24} color={colors.mutedForeground} />
-                      <Text style={styles.emptyInboxText}>NO MESSAGES YET</Text>
-                    </View>
-                  ) : (
-                    (sms[number.id] ?? []).map((msg, idx) => (
-                      <View key={msg.id}>
-                        <View style={styles.smsItem}>
-                          <View style={styles.smsIcon}>
-                            <Ionicons name="chatbubble-outline" size={14} color={colors.primary} />
-                          </View>
-                          <View style={styles.smsContent}>
-                            <Text style={styles.smsFrom}>{msg.fromNumber}</Text>
-                            <Text style={styles.smsBody}>{msg.body}</Text>
-                            <Text style={styles.smsTime}>{formatTime(msg.createdAt)}</Text>
-                          </View>
-                        </View>
-                        {idx < (sms[number.id] ?? []).length - 1 && <View style={styles.smsDivider} />}
-                      </View>
-                    ))
-                  )}
-                </View>
-              </View>
-            ))}
-          </>
-        ) : (
-          <>
-            <Text style={styles.sectionLabel}>CHOOSE A PLAN</Text>
-            {plans.map((plan) => (
-              <View key={plan.id} style={[styles.planCard, plan.id === "private" && styles.planCardFeatured]}>
-                <View style={styles.planHead}>
-                  <Text style={styles.planName}>{plan.name}</Text>
-                  <View style={styles.planPrice}>
-                    <Text style={styles.planPriceAmount}>${plan.priceNzd.toFixed(2)}</Text>
-                    <Text style={styles.planPricePer}>NZD / MONTH</Text>
-                  </View>
-                </View>
-                <Text style={styles.planDesc}>{plan.description}</Text>
-                <View style={styles.planFeatures}>
-                  {(planFeatureMap[plan.id] ?? []).map((f) => (
-                    <View key={f} style={styles.planFeature}>
-                      <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-                      <Text style={styles.planFeatureText}>{f}</Text>
-                    </View>
-                  ))}
-                </View>
-                <Pressable
-                  style={({ pressed }) => [styles.getBtn, pressed && { opacity: 0.8 }]}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setSelectedPlan(plan);
-                    setSelectedCountry(plan.countries[0]);
-                    setShowProvision(true);
-                  }}
-                >
-                  <Text style={styles.getBtnText}>GET {plan.name}</Text>
-                </Pressable>
-              </View>
-            ))}
-          </>
-        )}
-
-        <View style={styles.pad} />
-      </ScrollView>
-
-      <Modal
-        visible={showProvision}
-        transparent
-        animationType="slide"
-        onRequestClose={() => !provisioning && setShowProvision(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => !provisioning && setShowProvision(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalContent}>
-              <Text style={styles.modalTitle}>GET {selectedPlan?.name}</Text>
-              <Text style={styles.modalSub}>
-                ${selectedPlan?.priceNzd.toFixed(2)} NZD/month · Choose your country
-              </Text>
-
-              <View style={styles.countryRow}>
-                {(selectedPlan?.countries ?? []).map((c) => (
-                  <Pressable
-                    key={c}
-                    style={[styles.countryChip, selectedCountry === c && styles.countryChipActive]}
-                    onPress={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      setSelectedCountry(c);
-                    }}
-                  >
-                    <Text>{COUNTRY_FLAGS[c] ?? "🌐"}</Text>
-                    <Text style={styles.countryChipText}>{c}</Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Pressable
-                style={[styles.confirmBtn, provisioning && { opacity: 0.6 }]}
-                onPress={handleProvision}
-                disabled={provisioning}
-              >
-                {provisioning ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <Ionicons name="phone-portrait-outline" size={14} color="#000" />
-                )}
-                <Text style={styles.confirmBtnText}>
-                  {provisioning ? "PROVISIONING..." : "PROVISION NUMBER"}
-                </Text>
-              </Pressable>
-
-              <Pressable style={styles.cancelBtn} onPress={() => setShowProvision(false)} disabled={provisioning}>
-                <Text style={styles.cancelBtnText}>CANCEL</Text>
-              </Pressable>
-            </View>
-          </Pressable>
+      <View style={styles.footer}>
+        <Pressable
+          style={[styles.acquireBtn, provisioning && styles.acquireBtnDisabled]}
+          onPress={handleAcquire}
+          disabled={provisioning}
+        >
+          {provisioning ? (
+            <ActivityIndicator color="#000" />
+          ) : (
+            <>
+              <Ionicons name="add-circle-outline" size={16} color="#000" />
+              <Text style={styles.acquireBtnText}>ACQUIRE NUMBER</Text>
+            </>
+          )}
         </Pressable>
-      </Modal>
+      </View>
     </View>
   );
 }
