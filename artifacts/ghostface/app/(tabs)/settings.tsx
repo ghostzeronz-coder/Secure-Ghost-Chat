@@ -85,6 +85,7 @@ export default function SettingsScreen() {
     hasDuressPin,
     stripeEmail,
     autoLockTimeout,
+    duressGracePeriod,
     setBiometricEnabled,
     setPin,
     checkPin,
@@ -95,6 +96,7 @@ export default function SettingsScreen() {
     panicWipe,
     setStripeEmail,
     setAutoLockTimeout,
+    setDuressGracePeriod,
   } = useApp();
 
   const AUTO_LOCK_OPTIONS: { label: string; value: number | null }[] = [
@@ -107,6 +109,36 @@ export default function SettingsScreen() {
 
   const currentAutoLockLabel =
     AUTO_LOCK_OPTIONS.find((o) => o.value === autoLockTimeout)?.label ?? "5 MINUTES";
+
+  const GRACE_OPTIONS: { label: string; value: number }[] = [
+    { label: "1 SECOND", value: 1 },
+    { label: "2 SECONDS", value: 2 },
+    { label: "3 SECONDS", value: 3 },
+    { label: "5 SECONDS", value: 5 },
+  ];
+
+  const currentGraceLabel =
+    GRACE_OPTIONS.find((o) => o.value === duressGracePeriod)?.label ?? "3 SECONDS";
+
+  const handleGracePeriodPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...GRACE_OPTIONS.map((o) => o.label), "CANCEL"],
+          cancelButtonIndex: GRACE_OPTIONS.length,
+          title: "DURESS GRACE PERIOD",
+        },
+        (idx) => {
+          if (idx < GRACE_OPTIONS.length) {
+            setDuressGracePeriod(GRACE_OPTIONS[idx].value);
+          }
+        }
+      );
+    } else {
+      setShowGracePeriod(true);
+    }
+  };
 
   const handleAutoLockPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -128,6 +160,7 @@ export default function SettingsScreen() {
     }
   };
 
+  const [showGracePeriod, setShowGracePeriod] = useState(false);
   const [showAutoLock, setShowAutoLock] = useState(false);
   const [showPinChange, setShowPinChange] = useState(false);
   const [newPin, setNewPin] = useState("");
@@ -587,6 +620,26 @@ export default function SettingsScreen() {
           <View style={styles.settingDivider} />
           <Pressable
             style={styles.settingRow}
+            onPress={handleGracePeriodPress}
+            testID="grace-period-row"
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons name="hourglass-outline" size={18} color={colors.destructive} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.settingLabel, { color: colors.destructive }]}>DURESS GRACE PERIOD</Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
+                CANCEL WINDOW AFTER DURESS PIN
+              </Text>
+            </View>
+            <Text style={{ color: colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
+              {currentGraceLabel}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+          </Pressable>
+          <View style={styles.settingDivider} />
+          <Pressable
+            style={styles.settingRow}
             onPress={handleAutoLockPress}
             testID="auto-lock-row"
           >
@@ -676,6 +729,43 @@ export default function SettingsScreen() {
 
         <View style={styles.padBottom} />
       </ScrollView>
+
+      <Modal
+        visible={showGracePeriod}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowGracePeriod(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowGracePeriod(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>DURESS GRACE PERIOD</Text>
+              {GRACE_OPTIONS.map((opt) => (
+                <Pressable
+                  key={String(opt.value)}
+                  style={[
+                    styles.settingRow,
+                    { paddingHorizontal: 0, paddingVertical: 14 },
+                  ]}
+                  onPress={() => {
+                    setDuressGracePeriod(opt.value);
+                    setShowGracePeriod(false);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                >
+                  <Text style={[styles.settingLabel, { flex: 1, fontSize: 12 }]}>{opt.label}</Text>
+                  {opt.value === duressGracePeriod && (
+                    <Ionicons name="checkmark" size={18} color={colors.destructive} />
+                  )}
+                </Pressable>
+              ))}
+              <Pressable style={styles.cancelBtn} onPress={() => setShowGracePeriod(false)}>
+                <Text style={styles.cancelText}>CANCEL</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={showAutoLock}

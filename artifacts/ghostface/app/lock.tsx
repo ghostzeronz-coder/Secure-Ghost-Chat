@@ -82,7 +82,7 @@ function shuffleDigits(): string[] {
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { hasPin, biometricEnabled, checkPinWithDuress, setLocked, panicWipe } = useApp();
+  const { hasPin, biometricEnabled, duressGracePeriod, checkPinWithDuress, setLocked, panicWipe } = useApp();
 
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
@@ -222,13 +222,12 @@ export default function LockScreen() {
           failedAttemptsRef.current = 0;
           setFailedAttempts(0);
           if (isDuress) {
-            // Start a 3-second grace period so the user can cancel an accidental
+            // Start a grace period so the user can cancel an accidental
             // duress trigger. The countdown is subtle — a bystander watching
             // the brief animation won't register it. If not cancelled, the wipe
             // fires exactly as it would have before this change.
-            const GRACE = 3;
-            setDuressCountdown(GRACE);
-            let remaining = GRACE;
+            setDuressCountdown(duressGracePeriod);
+            let remaining = duressGracePeriod;
             duressIntervalRef.current = setInterval(() => {
               remaining -= 1;
               if (remaining <= 0) {

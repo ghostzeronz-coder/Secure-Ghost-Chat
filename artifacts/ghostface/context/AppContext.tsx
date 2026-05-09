@@ -117,6 +117,7 @@ interface AppState {
   connectedWalletAddress: string | null;
   solBalance: number;
   autoLockTimeout: number | null;
+  duressGracePeriod: number;
 }
 
 interface AppContextType extends AppState {
@@ -145,6 +146,7 @@ interface AppContextType extends AppState {
   connectWallet: (address: string) => Promise<{ error?: string }>;
   disconnectWallet: () => Promise<void>;
   setAutoLockTimeout: (ms: number | null) => Promise<void>;
+  setDuressGracePeriod: (seconds: number) => Promise<void>;
   loaded: boolean;
 }
 
@@ -271,6 +273,7 @@ const OPK_BATCH_SIZE = 10;
 const DEVICE_TOKEN_KEY = "ghostface_device_token";
 const CONTACT_IDENTITY_STORE_KEY = "ghostface_contact_identity_store";
 const AUTO_LOCK_TIMEOUT_KEY = "ghostface_auto_lock_timeout";
+const DURESS_GRACE_KEY = "ghostface_duress_grace_period";
 const LAST_VPN_SERVER_KEY = "ghostface_last_vpn_server_id";
 const MY_IK_PRIV_KEY = "ghostface_my_ik_priv";
 const MY_IK_PUB_KEY = "ghostface_my_ik_pub";
@@ -286,6 +289,7 @@ const APP_STORAGE_KEYS = [
   OPK_STORE_KEY,
   CONTACT_IDENTITY_STORE_KEY,
   AUTO_LOCK_TIMEOUT_KEY,
+  DURESS_GRACE_KEY,
   LAST_VPN_SERVER_KEY,
 ] as const;
 
@@ -690,12 +694,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     connectedWalletAddress: null,
     solBalance: 0,
     autoLockTimeout: 5 * 60 * 1000,
+    duressGracePeriod: 3,
   });
 
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
@@ -707,6 +712,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(AUTO_LOCK_TIMEOUT_KEY),
           secureGet(DEVICE_TOKEN_KEY),
           AsyncStorage.getItem(LAST_VPN_SERVER_KEY),
+          AsyncStorage.getItem(DURESS_GRACE_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -740,6 +746,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           if (!isNaN(parsed)) autoLockTimeout = parsed;
         }
 
+        const VALID_GRACE = [1, 2, 3, 5];
+        let duressGracePeriod = 3;
+        if (duressGraceRaw !== null) {
+          const parsed = parseInt(duressGraceRaw, 10);
+          if (VALID_GRACE.includes(parsed)) duressGracePeriod = parsed;
+        }
+
         const restoredVpnServer = lastVpnServerId
           ? (VPN_SERVERS.find((s) => s.id === lastVpnServerId) ?? null)
           : null;
@@ -756,6 +769,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           stripeEmail: stripeEmailVal,
           connectedWalletAddress: connectedWallet ?? null,
           autoLockTimeout,
+          duressGracePeriod,
           vpnServer: restoredVpnServer,
           vpnConnected: !!restoredVpnServer,
         }));
@@ -939,6 +953,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({ ...prev, autoLockTimeout: ms }));
     } catch (err) {
       console.error("[AppContext] Failed to save autoLockTimeout:", err);
+      throw err;
+    }
+  }, []);
+
+  const setDuressGracePeriod = useCallback(async (seconds: number) => {
+    const VALID_GRACE = [1, 2, 3, 5];
+    const validated = VALID_GRACE.includes(seconds) ? seconds : 3;
+    try {
+      await AsyncStorage.setItem(DURESS_GRACE_KEY, String(validated));
+      setState((prev) => ({ ...prev, duressGracePeriod: validated }));
+    } catch (err) {
+      console.error("[AppContext] Failed to save duressGracePeriod:", err);
       throw err;
     }
   }, []);
@@ -1341,6 +1367,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       connectedWalletAddress: null,
       solBalance: 0,
       autoLockTimeout: 5 * 60 * 1000,
+      duressGracePeriod: 3,
     });
   }, []);
 
@@ -1590,6 +1617,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         connectWallet,
         disconnectWallet,
         setAutoLockTimeout,
+        setDuressGracePeriod,
         loaded,
       }}
     >
