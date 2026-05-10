@@ -1,14 +1,42 @@
 import { BlurView } from "expo-blur";
 import { Tabs } from "expo-router";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Animated, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 
 // NOTE: Every tab screen added here must wrap its root view in <TabScreenWrapper>
 // (see components/TabScreenWrapper.tsx) to get the consistent slide-up transition.
+
+function PulseIcon({
+  children,
+  focused,
+}: {
+  children: React.ReactNode;
+  focused: boolean;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!focused) return;
+    scale.setValue(0.82);
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 320,
+      friction: 9,
+    }).start();
+  }, [focused]);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      {children}
+    </Animated.View>
+  );
+}
+
 export default function TabLayout() {
   const colors = useColors();
   const safeAreaInsets = useSafeAreaInsets();
@@ -56,8 +84,10 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "HOME",
-          tabBarIcon: ({ color }) => (
-            <Feather name="home" size={20} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <PulseIcon focused={focused}>
+              <Feather name="home" size={20} color={color} />
+            </PulseIcon>
           ),
         }}
       />
@@ -65,8 +95,10 @@ export default function TabLayout() {
         name="messages"
         options={{
           title: "MESSAGES",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="chatbubble-outline" size={20} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <PulseIcon focused={focused}>
+              <Ionicons name="chatbubble-outline" size={20} color={color} />
+            </PulseIcon>
           ),
         }}
       />
@@ -74,8 +106,10 @@ export default function TabLayout() {
         name="wallet"
         options={{
           title: "WALLET",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="wallet-outline" size={20} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <PulseIcon focused={focused}>
+              <Ionicons name="wallet-outline" size={20} color={color} />
+            </PulseIcon>
           ),
         }}
       />
@@ -83,8 +117,10 @@ export default function TabLayout() {
         name="vpn"
         options={{
           title: "VPN",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="shield-outline" size={20} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <PulseIcon focused={focused}>
+              <Ionicons name="shield-outline" size={20} color={color} />
+            </PulseIcon>
           ),
         }}
       />
@@ -92,8 +128,10 @@ export default function TabLayout() {
         name="ghostnumber"
         options={{
           title: "NUMBER",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="phone-portrait-outline" size={20} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <PulseIcon focused={focused}>
+              <Ionicons name="phone-portrait-outline" size={20} color={color} />
+            </PulseIcon>
           ),
         }}
       />
@@ -101,8 +139,10 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: "SETTINGS",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="settings-outline" size={20} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <PulseIcon focused={focused}>
+              <Ionicons name="settings-outline" size={20} color={color} />
+            </PulseIcon>
           ),
         }}
       />
