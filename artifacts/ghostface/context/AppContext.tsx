@@ -171,6 +171,7 @@ interface AppContextType extends AppState {
   sendCallSignal: (msg: object) => void;
   registerCallListener: (fn: ((s: CallSignal) => void) | null) => void;
   dismissIncomingCall: () => void;
+  wsConnected: boolean;
   loaded: boolean;
   vpnAutoReconnecting: boolean;
 }
@@ -269,6 +270,11 @@ function createDefaultConversations(): Conversation[] {
     },
   ];
 }
+
+const CALL_SIGNAL_TYPES = new Set([
+  "call-ring", "call-accept", "call-hangup",
+  "call-offer", "call-answer", "call-ice",
+]);
 
 const DEFAULT_TRANSACTIONS: Transaction[] = [
   { id: "t1", type: "receive", token: "FD", amount: 500, address: "GhF3...x9mK", timestamp: Date.now() - 1000 * 60 * 60 * 2 },
@@ -703,6 +709,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hasPin, setHasPin] = useState(false);
   const [hasDuressPin, setHasDuressPin] = useState(false);
   const [vpnAutoReconnecting, setVpnAutoReconnecting] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
   const [state, setState] = useState<AppState>({
     alias: null,
     deviceToken: null,
@@ -1473,13 +1480,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, incomingCall: null }));
   }, []);
 
-  const CALL_SIGNAL_TYPES = new Set(["call-ring","call-accept","call-hangup","call-offer","call-answer","call-ice"]);
-
   const handleIncomingWsMessage = useCallback(async (raw: string) => {
     let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string };
     try {
       wsMsg = JSON.parse(raw);
     } catch {
+      return;
+    }
+
+    // ── Auth ack ─────────────────────────────────────────────────────────────
+    if (wsMsg.type === "ack" && !wsMsg.from) {
+      setWsConnected(true);
       return;
     }
 
@@ -1648,6 +1659,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      setWsConnected(false);
       return;
     }
 
@@ -1681,6 +1693,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         ws.onclose = () => {
           console.log("[WS] Connection closed");
+          setWsConnected(false);
           if (mounted) {
             reconnectTimer = setTimeout(connect, 5000);
           }
@@ -1697,6 +1710,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      setWsConnected(false);
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (wsRef.current) {
         wsRef.current.close();
@@ -1742,6 +1756,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setAutoLockTimeout,
         setDuressGracePeriod,
         setLanguage,
+        wsConnected,
         loaded,
         vpnAutoReconnecting,
       }}

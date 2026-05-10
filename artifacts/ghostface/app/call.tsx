@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Platform,
@@ -48,10 +48,11 @@ export default function CallScreen() {
     callId?: string;
   }>();
 
-  const { sendCallSignal, registerCallListener } = useApp();
+  const { sendCallSignal, registerCallListener, wsConnected } = useApp();
 
   const isCaller = (role ?? "caller") === "caller";
-  const effectiveCallId = callId ?? Date.now().toString();
+  // useMemo so Date.now() is only called once on mount even if callId is undefined
+  const effectiveCallId = useMemo(() => callId ?? Date.now().toString(), []);  // eslint-disable-line react-hooks/exhaustive-deps
   const isVideo = mode === "video";
 
   const [callState, setCallState]     = useState<CallState>(isCaller ? "ringing" : "connecting");
@@ -62,12 +63,15 @@ export default function CallScreen() {
   const [activeVoice, setActiveVoice] = useState("natural");
   const [statusNote, setStatusNote]   = useState("");
 
-  const pulseAnim     = useRef(new Animated.Value(1)).current;
+  const pulseAnim      = useRef(new Animated.Value(1)).current;
   const voiceSlideAnim = useRef(new Animated.Value(0)).current;
-  const timerRef      = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pcRef         = useRef<any>(null);
+  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pcRef          = useRef<any>(null);
   const localStreamRef = useRef<any>(null);
-  const mountedRef    = useRef(true);
+  const mountedRef     = useRef(true);
+  // Ref so timeout callbacks always read the latest callState without stale closure
+  const callStateRef   = useRef<CallState>(isCaller ? "ringing" : "connecting");
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
 
   // ── Start call duration timer when call goes active ──────────────────────
   useEffect(() => {
@@ -147,10 +151,17 @@ export default function CallScreen() {
   useEffect(() => {
     mountedRef.current = true;
     if (isCaller) {
+      if (!wsConnected) {
+        setStatusNote("Server not connected — check your internet connection");
+        setCallState("no_answer");
+        const t = setTimeout(() => { if (mountedRef.current) router.back(); }, 3000);
+        return () => { mountedRef.current = false; clearTimeout(t); };
+      }
       sendCallSignal({ type: "call-ring", to: alias, callId: effectiveCallId, callMode: mode ?? "voice" });
       // 30-second ring timeout
       const timeout = setTimeout(() => {
-        if (mountedRef.current && callState === "ringing") {
+        // Use ref so we read the CURRENT callState, not the stale closure value
+        if (mountedRef.current && callStateRef.current === "ringing") {
           setCallState("no_answer");
           setTimeout(() => { if (mountedRef.current) router.back(); }, 1500);
         }

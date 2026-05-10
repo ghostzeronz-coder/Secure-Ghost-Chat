@@ -38,7 +38,7 @@ type PageTab = "messages" | "tools" | "invite";
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, addConversation, deleteConversation } = useApp();
+  const { conversations, addConversation, deleteConversation, wsConnected, alias } = useApp();
 
   const [pageTab, setPageTab] = useState<PageTab>("messages");
   const [showNew, setShowNew] = useState(false);
@@ -340,6 +340,16 @@ export default function MessagesScreen() {
         onClose={() => setShowScanner(false)}
         onScan={handleQRScan}
       />
+      {/* WS offline banner */}
+      {alias && !wsConnected && (
+        <View style={{ backgroundColor: "#FF9500", paddingVertical: 5, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#000" />
+          <Text style={{ color: "#000", fontSize: 12, fontFamily: "SpaceMono", letterSpacing: 0.5 }}>
+            CONNECTING TO SERVER…
+          </Text>
+        </View>
+      )}
+
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
