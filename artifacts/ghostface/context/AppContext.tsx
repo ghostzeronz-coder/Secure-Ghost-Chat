@@ -77,6 +77,7 @@ export interface Conversation {
   drSession?: DRSession;
   pendingX3DHHeader?: string;
   isRealContact?: boolean;
+  verified?: boolean;
 }
 
 export interface Transaction {
@@ -144,6 +145,7 @@ interface AppContextType extends AppState {
   clearConversation: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => void;
   setDisappearTimer: (conversationId: string, seconds: number | undefined) => void;
+  verifyConversation: (conversationId: string) => void;
   panicWipe: () => Promise<void>;
   setStripeEmail: (email: string | null) => Promise<void>;
   connectWallet: (address: string) => Promise<{ error?: string }>;
@@ -1063,6 +1065,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistConversations]);
 
+  const verifyConversation = useCallback((conversationId: string) => {
+    setState((prev) => {
+      const updated = prev.conversations.map((c) =>
+        c.id === conversationId ? { ...c, verified: !c.verified } : c
+      );
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+  }, [persistConversations]);
+
   const sendMessage = useCallback(
     (conversationId: string, text: string) => {
       const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
@@ -1668,6 +1680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         clearConversation,
         deleteConversation,
         setDisappearTimer,
+        verifyConversation,
         panicWipe,
         setStripeEmail,
         connectWallet,

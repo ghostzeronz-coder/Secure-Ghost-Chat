@@ -47,7 +47,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage, deleteMessage, clearConversation, setDisappearTimer } = useApp();
+  const { conversations, sendMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation } = useApp();
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
@@ -333,7 +333,11 @@ export default function ChatScreen() {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setShowInfo(true);
           }}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={colors.success} />
+            <Ionicons
+              name={conv.verified ? "shield-checkmark" : "shield-checkmark-outline"}
+              size={20}
+              color={conv.verified ? colors.primary : colors.success}
+            />
           </Pressable>
         </View>
       </View>
@@ -444,11 +448,24 @@ export default function ChatScreen() {
               <View style={styles.sheetBody}>
                 {/* Safety number */}
                 {conv.safetyNumber && (
-                  <View style={styles.safetyRow}>
-                    <Text style={styles.safetyLabel}>SAFETY NUMBER</Text>
+                  <View style={[
+                    styles.safetyRow,
+                    conv.verified && { borderColor: `${colors.primary}60`, backgroundColor: `${colors.primary}08` },
+                  ]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <Text style={styles.safetyLabel}>SAFETY NUMBER</Text>
+                      {conv.verified && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${colors.primary}22`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Ionicons name="shield-checkmark" size={10} color={colors.primary} />
+                          <Text style={{ color: colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 2 }}>VERIFIED</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={styles.safetyNumber}>{conv.safetyNumber}</Text>
                     <Text style={styles.safetyNote}>
-                      Compare with {conv.alias} out-of-band to verify identity
+                      {conv.verified
+                        ? `Identity confirmed. Safety number matches ${conv.alias}.`
+                        : `Compare with ${conv.alias} out-of-band to verify identity`}
                     </Text>
                   </View>
                 )}
@@ -533,6 +550,31 @@ export default function ChatScreen() {
                   <Text style={styles.infoLabel}>LIBRARY</Text>
                   <Text style={styles.infoValue}>@NOBLE/{conv.drSession ? "CURVES + HASHES" : "CIPHERS"}</Text>
                 </View>
+                {/* Verify / Unverify */}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.clearBtn,
+                    {
+                      borderColor: conv.verified ? colors.mutedForeground : colors.primary,
+                      backgroundColor: conv.verified ? "transparent" : `${colors.primary}12`,
+                    },
+                    pressed && { opacity: 0.7 },
+                  ]}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    verifyConversation(conv.id);
+                  }}
+                >
+                  <Ionicons
+                    name={conv.verified ? "shield-outline" : "shield-checkmark"}
+                    size={14}
+                    color={conv.verified ? colors.mutedForeground : colors.primary}
+                  />
+                  <Text style={[styles.clearBtnTxt, { color: conv.verified ? colors.mutedForeground : colors.primary }]}>
+                    {conv.verified ? "REMOVE VERIFICATION" : "MARK AS VERIFIED"}
+                  </Text>
+                </Pressable>
+
                 <Pressable
                   style={({ pressed }) => [styles.clearBtn, pressed && { opacity: 0.7 }]}
                   onPress={handleClearChat}

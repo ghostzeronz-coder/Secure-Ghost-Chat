@@ -456,6 +456,9 @@ export default function MessagesScreen() {
                   <View style={styles.itemTop}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
                       <Text style={styles.alias}>{item.alias}</Text>
+                      {item.verified && (
+                        <Ionicons name="shield-checkmark" size={13} color={colors.primary} />
+                      )}
                       {item.isRealContact && (
                         <View style={{ backgroundColor: colors.success + "22", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
                           <Text style={{ color: colors.success, fontSize: 8, fontWeight: "800", letterSpacing: 1.5 }}>LIVE</Text>
