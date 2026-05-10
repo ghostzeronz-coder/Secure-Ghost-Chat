@@ -108,7 +108,7 @@ export function GhostLogo({ size = 64, color }: GhostLogoProps) {
   return (
     <Animated.Image
       source={require("../assets/images/ghostlogo.png")}
-      style={{ width: size, height: size, tintColor: color, opacity, transform: [{ scale }] }}
+      style={{ width: size, height: size, opacity, transform: [{ scale }] }}
       resizeMode="contain"
       {...panResponder.panHandlers}
     />
