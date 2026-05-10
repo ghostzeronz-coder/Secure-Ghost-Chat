@@ -88,10 +88,14 @@ export default function HomeScreen() {
       fontWeight: "700" as const,
     },
 
-    // ── Panic Button ──────────────────────────────────────────────
+    // ── Panic Button (fixed at bottom above tab bar) ──────────────
     panicSection: {
       paddingHorizontal: 20,
-      paddingBottom: 24,
+      paddingBottom: insets.bottom + (Platform.OS === "web" ? 90 : 80),
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.background,
     },
     panicButton: {
       flexDirection: "row",
@@ -327,31 +331,31 @@ export default function HomeScreen() {
               <Ionicons name="flash" size={18} color="#9945FF" />
             </View>
             <View style={styles.upgradeBannerText}>
-              <Text style={styles.upgradeBannerTitle}>GHOST — FREE PLAN</Text>
-              <Text style={styles.upgradeBannerSub}>UPGRADE FOR VPN · WALLET · GHOST NUMBER</Text>
+              <Text style={styles.upgradeBannerTitle}>7-DAY FREE TRIAL</Text>
+              <Text style={styles.upgradeBannerSub}>UNLOCK VPN · WALLET · GHOST NUMBER · MORE</Text>
             </View>
             <View style={styles.upgradeBannerBadge}>
-              <Text style={styles.upgradeBannerBadgeText}>UPGRADE</Text>
+              <Text style={styles.upgradeBannerBadgeText}>START FREE</Text>
             </View>
           </View>
         </Pressable>
 
-        {/* ── Panic Button ── */}
-        <View style={styles.panicSection}>
-          <Pressable
-            style={({ pressed }) => [styles.panicButton, pressed && { opacity: 0.7 }]}
-            onPress={() => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-              setPanicModalVisible(true);
-            }}
-          >
-            <Ionicons name="warning" size={18} color="#ef4444" />
-            <Text style={styles.panicButtonText}>PANIC WIPE</Text>
-          </Pressable>
-        </View>
-
         <View style={styles.scrollPad} />
       </ScrollView>
+
+      {/* ── Panic Button (fixed bottom) ── */}
+      <View style={styles.panicSection}>
+        <Pressable
+          style={({ pressed }) => [styles.panicButton, pressed && { opacity: 0.7 }]}
+          onPress={() => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            setPanicModalVisible(true);
+          }}
+        >
+          <Ionicons name="warning" size={18} color="#ef4444" />
+          <Text style={styles.panicButtonText}>PANIC WIPE</Text>
+        </Pressable>
+      </View>
 
       {/* ── Panic Modal ── */}
       <Modal
