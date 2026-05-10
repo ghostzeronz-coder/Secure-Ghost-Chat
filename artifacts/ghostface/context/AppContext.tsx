@@ -789,10 +789,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         if (restoredVpnServer) {
           setVpnAutoReconnecting(true);
-          setTimeout(() => {
+          const reconnectTimer = setTimeout(() => {
             setState((prev) => ({ ...prev, vpnConnected: true }));
             setVpnAutoReconnecting(false);
           }, 1500);
+          // Store on globalThis so the effect cleanup can clear it if needed
+          (globalThis as Record<string, unknown>).__vpnReconnectTimer = reconnectTimer;
         }
 
         // Fetch SOL balance in background after state is set

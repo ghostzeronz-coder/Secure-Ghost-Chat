@@ -268,7 +268,7 @@ export default function VPNScreen() {
         <Text style={styles.headerTitle}>VPN</Text>
         <View style={{ alignItems: "flex-end", gap: 2 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <StatusDot active={vpnConnected} size={6} />
+            <StatusDot active={vpnConnected || vpnAutoReconnecting} size={6} />
             <Text style={{ color: vpnAutoReconnecting ? colors.primary : vpnConnected ? colors.success : colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
               {vpnAutoReconnecting ? "RECONNECTING…" : vpnConnected ? "CONNECTED" : "DISCONNECTED"}
             </Text>
