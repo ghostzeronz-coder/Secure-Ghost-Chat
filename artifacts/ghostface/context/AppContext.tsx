@@ -965,7 +965,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const clearDuressPin = useCallback(async () => {
     try {
       await secureDelete(SECURE_DURESS_PIN_KEY);
+      await AsyncStorage.removeItem(DURESS_GRACE_KEY);
       setHasDuressPin(false);
+      setState((prev) => ({ ...prev, duressGracePeriod: 3 }));
     } catch (err) {
       console.error("[AppContext] Failed to clear duress PIN:", err);
       throw err;
