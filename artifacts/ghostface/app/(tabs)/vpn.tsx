@@ -462,6 +462,7 @@ export default function VPNScreen() {
                     ]}
                   >
                     {item.name}
+                    <Text style={{ color: colors.mutedForeground, fontWeight: "400" as const }}>{" · "}{item.shortRegion}</Text>
                   </Text>
                   <Text style={styles.serverRegion}>{item.region}</Text>
                 </View>
