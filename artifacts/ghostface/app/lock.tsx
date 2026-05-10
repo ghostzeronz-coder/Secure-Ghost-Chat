@@ -580,7 +580,7 @@ export default function LockScreen() {
           activeOpacity={0.6}
           testID="duress-cancel-bar"
         >
-          <Text style={styles.duressCountText}>{duressCountdown}</Text>
+          <Text style={styles.duressCountText}>{duressCountdown}s / {duressGracePeriod}s</Text>
           <Ionicons name="close" size={12} color={colors.mutedForeground} style={{ opacity: 0.6 }} />
         </TouchableOpacity>
       )}
