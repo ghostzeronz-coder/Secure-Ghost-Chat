@@ -188,89 +188,63 @@ export default function LockScreen() {
     if (biometricEnabled) tryBiometric();
   }, []);
 
-  // ── PIN input ─────────────────────────────────────────────────────────────
-  const handleKey = async (key: string) => {
-    if (isVerifying || !failCountLoaded) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  // ── PIN constants — supports 4–8 digit PINs ───────────────────────────────
+  const MIN_PIN_LENGTH = 4;
+  const MAX_PIN_LENGTH = 8;
 
-    const PIN_LENGTH = 4;
-    if (entered.length >= PIN_LENGTH) return;
+  // ── Shared verify logic (called by keypad submit button) ──────────────────
+  const verifyPin = async (pin: string) => {
+    if (pin.length < MIN_PIN_LENGTH || !hasPin) return;
+    setIsVerifying(true);
 
-    const next = entered + key;
-    setEntered(next);
-    setError(false);
-    setBiometricError("");
+    const recordFailure = async () => {
+      const newCount = failedAttemptsRef.current + 1;
+      failedAttemptsRef.current = newCount;
+      await saveFailCount(newCount);
+      setFailedAttempts(newCount);
+      return newCount;
+    };
 
-    if (!hasPin) return;
-
-    if (next.length === PIN_LENGTH) {
-      setIsVerifying(true);
-
-      const recordFailure = async () => {
-        const newCount = failedAttemptsRef.current + 1;
-        failedAttemptsRef.current = newCount;
-        await saveFailCount(newCount);
-        setFailedAttempts(newCount);
-        return newCount;
-      };
-
-      try {
-        const { correct, isDuress } = await checkPinWithDuress(next);
-        if (correct) {
-          // The success haptic fires here — before we know whether this is a
-          // duress unlock — so it looks identical to a normal unlock and does
-          // not reveal the duress intent to a bystander. This is intentional:
-          // the haptic mimics a successful PIN entry, not a wipe trigger.
-          // No further haptic or audio must fire from this point onward in the
-          // duress path (including inside panicWipe — see AppContext.tsx).
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          await clearFailCount();
-          failedAttemptsRef.current = 0;
-          setFailedAttempts(0);
-          if (isDuress) {
-            // Start a grace period so the user can cancel an accidental
-            // duress trigger. The countdown is subtle — a bystander watching
-            // the brief animation won't register it. If not cancelled, the wipe
-            // fires exactly as it would have before this change.
-            // IMPORTANT: panicWipe() is called with no surrounding haptic or
-            // audio — the silence contract in AppContext.tsx must be maintained.
-            setDuressCountdown(duressGracePeriod);
-            let remaining = duressGracePeriod;
-            duressIntervalRef.current = setInterval(() => {
-              remaining -= 1;
-              if (remaining <= 0) {
-                clearInterval(duressIntervalRef.current!);
-                duressIntervalRef.current = null;
-                setDuressCountdown(null);
-                setLocked(false);
-                panicWipe(); // silent — see SILENCE CONTRACT in AppContext.tsx
-              } else {
-                setDuressCountdown(remaining);
-              }
-            }, 1000);
-            // Keep isVerifying true during the countdown so keypad is locked
-          } else {
-            setLocked(false);
-          }
+    try {
+      const { correct, isDuress } = await checkPinWithDuress(pin);
+      if (correct) {
+        // The success haptic fires here — before we know whether this is a
+        // duress unlock — so it looks identical to a normal unlock and does
+        // not reveal the duress intent to a bystander. This is intentional:
+        // the haptic mimics a successful PIN entry, not a wipe trigger.
+        // No further haptic or audio must fire from this point onward in the
+        // duress path (including inside panicWipe — see AppContext.tsx).
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await clearFailCount();
+        failedAttemptsRef.current = 0;
+        setFailedAttempts(0);
+        if (isDuress) {
+          // Start a grace period so the user can cancel an accidental
+          // duress trigger. The countdown is subtle — a bystander watching
+          // the brief animation won't register it. If not cancelled, the wipe
+          // fires exactly as it would have before this change.
+          // IMPORTANT: panicWipe() is called with no surrounding haptic or
+          // audio — the silence contract in AppContext.tsx must be maintained.
+          setDuressCountdown(duressGracePeriod);
+          let remaining = duressGracePeriod;
+          duressIntervalRef.current = setInterval(() => {
+            remaining -= 1;
+            if (remaining <= 0) {
+              clearInterval(duressIntervalRef.current!);
+              duressIntervalRef.current = null;
+              setDuressCountdown(null);
+              setLocked(false);
+              panicWipe(); // silent — see SILENCE CONTRACT in AppContext.tsx
+            } else {
+              setDuressCountdown(remaining);
+            }
+          }, 1000);
+          // Keep isVerifying true during the countdown so keypad is locked
         } else {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-          setError(true);
-          shake();
-          const newCount = await recordFailure();
-          if (newCount >= MAX_ATTEMPTS) {
-            await clearFailCount();
-            await panicWipe();
-            return;
-          }
-          setTimeout(() => {
-            rescramble();
-            setIsVerifying(false);
-          }, 650);
+          setLocked(false);
         }
-      } catch {
-        // Intentionally count errors as failed attempts: treating a
-        // checkPinWithDuress() exception as "unknown outcome" could be exploited
-        // to bypass the wipe threshold by repeatedly triggering errors.
+      } else {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
         setError(true);
         shake();
         const newCount = await recordFailure();
@@ -280,11 +254,45 @@ export default function LockScreen() {
           return;
         }
         setTimeout(() => {
+          setEntered("");
           rescramble();
           setIsVerifying(false);
         }, 650);
       }
+    } catch {
+      // Intentionally count errors as failed attempts: treating a
+      // checkPinWithDuress() exception as "unknown outcome" could be exploited
+      // to bypass the wipe threshold by repeatedly triggering errors.
+      setError(true);
+      shake();
+      const newCount = await recordFailure();
+      if (newCount >= MAX_ATTEMPTS) {
+        await clearFailCount();
+        await panicWipe();
+        return;
+      }
+      setTimeout(() => {
+        setEntered("");
+        rescramble();
+        setIsVerifying(false);
+      }, 650);
     }
+  };
+
+  // ── PIN input ─────────────────────────────────────────────────────────────
+  const handleKey = (key: string) => {
+    if (isVerifying || !failCountLoaded) return;
+    if (entered.length >= MAX_PIN_LENGTH) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setEntered((prev) => prev + key);
+    setError(false);
+    setBiometricError("");
+  };
+
+  const handleSubmit = () => {
+    if (isVerifying || !failCountLoaded) return;
+    if (entered.length < MIN_PIN_LENGTH) return;
+    verifyPin(entered);
   };
 
   const handleDuressCancel = () => {
@@ -308,15 +316,16 @@ export default function LockScreen() {
   // Row 0: digits[0..2]
   // Row 1: digits[3..5]
   // Row 2: digits[6..8]
-  // Row 3: digits[9], [empty], [del]
+  // Row 3: digits[9], [submit when ≥4 entered], [del]
   const KEYS: string[][] = [
     [digits[0], digits[1], digits[2]],
     [digits[3], digits[4], digits[5]],
     [digits[6], digits[7], digits[8]],
-    [digits[9], "", "del"],
+    [digits[9], entered.length >= MIN_PIN_LENGTH ? "ok" : "", "del"],
   ];
 
-  const dotCount = 4;
+  // Show 8 dots — always the same count so PIN length isn't revealed by UI change
+  const dotCount = MAX_PIN_LENGTH;
   const remaining = MAX_ATTEMPTS - failedAttempts;
   const showWipeWarning = failedAttempts >= WARN_FROM;
 
@@ -504,6 +513,18 @@ export default function LockScreen() {
                     return (
                       <Pressable key={ki} style={styles.keyBtn} onPress={handleDelete}>
                         <Ionicons name="backspace-outline" size={22} color={colors.foreground} />
+                      </Pressable>
+                    );
+                  }
+                  if (k === "ok") {
+                    return (
+                      <Pressable
+                        key={ki}
+                        style={[styles.keyBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                        onPress={handleSubmit}
+                        testID="key-submit"
+                      >
+                        <Ionicons name="checkmark" size={26} color={colors.primaryForeground} />
                       </Pressable>
                     );
                   }
