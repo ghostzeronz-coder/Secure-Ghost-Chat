@@ -247,7 +247,7 @@ export default function HomeScreen() {
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* ── Identity ── */}
         <View style={styles.identity}>
-          <GhostLogo size={150} color={colors.foreground} />
+          <GhostLogo size={300} color={colors.foreground} />
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
           <Text style={styles.tagline}>SECURE IDENTITY</Text>
         </View>
