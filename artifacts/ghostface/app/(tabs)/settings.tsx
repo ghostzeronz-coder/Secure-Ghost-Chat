@@ -712,26 +712,30 @@ export default function SettingsScreen() {
             )}
           </Pressable>
           <View style={styles.settingDivider} />
-          <Pressable
-            style={styles.settingRow}
-            onPress={handleGracePeriodPress}
-            testID="grace-period-row"
-          >
-            <View style={styles.settingIcon}>
-              <Ionicons name="hourglass-outline" size={18} color={colors.destructive} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.settingLabel, { color: colors.destructive }]}>DURESS GRACE PERIOD</Text>
-              <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
-                CANCEL WINDOW AFTER DURESS PIN
-              </Text>
-            </View>
-            <Text style={{ color: colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
-              {currentGraceLabel}
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-          </Pressable>
-          <View style={styles.settingDivider} />
+          {hasDuressPin && (
+            <>
+              <Pressable
+                style={styles.settingRow}
+                onPress={handleGracePeriodPress}
+                testID="grace-period-row"
+              >
+                <View style={styles.settingIcon}>
+                  <Ionicons name="hourglass-outline" size={18} color={colors.destructive} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.settingLabel, { color: colors.destructive }]}>DURESS GRACE PERIOD</Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
+                    CANCEL WINDOW AFTER DURESS PIN
+                  </Text>
+                </View>
+                <Text style={{ color: colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
+                  {currentGraceLabel}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+              </Pressable>
+              <View style={styles.settingDivider} />
+            </>
+          )}
           <Pressable
             style={styles.settingRow}
             onPress={handleAutoLockPress}
