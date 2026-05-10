@@ -712,6 +712,11 @@ export default function SettingsScreen() {
             )}
           </Pressable>
           <View style={styles.settingDivider} />
+          {!hasDuressPin && (
+            <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 1.5, paddingHorizontal: 16, paddingVertical: 8, textAlign: 'center' }}>
+              SET A DURESS PIN TO CONFIGURE GRACE PERIOD
+            </Text>
+          )}
           {hasDuressPin && (
             <>
               <Pressable
