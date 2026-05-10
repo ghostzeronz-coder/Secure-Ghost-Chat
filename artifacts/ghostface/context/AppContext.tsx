@@ -1444,6 +1444,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setHasDuressPin(false);
     setState({
       alias: null,
+      deviceToken: null,
       biometricEnabled: false,
       isLocked: false,
       isOnboarded: false,

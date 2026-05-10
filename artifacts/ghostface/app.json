@@ -78,8 +78,7 @@
         {
           "faceIDPermission": "GHOSTFACE uses Face ID to protect your private messages and identity with biometric authentication."
         }
-      ],
-      "react-native-webrtc"
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

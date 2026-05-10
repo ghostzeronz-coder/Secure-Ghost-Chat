@@ -204,7 +204,7 @@ export function generateSafetyNumberFromKeys(
   const hash = sha256(combined);
   return Array.from({ length: 6 }, (_, i) => {
     const slice = hash.slice(i * 5, i * 5 + 5);
-    const num = Array.from(slice).reduce((acc: number, b: number) => acc * 256 + b, 0);
+    const num = Array.from<number>(slice).reduce((acc, b) => acc * 256 + b, 0);
     return (num % 100000).toString().padStart(5, "0");
   }).join(" ");
 }
@@ -220,7 +220,7 @@ export function generateSafetyNumber(myAlias: string, theirAlias: string): strin
   const hash = sha256(combined);
   return Array.from({ length: 6 }, (_, i) => {
     const slice = hash.slice(i * 5, i * 5 + 5);
-    const num = Array.from(slice).reduce((acc: number, b: number) => acc * 256 + b, 0);
+    const num = Array.from<number>(slice).reduce((acc, b) => acc * 256 + b, 0);
     return (num % 100000).toString().padStart(5, "0");
   }).join(" ");
 }
