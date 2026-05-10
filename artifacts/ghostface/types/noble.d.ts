@@ -1,8 +1,23 @@
-// Ambient module declarations for @noble/* subpath imports.
-// These packages use subpath exports that TypeScript cannot resolve via
-// file-based fallback at the workspace-root pnpm deduplication level.
-// The runtime Expo bundler handles them correctly; these declarations
-// satisfy tsc --noEmit without modifying the bundler config.
+/**
+ * Ambient module declarations for @noble/* subpath imports.
+ *
+ * Why these exist
+ * ───────────────
+ * pnpm deduplicates @noble/* packages to the workspace root. The root
+ * copies are newer semver versions whose `exports` maps do not expose
+ * the subpaths used here (e.g. `@noble/curves/ed25519`, `@noble/hashes/utils`).
+ * TypeScript therefore cannot resolve these imports via the package `exports`
+ * map and errors with TS2307 "Cannot find module".
+ *
+ * At runtime the Expo/Metro bundler falls back to file-based resolution and
+ * finds the correct files inside the ghostface-local node_modules copy, so
+ * the app works correctly. These declarations bridge the gap so tsc --noEmit
+ * agrees with the bundler without requiring changes to the actual imports or
+ * the bundler configuration.
+ *
+ * Long-term fix (tracked as a follow-up task): update imports to use each
+ * package's canonical top-level export so pnpm deduplication is not an issue.
+ */
 
 declare module "@noble/curves/ed25519" {
   export const x25519: {
