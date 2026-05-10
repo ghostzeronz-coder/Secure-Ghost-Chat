@@ -906,11 +906,23 @@ export default function SettingsScreen() {
         visible={showPinChange}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowPinChange(false)}
+        onRequestClose={() => {
+          setShowPinChange(false);
+          setNewPin("");
+          setNewPinConfirm("");
+          setPinError("");
+          setPinSimilar(false);
+        }}
       >
         <Pressable
           style={styles.modalOverlay}
-          onPress={() => setShowPinChange(false)}
+          onPress={() => {
+            setShowPinChange(false);
+            setNewPin("");
+            setNewPinConfirm("");
+            setPinError("");
+            setPinSimilar(false);
+          }}
         >
           <Pressable onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalContent}>
