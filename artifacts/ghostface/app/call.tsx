@@ -15,6 +15,24 @@ import { StatusDot } from "@/components/StatusDot";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 
+// ── Native WebRTC (react-native-webrtc) — loaded only on native platforms ───
+// On web we use the browser's built-in WebRTC APIs instead.
+let NativeRTCPeerConnection: any = null;
+let NativeRTCSessionDescription: any = null;
+let NativeRTCIceCandidate: any = null;
+let nativeMediaDevices: any = null;
+if (Platform.OS !== "web") {
+  try {
+    const webrtc = require("react-native-webrtc");
+    NativeRTCPeerConnection    = webrtc.RTCPeerConnection;
+    NativeRTCSessionDescription = webrtc.RTCSessionDescription;
+    NativeRTCIceCandidate      = webrtc.RTCIceCandidate;
+    nativeMediaDevices         = webrtc.mediaDevices;
+  } catch (e) {
+    console.warn("[WebRTC] react-native-webrtc not available:", e);
+  }
+}
+
 type VoicePreset = {
   id: string;
   label: string;
@@ -68,6 +86,7 @@ export default function CallScreen() {
   const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
   const pcRef          = useRef<any>(null);
   const localStreamRef = useRef<any>(null);
+  const remoteStreamRef = useRef<any>(null);
   const mountedRef     = useRef(true);
   // Ref so timeout callbacks always read the latest callState without stale closure
   const callStateRef   = useRef<CallState>(isCaller ? "ringing" : "connecting");
@@ -104,34 +123,50 @@ export default function CallScreen() {
 
   // ── WebRTC helpers ────────────────────────────────────────────────────────
   const makePC = useCallback(() => {
-    if (Platform.OS !== "web") return null;
-    const RTC = (window as any).RTCPeerConnection;
+    // Pick the right RTCPeerConnection for the platform
+    const RTC = Platform.OS === "web"
+      ? (window as any).RTCPeerConnection
+      : NativeRTCPeerConnection;
     if (!RTC) return null;
+
     const pc = new RTC(STUN);
+
     pc.ontrack = (ev: any) => {
-      const el = document.getElementById("gf-remote-audio") as HTMLAudioElement | null;
-      if (el && ev.streams?.[0]) el.srcObject = ev.streams[0];
-    };
-    pc.onicecandidate = (ev: any) => {
-      if (ev.candidate) {
-        sendCallSignal({ type: "call-ice", to: alias, callId: effectiveCallId, payload: JSON.stringify(ev.candidate) });
+      if (Platform.OS === "web") {
+        const el = document.getElementById("gf-remote-audio") as HTMLAudioElement | null;
+        if (el && ev.streams?.[0]) el.srcObject = ev.streams[0];
+      } else {
+        // On native, audio plays automatically through the earpiece/speaker.
+        // Store remote stream for video RTCView if needed.
+        if (ev.streams?.[0]) remoteStreamRef.current = ev.streams[0];
       }
     };
+
+    pc.onicecandidate = (ev: any) => {
+      const candidate = ev.candidate ?? ev; // react-native-webrtc emits the candidate directly
+      if (candidate && candidate.candidate) {
+        sendCallSignal({ type: "call-ice", to: alias, callId: effectiveCallId, payload: JSON.stringify(candidate) });
+      }
+    };
+
     pc.onconnectionstatechange = () => {
       if (!mountedRef.current) return;
       const s = pc.connectionState;
-      if (s === "connected")     setCallState("active");
-      if (s === "disconnected" || s === "failed") handleEndInternal();
+      if (s === "connected")                       setCallState("active");
+      if (s === "disconnected" || s === "failed")  handleEndInternal();
     };
+
     return pc;
   }, [alias, effectiveCallId, sendCallSignal]);
 
   const getMedia = useCallback(async (pc: any) => {
-    if (Platform.OS !== "web" || !pc) return;
+    if (!pc) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+      const devices = Platform.OS === "web" ? navigator.mediaDevices : nativeMediaDevices;
+      if (!devices) { setStatusNote("Microphone unavailable on this device"); return; }
+      const stream = await devices.getUserMedia({ audio: true, video: isVideo });
       localStreamRef.current = stream;
-      stream.getTracks().forEach((t: MediaStreamTrack) => pc.addTrack(t, stream));
+      stream.getTracks().forEach((t: any) => pc.addTrack(t, stream));
     } catch (e) {
       console.warn("[WebRTC] getUserMedia:", e);
       setStatusNote("Mic access denied — audio unavailable");
@@ -187,10 +222,6 @@ export default function CallScreen() {
       // ── call-accept (caller receives) ─────────────────────────────────────
       if (signal.type === "call-accept" && isCaller) {
         setCallState("connecting");
-        if (Platform.OS !== "web") {
-          setCallState("active");
-          return;
-        }
         const pc = makePC();
         if (!pc) { setCallState("active"); return; }
         pcRef.current = pc;
@@ -203,12 +234,11 @@ export default function CallScreen() {
 
       // ── call-offer (callee receives) ──────────────────────────────────────
       if (signal.type === "call-offer" && !isCaller && signal.payload) {
-        if (Platform.OS !== "web") { setCallState("active"); return; }
         const pc = makePC();
         if (!pc) { setCallState("active"); return; }
         pcRef.current = pc;
         await getMedia(pc);
-        const SDP = (window as any).RTCSessionDescription;
+        const SDP = Platform.OS === "web" ? (window as any).RTCSessionDescription : NativeRTCSessionDescription;
         if (SDP) {
           await pc.setRemoteDescription(new SDP(JSON.parse(signal.payload)));
           const answer = await pc.createAnswer();
@@ -221,7 +251,7 @@ export default function CallScreen() {
 
       // ── call-answer (caller receives) ─────────────────────────────────────
       if (signal.type === "call-answer" && isCaller && signal.payload && pcRef.current) {
-        const SDP = (window as any).RTCSessionDescription;
+        const SDP = Platform.OS === "web" ? (window as any).RTCSessionDescription : NativeRTCSessionDescription;
         if (SDP) {
           try {
             await pcRef.current.setRemoteDescription(new SDP(JSON.parse(signal.payload)));
@@ -235,7 +265,7 @@ export default function CallScreen() {
 
       // ── call-ice (either) ─────────────────────────────────────────────────
       if (signal.type === "call-ice" && signal.payload && pcRef.current) {
-        const ICE = (window as any).RTCIceCandidate;
+        const ICE = Platform.OS === "web" ? (window as any).RTCIceCandidate : NativeRTCIceCandidate;
         if (ICE) {
           try { await pcRef.current.addIceCandidate(new ICE(JSON.parse(signal.payload))); } catch {}
         }
