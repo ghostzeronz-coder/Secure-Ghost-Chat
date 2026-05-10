@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import { vonageClient } from "../lib/vonage";
 import { pool } from "@workspace/db";
 import { RateLimiter, getIpKey } from "../lib/rateLimiter";
+import { normalizeAlias } from "../utils/alias";
 
 const router: IRouter = Router();
 
@@ -58,8 +59,8 @@ async function getAuthedAlias(req: Request): Promise<string | null> {
   const [row] = await db
     .select()
     .from(deviceTokensTable)
-    .where(and(eq(deviceTokensTable.userId, alias.toUpperCase()), eq(deviceTokensTable.tokenHash, hash)));
-  return row ? alias.toUpperCase() : null;
+    .where(and(eq(deviceTokensTable.userId, normalizeAlias(alias)), eq(deviceTokensTable.tokenHash, hash)));
+  return row ? normalizeAlias(alias) : null;
 }
 
 const COUNTRY_NAMES: Record<string, string> = {

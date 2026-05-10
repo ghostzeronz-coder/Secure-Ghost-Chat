@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { normalizeAlias } from "@/utils/alias";
 
 const SUGGESTED_ALIASES = [
   "PHANTOM_9",
@@ -44,7 +45,7 @@ export default function OnboardingScreen() {
 
   const handleSkipPin = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await setAlias(alias.trim().toUpperCase());
+    await setAlias(normalizeAlias(alias));
     router.replace("/(tabs)");
   };
 
@@ -59,7 +60,7 @@ export default function OnboardingScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await setAlias(alias.trim().toUpperCase());
+    await setAlias(normalizeAlias(alias));
     await setPin(pin);
     router.replace("/(tabs)");
   };

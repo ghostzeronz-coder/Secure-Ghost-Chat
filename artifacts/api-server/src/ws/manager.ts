@@ -4,6 +4,7 @@ import { db, messagesTable, deviceTokensTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
 import { logger } from "../lib/logger";
+import { normalizeAlias } from "../utils/alias";
 
 export interface WireMessage {
   type:
@@ -21,8 +22,11 @@ export interface WireMessage {
   callMode?: string;
 }
 
+// Extend WebSocket with an aliveness flag used by the protocol-level heartbeat.
+type LiveSocket = WebSocket & { isAlive: boolean };
+
 interface AuthedSocket {
-  ws: WebSocket;
+  ws: LiveSocket;
   alias: string;
 }
 
@@ -96,13 +100,38 @@ async function deliverPending(alias: string, ws: WebSocket): Promise<void> {
 }
 
 export function createWsServer(wss: WebSocketServer): void {
-  wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
+  // ── Protocol-level heartbeat ─────────────────────────────────────────────
+  // Every 30 s the server sends a native WebSocket ping frame to every client.
+  // Clients that fail to respond with a pong within the next interval are
+  // terminated.  This catches silently dropped TCP connections that the OS
+  // hasn't noticed yet (mobile sleep, NAT timeout, etc.).
+  function heartbeat(this: LiveSocket) {
+    this.isAlive = true;
+  }
+
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((rawWs) => {
+      const ws = rawWs as LiveSocket;
+      if (!ws.isAlive) {
+        ws.terminate();
+        return;
+      }
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30_000);
+
+  wss.on("close", () => clearInterval(heartbeatInterval));
+
+  wss.on("connection", (rawWs: WebSocket, _req: IncomingMessage) => {
+    const ws = rawWs as LiveSocket;
+    ws.isAlive = true;
+    ws.on("pong", heartbeat);
+
     let authedAlias: string | null = null;
-    let pingTimer: ReturnType<typeof setInterval> | null = null;
 
     const cleanup = () => {
       if (authedAlias) connectedClients.delete(authedAlias);
-      if (pingTimer) clearInterval(pingTimer);
     };
 
     ws.on("close", cleanup);
@@ -137,18 +166,12 @@ export function createWsServer(wss: WebSocketServer): void {
           return;
         }
 
-        authedAlias = msg.alias.toUpperCase();
+        authedAlias = normalizeAlias(msg.alias);
         connectedClients.set(authedAlias, { ws, alias: authedAlias });
         ws.send(JSON.stringify({ type: "ack", alias: authedAlias }));
         logger.info({ alias: authedAlias }, "WS client authenticated");
 
         await deliverPending(authedAlias, ws);
-
-        pingTimer = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "ping" }));
-          }
-        }, 30_000);
         return;
       }
 
@@ -160,7 +183,7 @@ export function createWsServer(wss: WebSocketServer): void {
       // ── Call signalling — ephemeral relay, never persisted ────────────────
       if (CALL_SIGNAL_TYPES.has(msg.type)) {
         if (!msg.to) return;
-        const toAlias = msg.to.toUpperCase();
+        const toAlias = normalizeAlias(msg.to);
         const recipient = connectedClients.get(toAlias);
         if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
           recipient.ws.send(JSON.stringify({ ...msg, from: authedAlias }));
@@ -180,7 +203,7 @@ export function createWsServer(wss: WebSocketServer): void {
           return;
         }
 
-        const toAlias = msg.to.toUpperCase();
+        const toAlias = normalizeAlias(msg.to);
 
         const [stored] = await db
           .insert(messagesTable)

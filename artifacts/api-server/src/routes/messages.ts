@@ -3,6 +3,7 @@ import { db, messagesTable, identityKeysTable, deviceTokensTable } from "@worksp
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
 import { RateLimiter, getIpKey } from "../lib/rateLimiter";
+import { normalizeAlias } from "../utils/alias";
 
 const router: IRouter = Router();
 
@@ -26,8 +27,8 @@ async function getAuthedAlias(req: Request): Promise<string | null> {
   const [row] = await db
     .select()
     .from(deviceTokensTable)
-    .where(and(eq(deviceTokensTable.userId, alias.toUpperCase()), eq(deviceTokensTable.tokenHash, hash)));
-  return row ? alias.toUpperCase() : null;
+    .where(and(eq(deviceTokensTable.userId, normalizeAlias(alias)), eq(deviceTokensTable.tokenHash, hash)));
+  return row ? normalizeAlias(alias) : null;
 }
 
 router.get("/users/exists/:alias", async (req: Request, res: Response) => {
@@ -35,11 +36,11 @@ router.get("/users/exists/:alias", async (req: Request, res: Response) => {
     return res.status(429).json({ error: "Too many requests" });
   }
   try {
-    const { alias } = req.params;
+    const alias = normalizeAlias(req.params.alias);
     const [row] = await db
       .select({ userId: identityKeysTable.userId })
       .from(identityKeysTable)
-      .where(eq(identityKeysTable.userId, alias.toUpperCase()));
+      .where(eq(identityKeysTable.userId, alias));
 
     if (row) {
       return res.json({ exists: true, alias: row.userId });

@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db, prekeysTable, identityKeysTable, deviceTokensTable, pool } from "@workspace/db";
 import { eq, and, count as drizzleCount } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
+import { normalizeAlias } from "../utils/alias";
 
 const router: IRouter = Router();
 
@@ -120,11 +121,17 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "spkSignature must be a 128-char hex string (Ed25519 signature)" });
     }
 
+    // Normalize and validate alias format
+    const normalizedUserId = normalizeAlias(userId);
+    if (!normalizedUserId || normalizedUserId.length < 3) {
+      return res.status(400).json({ error: "userId must be at least 3 valid characters" });
+    }
+
     // Check for existing registration
     const [existing] = await db
       .select()
       .from(deviceTokensTable)
-      .where(eq(deviceTokensTable.userId, userId));
+      .where(eq(deviceTokensTable.userId, normalizedUserId));
 
     if (existing) {
       return res.status(409).json({ error: "userId is already registered" });
@@ -134,9 +141,9 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
     const tokenHash = hashToken(token);
 
     await db.transaction(async (tx) => {
-      await tx.insert(deviceTokensTable).values({ userId, tokenHash });
+      await tx.insert(deviceTokensTable).values({ userId: normalizedUserId, tokenHash });
       await tx.insert(identityKeysTable).values({
-        userId,
+        userId:          normalizedUserId,
         ikPublicKey,
         spkPublicKey,
         ikSignPublicKey: ikSignPublicKey ?? null,
@@ -145,7 +152,7 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
     });
 
     // Return the plain-text token — client must store this securely
-    res.status(201).json({ token, userId });
+    res.status(201).json({ token, userId: normalizedUserId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
