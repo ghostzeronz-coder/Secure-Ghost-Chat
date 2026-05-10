@@ -710,6 +710,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hasDuressPin, setHasDuressPin] = useState(false);
   const [vpnAutoReconnecting, setVpnAutoReconnecting] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  const wsEverConnectedRef = React.useRef(false);
   const [state, setState] = useState<AppState>({
     alias: null,
     deviceToken: null,
@@ -1490,6 +1491,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // ── Auth ack ─────────────────────────────────────────────────────────────
     if (wsMsg.type === "ack" && !wsMsg.from) {
+      wsEverConnectedRef.current = true;
       setWsConnected(true);
       return;
     }

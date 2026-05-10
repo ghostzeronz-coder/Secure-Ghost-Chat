@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -39,6 +39,13 @@ export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { conversations, addConversation, deleteConversation, wsConnected, alias } = useApp();
+
+  // Only show the offline banner after a successful connection has been made and then lost.
+  // Avoids alarming users during the normal initial-connect window on app launch.
+  const [hadConnection, setHadConnection] = useState(false);
+  useEffect(() => {
+    if (wsConnected && !hadConnection) setHadConnection(true);
+  }, [wsConnected, hadConnection]);
 
   const [pageTab, setPageTab] = useState<PageTab>("messages");
   const [showNew, setShowNew] = useState(false);
@@ -340,8 +347,8 @@ export default function MessagesScreen() {
         onClose={() => setShowScanner(false)}
         onScan={handleQRScan}
       />
-      {/* WS offline banner */}
-      {alias && !wsConnected && (
+      {/* WS offline banner — only after a prior successful connection */}
+      {alias && !wsConnected && hadConnection && (
         <View style={{ backgroundColor: "#FF9500", paddingVertical: 5, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 6 }}>
           <Ionicons name="cloud-offline-outline" size={14} color="#000" />
           <Text style={{ color: "#000", fontSize: 12, fontFamily: "SpaceMono", letterSpacing: 0.5 }}>
