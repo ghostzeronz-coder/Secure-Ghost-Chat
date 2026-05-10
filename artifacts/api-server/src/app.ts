@@ -89,10 +89,10 @@ app.post(
     try {
       const sig = Array.isArray(signature) ? signature[0] : signature;
       await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-      res.status(200).json({ received: true });
+      return res.status(200).json({ received: true });
     } catch (err: any) {
       logger.error({ err }, "Stripe webhook error");
-      res.status(400).json({ error: "Webhook processing error" });
+      return res.status(400).json({ error: "Webhook processing error" });
     }
   }
 );
@@ -113,7 +113,7 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     return res.status(403).json({ error: err.message });
   }
   logger.error({ err }, "Unhandled error");
-  res.status(500).json({ error: "Internal server error" });
+  return res.status(500).json({ error: "Internal server error" });
 });
 
 export default app;

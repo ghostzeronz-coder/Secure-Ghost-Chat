@@ -68,7 +68,7 @@ async function requireDeviceAuth(req: Request, res: Response, next: () => void):
     return;
   }
 
-  const { userId } = req.params;
+  const userId = req.params["userId"] as string;
   const hash = hashToken(token);
 
   const [row] = await db
@@ -152,9 +152,9 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
     });
 
     // Return the plain-text token — client must store this securely
-    res.status(201).json({ token, userId: normalizedUserId });
+    return res.status(201).json({ token, userId: normalizedUserId });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -165,7 +165,7 @@ router.post(
   (req, res, next) => requireDeviceAuth(req, res, next),
   async (req: Request, res: Response) => {
     try {
-      const { userId } = req.params;
+      const userId = req.params["userId"] as string;
       const { keys } = req.body as { keys?: string[] };
 
       if (!Array.isArray(keys) || keys.length === 0) {
@@ -188,9 +188,9 @@ router.post(
         .from(prekeysTable)
         .where(and(eq(prekeysTable.userId, userId), eq(prekeysTable.consumed, false)));
 
-      res.status(201).json({ uploaded: keys.length, remaining: Number(remaining) });
+      return res.status(201).json({ uploaded: keys.length, remaining: Number(remaining) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message });
     }
   }
 );
@@ -207,7 +207,7 @@ router.post(
 // This endpoint is intentionally readable without auth (Alice needs Bob's keys).
 router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
   try {
-    const { userId } = req.params;
+    const userId = req.params["userId"] as string;
 
     // Fetch user's identity key bundle (IK + SPK)
     const [identityKey] = await db
@@ -253,7 +253,7 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
       lowSupply:       remainingNum < OPK_LOW_WATERMARK,
     });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -264,7 +264,7 @@ router.get(
   (req, res, next) => requireDeviceAuth(req, res, next),
   async (req: Request, res: Response) => {
     try {
-      const { userId } = req.params;
+      const userId = req.params["userId"] as string;
 
       const [{ value: remaining }] = await db
         .select({ value: drizzleCount() })
@@ -272,9 +272,9 @@ router.get(
         .where(and(eq(prekeysTable.userId, userId), eq(prekeysTable.consumed, false)));
 
       const remainingNum = Number(remaining);
-      res.json({ remaining: remainingNum, lowSupply: remainingNum < OPK_LOW_WATERMARK });
+      return res.json({ remaining: remainingNum, lowSupply: remainingNum < OPK_LOW_WATERMARK });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message });
     }
   }
 );

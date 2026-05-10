@@ -36,7 +36,7 @@ router.get("/users/exists/:alias", async (req: Request, res: Response) => {
     return res.status(429).json({ error: "Too many requests" });
   }
   try {
-    const alias = normalizeAlias(req.params.alias);
+    const alias = normalizeAlias(req.params.alias as string);
     const [row] = await db
       .select({ userId: identityKeysTable.userId })
       .from(identityKeysTable)
@@ -47,7 +47,7 @@ router.get("/users/exists/:alias", async (req: Request, res: Response) => {
     }
     return res.status(404).json({ exists: false });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -76,7 +76,7 @@ router.get("/messages/pending", async (req: Request, res: Response) => {
 
     return res.json({ messages: pending });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 

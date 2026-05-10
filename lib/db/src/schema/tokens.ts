@@ -32,5 +32,5 @@ export const insertTokenSchema = createInsertSchema(tokensTable).omit({
   status: true,
 });
 
-export type InsertToken = z.infer<typeof insertTokenSchema>;
+export type InsertToken = (typeof insertTokenSchema)["_output"];
 export type Token = typeof tokensTable.$inferSelect;

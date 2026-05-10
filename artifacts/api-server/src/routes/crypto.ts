@@ -38,7 +38,7 @@ router.get("/crypto/payment-info", (req, res) => {
     `&reference=${encodeURIComponent(wallet)}`,
   ].join("");
 
-  res.json({
+  return res.json({
     wallet,
     usdc,
     currency: "USDC",

@@ -62,9 +62,9 @@ ensureSeedTokens().catch(console.error);
 router.get("/tokens", async (_req: Request, res: Response) => {
   try {
     const tokens = await db.select().from(tokensTable).orderBy(tokensTable.id);
-    res.json({ data: tokens });
+    return res.json({ data: tokens });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -73,9 +73,9 @@ router.get("/tokens/:id", async (req: Request, res: Response) => {
   try {
     const [token] = await db.select().from(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
     if (!token) return res.status(404).json({ error: "Token not found" });
-    res.json({ data: token });
+    return res.json({ data: token });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -88,9 +88,9 @@ router.post("/tokens", async (req: Request, res: Response) => {
       name, symbol: symbol.toUpperCase(), description, decimals: decimals ?? 9,
       totalSupply: totalSupply ?? 1_000_000_000, logoColor: logoColor ?? "#00C8FF", notes,
     }).returning();
-    res.status(201).json({ data: token });
+    return res.status(201).json({ data: token });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -103,9 +103,9 @@ router.put("/tokens/:id", async (req: Request, res: Response) => {
       .where(eq(tokensTable.id, Number(req.params.id)))
       .returning();
     if (!token) return res.status(404).json({ error: "Token not found" });
-    res.json({ data: token });
+    return res.json({ data: token });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -116,9 +116,9 @@ router.delete("/tokens/:id", async (req: Request, res: Response) => {
     if (!token) return res.status(404).json({ error: "Token not found" });
     if (token.status === "deployed") return res.status(400).json({ error: "Cannot delete a deployed token" });
     await db.delete(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -181,12 +181,12 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
     }).where(eq(tokensTable.id, token.id));
 
     const [updated] = await db.select().from(tokensTable).where(eq(tokensTable.id, token.id));
-    res.json({ success: true, data: updated });
+    return res.json({ success: true, data: updated });
   } catch (err: any) {
     // Mark as failed
     try { await db.update(tokensTable).set({ status: "failed" }).where(eq(tokensTable.id, Number(req.params.id))); } catch {}
     console.error("[tokens/deploy]", err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 

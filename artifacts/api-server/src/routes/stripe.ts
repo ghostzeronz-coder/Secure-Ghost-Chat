@@ -89,10 +89,10 @@ router.post("/stripe/seed", async (_req, res) => {
       results.push({ product: { id: product.id, name: product.name }, prices });
     }
 
-    res.json({ success: true, data: results });
+    return res.json({ success: true, data: results });
   } catch (err: any) {
     console.error("[stripe/seed]", err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -200,10 +200,10 @@ router.post("/stripe/checkout", async (req, res) => {
       email
     );
 
-    res.json({ url: session.url, sessionId: session.id });
+    return res.json({ url: session.url, sessionId: session.id });
   } catch (err: any) {
     console.error("[stripe/checkout]", err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -291,10 +291,10 @@ router.post("/stripe/customer-portal", async (req, res) => {
       return_url: returnUrl,
     });
 
-    res.json({ url: session.url });
+    return res.json({ url: session.url });
   } catch (err: any) {
     console.error("[stripe/customer-portal]", err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -303,10 +303,10 @@ router.get("/stripe/config", async (_req, res) => {
   try {
     const { getStripePublishableKey } = await import("../stripeClient");
     const publishableKey = await getStripePublishableKey();
-    res.json({ publishableKey });
+    return res.json({ publishableKey });
   } catch (err: any) {
     console.error("[stripe/config]", err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -343,7 +343,7 @@ router.get("/stripe/subscription", async (req, res) => {
           plan,
           priceId: price?.id ?? null,
           trialEnd: sub.trial_end,
-          currentPeriodEnd: sub.current_period_end,
+          currentPeriodEnd: sub.items.data[0]?.current_period_end,
         });
       }
     }
@@ -351,7 +351,7 @@ router.get("/stripe/subscription", async (req, res) => {
     return res.json({ active: false, plan: null, status: null });
   } catch (err: any) {
     console.error("[stripe/subscription]", err.message);
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 

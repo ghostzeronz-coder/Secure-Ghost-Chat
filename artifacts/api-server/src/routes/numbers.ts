@@ -91,9 +91,9 @@ router.get("/numbers", async (req: Request, res: Response) => {
       .where(and(eq(ghostNumbersTable.userId, alias), eq(ghostNumbersTable.status, "active")))
       .orderBy(desc(ghostNumbersTable.createdAt));
 
-    res.json({ data: numbers });
+    return res.json({ data: numbers });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -106,7 +106,7 @@ router.get("/numbers/:id/sms", async (req: Request, res: Response) => {
     const alias = await getAuthedAlias(req);
     if (!alias) return res.status(401).json({ error: "Unauthorized" });
 
-    const numberId = req.params.id;
+    const numberId = req.params.id as string;
     const [number] = await db
       .select()
       .from(ghostNumbersTable)
@@ -119,9 +119,9 @@ router.get("/numbers/:id/sms", async (req: Request, res: Response) => {
       .where(eq(ghostSmsTable.numberId, numberId))
       .orderBy(desc(ghostSmsTable.createdAt));
 
-    res.json({ data: sms });
+    return res.json({ data: sms });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -186,9 +186,9 @@ router.post("/numbers/provision", async (req: Request, res: Response) => {
       })
       .returning();
 
-    res.status(201).json({ data: number });
+    return res.status(201).json({ data: number });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -219,9 +219,9 @@ router.delete("/numbers/:id", async (req: Request, res: Response) => {
       .set({ status: "released" })
       .where(eq(ghostNumbersTable.id, numberId));
 
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -256,9 +256,9 @@ router.post("/webhooks/sms/inbound", async (req: Request, res: Response) => {
       });
     }
 
-    res.json({ ok: true });
+    return res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 });
 
