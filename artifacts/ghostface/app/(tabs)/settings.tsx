@@ -33,6 +33,7 @@ function getPinStrength(pin: string): { level: 0 | 1 | 2; label: string } | null
   if (pin.length === 0) return null;
   if (pin.length < 4) return { level: 0, label: "WEAK" };
   const digits = pin.split("").map(Number);
+  // Obvious patterns are always WEAK regardless of length
   const allSame = digits.every((d) => d === digits[0]);
   if (allSame) return { level: 0, label: "WEAK" };
   const ascending = digits.every((d, i) => i === 0 || d === digits[i - 1] + 1);
@@ -41,8 +42,12 @@ function getPinStrength(pin: string): { level: 0 | 1 | 2; label: string } | null
   const common = [
     "0000","1111","2222","3333","4444","5555","6666","7777","8888","9999",
     "1234","4321","0123","9876","1122","1212","2121","1010","0101",
+    "123456","654321","000000","111111","123123","112233",
   ];
   if (common.includes(pin)) return { level: 0, label: "WEAK" };
+  // 6+ digit PINs with no obvious pattern are STRONG immediately
+  if (pin.length >= 6) return { level: 2, label: "STRONG" };
+  // 4–5 digit scoring
   const counts = digits.reduce(
     (acc, d) => { acc[d] = (acc[d] || 0) + 1; return acc; },
     {} as Record<number, number>
@@ -880,6 +885,9 @@ export default function SettingsScreen() {
               ) : (
                 <>
                   <Text style={styles.modalTitle}>CHANGE PIN</Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginBottom: 12 }}>
+                    4–8 DIGITS
+                  </Text>
                   <TextInput
                     style={styles.input}
                     value={newPin}
@@ -888,7 +896,7 @@ export default function SettingsScreen() {
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="numeric"
                     secureTextEntry
-                    maxLength={4}
+                    maxLength={8}
                   />
                   <PinStrengthIndicator
                     pin={newPin}
@@ -906,7 +914,7 @@ export default function SettingsScreen() {
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="numeric"
                     secureTextEntry
-                    maxLength={4}
+                    maxLength={8}
                   />
                   {pinError ? (
                     <Text style={styles.errorText}>{pinError}</Text>
@@ -959,11 +967,11 @@ export default function SettingsScreen() {
                     style={styles.input}
                     value={duressPin}
                     onChangeText={(t) => { setDuressPinInput(t); setDuressPinError(""); }}
-                    placeholder="DURESS PIN"
+                    placeholder="DURESS PIN (4–8 DIGITS)"
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="numeric"
                     secureTextEntry
-                    maxLength={4}
+                    maxLength={8}
                     testID="duress-pin-input"
                   />
                   <PinStrengthIndicator
@@ -979,7 +987,7 @@ export default function SettingsScreen() {
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="numeric"
                     secureTextEntry
-                    maxLength={4}
+                    maxLength={8}
                     testID="duress-pin-confirm-input"
                   />
                   {duressPinError ? (
