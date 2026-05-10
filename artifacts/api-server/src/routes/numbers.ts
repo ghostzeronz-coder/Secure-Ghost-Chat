@@ -6,6 +6,7 @@ import { vonageClient } from "../lib/vonage";
 import { pool } from "@workspace/db";
 import { RateLimiter, getIpKey } from "../lib/rateLimiter";
 import { normalizeAlias } from "../utils/alias";
+import { broadcastToAlias } from "../ws/manager";
 
 const router: IRouter = Router();
 
@@ -244,6 +245,14 @@ router.post("/webhooks/sms/inbound", async (req: Request, res: Response) => {
         body: text ?? "",
         direction: "inbound",
         providerMetadata: req.body,
+      });
+
+      // Push real-time notification to the alias owner if they are online
+      broadcastToAlias(number.userId, {
+        type: "sms_inbound",
+        from,
+        to,
+        text: text ?? "",
       });
     }
 

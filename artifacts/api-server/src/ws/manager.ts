@@ -10,7 +10,8 @@ export interface WireMessage {
   type:
     | "auth" | "msg" | "ack" | "ping" | "pong" | "pending"
     | "call-ring" | "call-accept" | "call-hangup"
-    | "call-offer" | "call-answer" | "call-ice";
+    | "call-offer" | "call-answer" | "call-ice"
+    | "sms_inbound";
   token?: string;
   alias?: string;
   to?: string;
@@ -20,6 +21,7 @@ export interface WireMessage {
   x3dhHeader?: string;
   callId?: string;
   callMode?: string;
+  text?: string;
 }
 
 // Extend WebSocket with an aliveness flag used by the protocol-level heartbeat.
@@ -252,6 +254,19 @@ export function createWsServer(wss: WebSocketServer): void {
 
     ws.send(JSON.stringify({ type: "connected" }));
   });
+}
+
+/**
+ * Push a message to a single connected alias over WebSocket.
+ * Used for real-time server-initiated events (e.g. inbound SMS).
+ * No-ops silently if the alias is offline.
+ */
+export function broadcastToAlias(alias: string, message: Omit<WireMessage, "token">): void {
+  const normalized = normalizeAlias(alias);
+  const client = connectedClients.get(normalized);
+  if (client && client.ws.readyState === WebSocket.OPEN) {
+    client.ws.send(JSON.stringify(message));
+  }
 }
 
 export { connectedClients };
