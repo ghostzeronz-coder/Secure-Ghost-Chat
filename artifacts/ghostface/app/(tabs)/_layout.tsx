@@ -21,12 +21,11 @@ function PulseIcon({
 
   useEffect(() => {
     if (!focused) return;
-    scale.setValue(0.82);
-    Animated.spring(scale, {
+    scale.setValue(0.85);
+    Animated.timing(scale, {
       toValue: 1,
+      duration: 160,
       useNativeDriver: true,
-      tension: 320,
-      friction: 9,
     }).start();
   }, [focused]);
 
