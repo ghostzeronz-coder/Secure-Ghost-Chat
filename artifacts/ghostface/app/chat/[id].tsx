@@ -319,13 +319,13 @@ export default function ChatScreen() {
         <View style={styles.headerActions}>
           <Pressable style={styles.callBtn} onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push({ pathname: "/call", params: { alias: conv.alias, mode: "voice" } });
+            router.push({ pathname: "/call", params: { alias: conv.alias, mode: "voice", role: "caller", callId: Date.now().toString() } });
           }} testID="voice-call-btn">
             <Ionicons name="call-outline" size={20} color={colors.primary} />
           </Pressable>
           <Pressable style={styles.callBtn} onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            router.push({ pathname: "/call", params: { alias: conv.alias, mode: "video" } });
+            router.push({ pathname: "/call", params: { alias: conv.alias, mode: "video", role: "caller", callId: Date.now().toString() } });
           }} testID="video-call-btn">
             <Ionicons name="videocam-outline" size={20} color={colors.primary} />
           </Pressable>

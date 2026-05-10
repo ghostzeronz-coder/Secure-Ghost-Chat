@@ -1,12 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -14,312 +13,342 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusDot } from "@/components/StatusDot";
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
 
 type VoicePreset = {
   id: string;
   label: string;
   icon: React.ComponentProps<typeof Ionicons>["name"];
-  pitch: number;
   description: string;
 };
 
 const VOICE_PRESETS: VoicePreset[] = [
-  { id: "natural", label: "NATURAL", icon: "person-outline", pitch: 0, description: "Original voice" },
-  { id: "robot", label: "ROBOT", icon: "hardware-chip-outline", pitch: -8, description: "Metallic tone" },
-  { id: "deep", label: "DEEP", icon: "arrow-down-outline", pitch: -5, description: "Low frequency" },
-  { id: "ghost", label: "GHOST", icon: "skull-outline", pitch: -3, description: "Ethereal echo" },
-  { id: "alien", label: "ALIEN", icon: "planet-outline", pitch: 7, description: "Warped signal" },
-  { id: "chipmunk", label: "HIGH", icon: "arrow-up-outline", pitch: 9, description: "High pitched" },
+  { id: "natural",  label: "NATURAL",   icon: "person-outline",        description: "Original voice" },
+  { id: "robot",    label: "ROBOT",     icon: "hardware-chip-outline",  description: "Metallic tone" },
+  { id: "deep",     label: "DEEP",      icon: "arrow-down-outline",     description: "Low frequency" },
+  { id: "ghost",    label: "GHOST",     icon: "skull-outline",          description: "Ethereal echo" },
+  { id: "alien",    label: "ALIEN",     icon: "planet-outline",         description: "Warped signal" },
+  { id: "high",     label: "HIGH",      icon: "arrow-up-outline",       description: "High pitched" },
 ];
+
+const STUN = { iceServers: [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+]};
+
+type CallState = "ringing" | "connecting" | "active" | "ended" | "no_answer";
 
 export default function CallScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alias, mode } = useLocalSearchParams<{
+  const { alias, mode, role, callId } = useLocalSearchParams<{
     alias: string;
     mode: "voice" | "video";
+    role?: "caller" | "callee";
+    callId?: string;
   }>();
 
-  const [callState, setCallState] = useState<"connecting" | "active" | "ended">(
-    "connecting"
-  );
-  const [duration, setDuration] = useState(0);
-  const [muted, setMuted] = useState(false);
-  const [speakerOn, setSpeakerOn] = useState(false);
+  const { sendCallSignal, registerCallListener } = useApp();
+
+  const isCaller = (role ?? "caller") === "caller";
+  const effectiveCallId = callId ?? Date.now().toString();
+  const isVideo = mode === "video";
+
+  const [callState, setCallState]     = useState<CallState>(isCaller ? "ringing" : "connecting");
+  const [duration, setDuration]       = useState(0);
+  const [muted, setMuted]             = useState(false);
+  const [speakerOn, setSpeakerOn]     = useState(false);
   const [showVoiceChanger, setShowVoiceChanger] = useState(false);
-  const [activeVoice, setActiveVoice] = useState<string>("natural");
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const [activeVoice, setActiveVoice] = useState("natural");
+  const [statusNote, setStatusNote]   = useState("");
+
+  const pulseAnim     = useRef(new Animated.Value(1)).current;
   const voiceSlideAnim = useRef(new Animated.Value(0)).current;
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pcRef         = useRef<any>(null);
+  const localStreamRef = useRef<any>(null);
+  const mountedRef    = useRef(true);
 
+  // ── Start call duration timer when call goes active ──────────────────────
   useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.15,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    animation.start();
+    if (callState !== "active") return;
+    timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [callState]);
 
-    const connectTimer = setTimeout(() => {
-      setCallState("active");
-      animation.stop();
-      pulseAnim.setValue(1);
-      timerRef.current = setInterval(() => {
-        setDuration((d) => d + 1);
-      }, 1000);
-    }, 2000);
+  // ── Pulse animation while ringing / connecting ────────────────────────────
+  useEffect(() => {
+    if (callState !== "ringing" && callState !== "connecting") return;
+    const anim = Animated.loop(Animated.sequence([
+      Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue: 1,    duration: 800, useNativeDriver: true }),
+    ]));
+    anim.start();
+    return () => anim.stop();
+  }, [callState, pulseAnim]);
 
-    return () => {
-      clearTimeout(connectTimer);
-      animation.stop();
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
+  // ── Remote audio element (web only) ──────────────────────────────────────
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = document.createElement("audio");
+    el.id = "gf-remote-audio";
+    el.autoplay = true;
+    (el as any).playsInline = true;
+    document.body.appendChild(el);
+    return () => { try { el.remove(); } catch {} };
   }, []);
 
+  // ── WebRTC helpers ────────────────────────────────────────────────────────
+  const makePC = useCallback(() => {
+    if (Platform.OS !== "web") return null;
+    const RTC = (window as any).RTCPeerConnection;
+    if (!RTC) return null;
+    const pc = new RTC(STUN);
+    pc.ontrack = (ev: any) => {
+      const el = document.getElementById("gf-remote-audio") as HTMLAudioElement | null;
+      if (el && ev.streams?.[0]) el.srcObject = ev.streams[0];
+    };
+    pc.onicecandidate = (ev: any) => {
+      if (ev.candidate) {
+        sendCallSignal({ type: "call-ice", to: alias, callId: effectiveCallId, payload: JSON.stringify(ev.candidate) });
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      if (!mountedRef.current) return;
+      const s = pc.connectionState;
+      if (s === "connected")     setCallState("active");
+      if (s === "disconnected" || s === "failed") handleEndInternal();
+    };
+    return pc;
+  }, [alias, effectiveCallId, sendCallSignal]);
+
+  const getMedia = useCallback(async (pc: any) => {
+    if (Platform.OS !== "web" || !pc) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+      localStreamRef.current = stream;
+      stream.getTracks().forEach((t: MediaStreamTrack) => pc.addTrack(t, stream));
+    } catch (e) {
+      console.warn("[WebRTC] getUserMedia:", e);
+      setStatusNote("Mic access denied — audio unavailable");
+    }
+  }, [isVideo]);
+
+  const handleEndInternal = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (pcRef.current) { try { pcRef.current.close(); } catch {} pcRef.current = null; }
+    if (localStreamRef.current) { localStreamRef.current.getTracks().forEach((t: MediaStreamTrack) => t.stop()); localStreamRef.current = null; }
+    setCallState("ended");
+    setTimeout(() => { if (mountedRef.current) router.back(); }, 1200);
+  }, []);
+
+  // ── Caller: send ring on mount ────────────────────────────────────────────
+  useEffect(() => {
+    mountedRef.current = true;
+    if (isCaller) {
+      sendCallSignal({ type: "call-ring", to: alias, callId: effectiveCallId, callMode: mode ?? "voice" });
+      // 30-second ring timeout
+      const timeout = setTimeout(() => {
+        if (mountedRef.current && callState === "ringing") {
+          setCallState("no_answer");
+          setTimeout(() => { if (mountedRef.current) router.back(); }, 1500);
+        }
+      }, 30_000);
+      return () => { mountedRef.current = false; clearTimeout(timeout); };
+    }
+    // Callee: send accept immediately
+    sendCallSignal({ type: "call-accept", to: alias, callId: effectiveCallId });
+    if (Platform.OS !== "web") {
+      // Native Expo Go — no WebRTC; mark active right away
+      setCallState("active");
+    }
+    return () => { mountedRef.current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Call signal listener ──────────────────────────────────────────────────
+  useEffect(() => {
+    registerCallListener(async (signal) => {
+      if (signal.callId && signal.callId !== effectiveCallId) return;
+      if (!mountedRef.current) return;
+
+      // ── call-accept (caller receives) ─────────────────────────────────────
+      if (signal.type === "call-accept" && isCaller) {
+        setCallState("connecting");
+        if (Platform.OS !== "web") {
+          setCallState("active");
+          return;
+        }
+        const pc = makePC();
+        if (!pc) { setCallState("active"); return; }
+        pcRef.current = pc;
+        await getMedia(pc);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendCallSignal({ type: "call-offer", to: alias, callId: effectiveCallId, payload: JSON.stringify(offer) });
+        return;
+      }
+
+      // ── call-offer (callee receives) ──────────────────────────────────────
+      if (signal.type === "call-offer" && !isCaller && signal.payload) {
+        if (Platform.OS !== "web") { setCallState("active"); return; }
+        const pc = makePC();
+        if (!pc) { setCallState("active"); return; }
+        pcRef.current = pc;
+        await getMedia(pc);
+        const SDP = (window as any).RTCSessionDescription;
+        if (SDP) {
+          await pc.setRemoteDescription(new SDP(JSON.parse(signal.payload)));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendCallSignal({ type: "call-answer", to: alias, callId: effectiveCallId, payload: JSON.stringify(answer) });
+        }
+        setCallState("active");
+        return;
+      }
+
+      // ── call-answer (caller receives) ─────────────────────────────────────
+      if (signal.type === "call-answer" && isCaller && signal.payload && pcRef.current) {
+        const SDP = (window as any).RTCSessionDescription;
+        if (SDP) {
+          try {
+            await pcRef.current.setRemoteDescription(new SDP(JSON.parse(signal.payload)));
+          } catch (e) {
+            console.warn("[WebRTC] setRemoteDescription:", e);
+          }
+        }
+        setCallState("active");
+        return;
+      }
+
+      // ── call-ice (either) ─────────────────────────────────────────────────
+      if (signal.type === "call-ice" && signal.payload && pcRef.current) {
+        const ICE = (window as any).RTCIceCandidate;
+        if (ICE) {
+          try { await pcRef.current.addIceCandidate(new ICE(JSON.parse(signal.payload))); } catch {}
+        }
+        return;
+      }
+
+      // ── call-hangup (either receives) ─────────────────────────────────────
+      if (signal.type === "call-hangup") {
+        handleEndInternal();
+      }
+    });
+
+    return () => registerCallListener(null);
+  }, [alias, effectiveCallId, isCaller, makePC, getMedia, sendCallSignal, handleEndInternal, registerCallListener]);
+
+  // ── UI handlers ───────────────────────────────────────────────────────────
+  const handleEnd = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    sendCallSignal({ type: "call-hangup", to: alias, callId: effectiveCallId });
+    handleEndInternal();
+  };
+
   const toggleVoiceChanger = () => {
-    const opening = !showVoiceChanger;
-    setShowVoiceChanger(opening);
-    Animated.spring(voiceSlideAnim, {
-      toValue: opening ? 1 : 0,
-      useNativeDriver: true,
-      tension: 80,
-      friction: 12,
-    }).start();
+    setShowVoiceChanger((v) => !v);
+    Animated.spring(voiceSlideAnim, { toValue: showVoiceChanger ? 0 : 1, useNativeDriver: true, tension: 80, friction: 12 }).start();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
-  const selectVoice = (id: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setActiveVoice(id);
-  };
-
-  const formatDuration = (secs: number): string => {
+  const formatDuration = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  const handleEnd = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    setCallState("ended");
-    if (timerRef.current) clearInterval(timerRef.current);
-    setTimeout(() => router.back(), 1000);
+  const displayAlias = alias ?? "UNKNOWN";
+  const activePreset  = VOICE_PRESETS.find((p) => p.id === activeVoice)!;
+  const voiceActive   = activeVoice !== "natural";
+
+  const callStatusText = () => {
+    if (callState === "ringing")    return "RINGING...";
+    if (callState === "connecting") return isCaller ? "CONNECTING..." : "JOINING...";
+    if (callState === "ended")      return "CALL ENDED";
+    if (callState === "no_answer")  return "NO ANSWER";
+    return isVideo ? "VIDEO ACTIVE" : "CALL ACTIVE";
   };
 
-  const activePreset = VOICE_PRESETS.find((p) => p.id === activeVoice)!;
-  const voiceActive = activeVoice !== "natural";
+  const callStatusColor = () => {
+    if (callState === "active")                          return colors.success;
+    if (callState === "ended" || callState === "no_answer") return colors.destructive;
+    return colors.primary;
+  };
 
   const styles = StyleSheet.create({
     container: {
-      flex: 1,
-      backgroundColor: colors.background,
+      flex: 1, backgroundColor: colors.background,
       paddingTop: insets.top + (Platform.OS === "web" ? 67 : 40),
       paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 48),
     },
-    topSection: {
-      alignItems: "center",
-      gap: 16,
-      flex: 1,
-      justifyContent: "center",
-    },
+    topSection: { alignItems: "center", gap: 14, flex: 1, justifyContent: "center" },
     avatarRing: {
-      width: 120,
-      height: 120,
-      borderRadius: 60,
+      width: 120, height: 120, borderRadius: 60,
       borderWidth: 2,
       borderColor: callState === "active" ? colors.success : colors.border,
-      alignItems: "center",
-      justifyContent: "center",
+      alignItems: "center", justifyContent: "center",
     },
-    avatar: {
-      width: 100,
-      height: 100,
-      borderRadius: 50,
-      backgroundColor: colors.card,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    avatarText: {
-      color: colors.primary,
-      fontSize: 32,
-      fontWeight: "800" as const,
-      letterSpacing: 2,
-    },
-    aliasText: {
-      color: colors.foreground,
-      fontSize: 22,
-      fontWeight: "800" as const,
-      letterSpacing: 4,
-    },
-    statusRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    statusText: {
-      fontSize: 13,
-      letterSpacing: 3,
-      fontWeight: "600" as const,
-    },
-    durationText: {
-      color: colors.mutedForeground,
-      fontSize: 13,
-      letterSpacing: 4,
-      fontWeight: "600" as const,
-    },
-    encryptedRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-    },
-    encryptedText: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 2,
-    },
+    avatar: { width: 100, height: 100, borderRadius: 50, backgroundColor: colors.card, alignItems: "center", justifyContent: "center" },
+    avatarText: { color: colors.primary, fontSize: 32, fontWeight: "800" as const, letterSpacing: 2 },
+    aliasText: { color: colors.foreground, fontSize: 22, fontWeight: "800" as const, letterSpacing: 4 },
+    statusRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    statusText: { fontSize: 13, letterSpacing: 3, fontWeight: "600" as const },
+    durationText: { color: colors.mutedForeground, fontSize: 13, letterSpacing: 4, fontWeight: "600" as const },
+    encRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
+    encText: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 2 },
+    noteText: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 1, textAlign: "center" as const, maxWidth: 240 },
     voiceActiveRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      backgroundColor: `${colors.primary}20`,
-      borderRadius: 20,
-      paddingHorizontal: 12,
-      paddingVertical: 4,
+      flexDirection: "row" as const, alignItems: "center" as const, gap: 6,
+      backgroundColor: `${colors.primary}20`, borderRadius: 20,
+      paddingHorizontal: 12, paddingVertical: 4,
     },
-    voiceActiveText: {
-      color: colors.primary,
-      fontSize: 10,
-      letterSpacing: 2,
-      fontWeight: "700" as const,
-    },
-    bottomSection: {
-      gap: 16,
-    },
-    voiceChangerPanel: {
-      marginHorizontal: 16,
-      backgroundColor: colors.card,
-      borderRadius: colors.radius,
-      borderWidth: 1,
-      borderColor: voiceActive ? colors.primary : colors.border,
-      overflow: "hidden",
+    voiceActiveText: { color: colors.primary, fontSize: 10, letterSpacing: 2, fontWeight: "700" as const },
+    bottomSection: { gap: 16 },
+    vcPanel: {
+      marginHorizontal: 16, backgroundColor: colors.card,
+      borderRadius: colors.radius, borderWidth: 1,
+      borderColor: voiceActive ? colors.primary : colors.border, overflow: "hidden",
     },
     vcHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: 16,
-      paddingVertical: 12,
-      borderBottomWidth: showVoiceChanger ? 1 : 0,
-      borderBottomColor: colors.border,
+      flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between",
+      paddingHorizontal: 16, paddingVertical: 12,
+      borderBottomWidth: showVoiceChanger ? 1 : 0, borderBottomColor: colors.border,
     },
-    vcHeaderLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    vcHeaderTitle: {
-      color: voiceActive ? colors.primary : colors.foreground,
-      fontSize: 12,
-      fontWeight: "700" as const,
-      letterSpacing: 3,
-    },
-    vcHeaderSub: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 1,
-    },
-    vcGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      padding: 12,
-      gap: 8,
-    },
-    vcPreset: {
-      width: "30%",
-      minWidth: 80,
-      flex: 1,
-      alignItems: "center",
-      paddingVertical: 12,
-      borderRadius: colors.radius,
-      borderWidth: 1.5,
-      gap: 4,
-    },
-    vcPresetLabel: {
-      fontSize: 9,
-      fontWeight: "800" as const,
-      letterSpacing: 2,
-    },
-    vcPresetDesc: {
-      fontSize: 8,
-      letterSpacing: 0.5,
-    },
-    controls: {
-      flexDirection: "row",
-      gap: 20,
-      alignItems: "center",
-      justifyContent: "center",
-    },
+    vcHeaderLeft: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8 },
+    vcHeaderTitle: { color: voiceActive ? colors.primary : colors.foreground, fontSize: 12, fontWeight: "700" as const, letterSpacing: 3 },
+    vcHeaderSub: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 1 },
+    vcGrid: { flexDirection: "row" as const, flexWrap: "wrap" as const, padding: 12, gap: 8 },
+    vcPreset: { flex: 1, minWidth: 80, alignItems: "center" as const, paddingVertical: 12, borderRadius: colors.radius, borderWidth: 1.5, gap: 4 },
+    vcLabel: { fontSize: 9, fontWeight: "800" as const, letterSpacing: 2 },
+    vcDesc: { fontSize: 8, letterSpacing: 0.5 },
+    controls: { flexDirection: "row" as const, gap: 20, alignItems: "center" as const, justifyContent: "center" as const },
+    ctrlItem: { alignItems: "center" as const },
     ctrlBtn: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
-      alignItems: "center",
-      justifyContent: "center",
+      width: 56, height: 56, borderRadius: 28,
+      backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border,
+      alignItems: "center" as const, justifyContent: "center" as const,
     },
-    ctrlBtnActive: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
+    ctrlBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
     ctrlBtnVoice: {
       backgroundColor: voiceActive ? `${colors.primary}25` : colors.card,
       borderColor: voiceActive ? colors.primary : colors.border,
     },
-    endBtn: {
-      width: 72,
-      height: 72,
-      borderRadius: 36,
-      backgroundColor: colors.destructive,
-      alignItems: "center",
-      justifyContent: "center",
+    endBtn: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.destructive, alignItems: "center" as const, justifyContent: "center" as const },
+    modeLabel: { color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 4, textAlign: "center" as const },
+    webrtcBadge: {
+      flexDirection: "row" as const, alignItems: "center" as const, gap: 4,
+      backgroundColor: `${colors.success}18`, borderRadius: 8,
+      paddingHorizontal: 10, paddingVertical: 3,
     },
-    modeLabel: {
-      color: colors.mutedForeground,
-      fontSize: 9,
-      letterSpacing: 2,
-      marginTop: 4,
-      textAlign: "center",
-    },
-    ctrlItem: {
-      alignItems: "center",
-    },
+    webrtcBadgeTxt: { color: colors.success, fontSize: 9, fontWeight: "700" as const, letterSpacing: 2 },
   });
-
-  const displayAlias = alias ?? "UNKNOWN";
-  const isVideo = mode === "video";
 
   return (
     <View style={styles.container}>
       <View style={styles.topSection}>
-        <Animated.View
-          style={[
-            styles.avatarRing,
-            callState === "connecting" && {
-              transform: [{ scale: pulseAnim }],
-            },
-          ]}
-        >
+        <Animated.View style={[styles.avatarRing, (callState === "ringing" || callState === "connecting") && { transform: [{ scale: pulseAnim }] }]}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{displayAlias.slice(0, 2)}</Text>
           </View>
@@ -329,26 +358,8 @@ export default function CallScreen() {
 
         <View style={styles.statusRow}>
           <StatusDot active={callState === "active"} size={6} />
-          <Text
-            style={[
-              styles.statusText,
-              {
-                color:
-                  callState === "active"
-                    ? colors.success
-                    : callState === "ended"
-                    ? colors.destructive
-                    : colors.primary,
-              },
-            ]}
-          >
-            {callState === "connecting"
-              ? "CONNECTING..."
-              : callState === "ended"
-              ? "CALL ENDED"
-              : isVideo
-              ? "VIDEO ACTIVE"
-              : "CALL ACTIVE"}
+          <Text style={[styles.statusText, { color: callStatusColor() }]}>
+            {callStatusText()}
           </Text>
         </View>
 
@@ -356,86 +367,63 @@ export default function CallScreen() {
           <Text style={styles.durationText}>{formatDuration(duration)}</Text>
         )}
 
-        <View style={styles.encryptedRow}>
+        <View style={styles.encRow}>
           <Ionicons name="lock-closed" size={10} color={colors.mutedForeground} />
-          <Text style={styles.encryptedText}>
-            ZRTP {isVideo ? "VIDEO" : "VOICE"} ENCRYPTED
-          </Text>
+          <Text style={styles.encText}>ZRTP {isVideo ? "VIDEO" : "VOICE"} ENCRYPTED</Text>
         </View>
+
+        {Platform.OS === "web" && callState === "active" && (
+          <View style={styles.webrtcBadge}>
+            <Ionicons name="radio-outline" size={10} color={colors.success} />
+            <Text style={styles.webrtcBadgeTxt}>WEBRTC P2P · LIVE</Text>
+          </View>
+        )}
+
+        {Platform.OS !== "web" && callState === "active" && (
+          <View style={styles.webrtcBadge}>
+            <Ionicons name="radio-outline" size={10} color={colors.success} />
+            <Text style={styles.webrtcBadgeTxt}>SIGNALLING LIVE</Text>
+          </View>
+        )}
+
+        {statusNote !== "" && (
+          <Text style={styles.noteText}>{statusNote}</Text>
+        )}
 
         {voiceActive && (
           <View style={styles.voiceActiveRow}>
             <Ionicons name="mic" size={10} color={colors.primary} />
-            <Text style={styles.voiceActiveText}>
-              VOICE: {activePreset.label}
-            </Text>
+            <Text style={styles.voiceActiveText}>VOICE: {activePreset.label}</Text>
           </View>
         )}
       </View>
 
       <View style={styles.bottomSection}>
-        {/* Voice Changer Panel */}
-        <Pressable style={styles.voiceChangerPanel} onPress={toggleVoiceChanger}>
+        {/* Voice changer panel */}
+        <Pressable style={styles.vcPanel} onPress={toggleVoiceChanger}>
           <View style={styles.vcHeader}>
             <View style={styles.vcHeaderLeft}>
-              <Ionicons
-                name="mic-outline"
-                size={18}
-                color={voiceActive ? colors.primary : colors.mutedForeground}
-              />
+              <Ionicons name="mic-outline" size={18} color={voiceActive ? colors.primary : colors.mutedForeground} />
               <View>
-                <Text style={styles.vcHeaderTitle}>
-                  VOICE CHANGER {voiceActive ? `· ${activePreset.label}` : ""}
-                </Text>
-                <Text style={styles.vcHeaderSub}>
-                  {voiceActive ? activePreset.description.toUpperCase() : "TAP TO CONFIGURE"}
-                </Text>
+                <Text style={styles.vcHeaderTitle}>VOICE CHANGER {voiceActive ? `· ${activePreset.label}` : ""}</Text>
+                <Text style={styles.vcHeaderSub}>{voiceActive ? activePreset.description.toUpperCase() : "TAP TO CONFIGURE"}</Text>
               </View>
             </View>
-            <Ionicons
-              name={showVoiceChanger ? "chevron-down" : "chevron-up"}
-              size={16}
-              color={colors.mutedForeground}
-            />
+            <Ionicons name={showVoiceChanger ? "chevron-down" : "chevron-up"} size={16} color={colors.mutedForeground} />
           </View>
-
           {showVoiceChanger && (
             <View style={styles.vcGrid}>
               {VOICE_PRESETS.map((preset) => {
-                const isActive = activeVoice === preset.id;
+                const active = activeVoice === preset.id;
                 return (
                   <Pressable
                     key={preset.id}
-                    style={[
-                      styles.vcPreset,
-                      {
-                        backgroundColor: isActive ? `${colors.primary}20` : "transparent",
-                        borderColor: isActive ? colors.primary : colors.border,
-                      },
-                    ]}
-                    onPress={() => selectVoice(preset.id)}
+                    style={[styles.vcPreset, { backgroundColor: active ? `${colors.primary}20` : "transparent", borderColor: active ? colors.primary : colors.border }]}
+                    onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveVoice(preset.id); }}
                   >
-                    <Ionicons
-                      name={preset.icon}
-                      size={20}
-                      color={isActive ? colors.primary : colors.mutedForeground}
-                    />
-                    <Text
-                      style={[
-                        styles.vcPresetLabel,
-                        { color: isActive ? colors.primary : colors.foreground },
-                      ]}
-                    >
-                      {preset.label}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.vcPresetDesc,
-                        { color: colors.mutedForeground },
-                      ]}
-                    >
-                      {preset.description}
-                    </Text>
+                    <Ionicons name={preset.icon} size={20} color={active ? colors.primary : colors.mutedForeground} />
+                    <Text style={[styles.vcLabel, { color: active ? colors.primary : colors.foreground }]}>{preset.label}</Text>
+                    <Text style={[styles.vcDesc, { color: colors.mutedForeground }]}>{preset.description}</Text>
                   </Pressable>
                 );
               })}
@@ -443,66 +431,32 @@ export default function CallScreen() {
           )}
         </Pressable>
 
-        {/* Call Controls */}
+        {/* Call controls */}
         <View style={styles.controls}>
           <View style={styles.ctrlItem}>
-            <Pressable
-              style={[styles.ctrlBtn, muted && styles.ctrlBtnActive]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setMuted((m) => !m);
-              }}
-            >
-              <Ionicons
-                name={muted ? "mic-off" : "mic"}
-                size={22}
-                color={muted ? colors.primaryForeground : colors.foreground}
-              />
+            <Pressable style={[styles.ctrlBtn, muted && styles.ctrlBtnActive]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setMuted((m) => !m); }}>
+              <Ionicons name={muted ? "mic-off" : "mic"} size={22} color={muted ? colors.primaryForeground : colors.foreground} />
             </Pressable>
             <Text style={styles.modeLabel}>{muted ? "UNMUTE" : "MUTE"}</Text>
           </View>
 
           <View style={styles.ctrlItem}>
-            <Pressable
-              style={[styles.ctrlBtn, styles.ctrlBtnVoice]}
-              onPress={toggleVoiceChanger}
-            >
-              <Ionicons
-                name="mic-circle-outline"
-                size={22}
-                color={voiceActive ? colors.primary : colors.foreground}
-              />
+            <Pressable style={[styles.ctrlBtn, styles.ctrlBtnVoice]} onPress={toggleVoiceChanger}>
+              <Ionicons name="mic-circle-outline" size={22} color={voiceActive ? colors.primary : colors.foreground} />
             </Pressable>
-            <Text style={[styles.modeLabel, voiceActive && { color: colors.primary }]}>
-              VOICE FX
-            </Text>
+            <Text style={[styles.modeLabel, voiceActive && { color: colors.primary }]}>VOICE FX</Text>
           </View>
 
           <View style={styles.ctrlItem}>
             <Pressable style={styles.endBtn} onPress={handleEnd} testID="end-call-btn">
-              <Ionicons
-                name="call"
-                size={26}
-                color="#FFFFFF"
-                style={{ transform: [{ rotate: "135deg" }] }}
-              />
+              <Ionicons name="call" size={26} color="#FFFFFF" style={{ transform: [{ rotate: "135deg" }] }} />
             </Pressable>
             <Text style={styles.modeLabel}>END</Text>
           </View>
 
           <View style={styles.ctrlItem}>
-            <Pressable
-              style={[styles.ctrlBtn, speakerOn && styles.ctrlBtnActive]}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setSpeakerOn((s) => !s);
-              }}
-            >
-              <Ionicons
-                name={speakerOn ? "volume-high" : "volume-medium"}
-                size={22}
-                color={speakerOn ? colors.primaryForeground : colors.foreground}
-              />
+            <Pressable style={[styles.ctrlBtn, speakerOn && styles.ctrlBtnActive]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setSpeakerOn((s) => !s); }}>
+              <Ionicons name={speakerOn ? "volume-high" : "volume-medium"} size={22} color={speakerOn ? colors.primaryForeground : colors.foreground} />
             </Pressable>
             <Text style={styles.modeLabel}>SPEAKER</Text>
           </View>

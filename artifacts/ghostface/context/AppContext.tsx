@@ -99,6 +99,20 @@ export interface VPNServer {
   flag: string;
 }
 
+export interface CallSignal {
+  type: string;
+  from: string;
+  payload?: string;
+  callId?: string;
+  callMode?: string;
+}
+
+export interface IncomingCall {
+  callId: string;
+  from: string;
+  mode: "voice" | "video";
+}
+
 interface AppState {
   alias: string | null;
   deviceToken: string | null;
@@ -120,6 +134,7 @@ interface AppState {
   autoLockTimeout: number | null;
   duressGracePeriod: number;
   language: string;
+  incomingCall: IncomingCall | null;
 }
 
 interface AppContextType extends AppState {
@@ -153,6 +168,9 @@ interface AppContextType extends AppState {
   setAutoLockTimeout: (ms: number | null) => Promise<void>;
   setDuressGracePeriod: (seconds: number) => Promise<void>;
   setLanguage: (code: string) => Promise<void>;
+  sendCallSignal: (msg: object) => void;
+  registerCallListener: (fn: ((s: CallSignal) => void) | null) => void;
+  dismissIncomingCall: () => void;
   loaded: boolean;
   vpnAutoReconnecting: boolean;
 }
@@ -697,6 +715,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     fdBalance: 4250.75,
     casperBalance: 8920.5,
     walletAddress: "GhFc3...x9mKr4",
+    incomingCall: null,
     transactions: DEFAULT_TRANSACTIONS,
     dataUsed: 2.4,
     dataLimit: 10,
@@ -861,6 +880,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const wsRef = React.useRef<WebSocket | null>(null);
+  const callSignalListenerRef = React.useRef<((s: CallSignal) => void) | null>(null);
   const latestStateRef = React.useRef(state);
   const prevMainPinRef = React.useRef<string | null>(null);
   useEffect(() => { latestStateRef.current = state; }, [state]);
@@ -1434,14 +1454,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       autoLockTimeout: 5 * 60 * 1000,
       duressGracePeriod: 3,
       language: "en",
+      incomingCall: null,
     });
   }, []);
 
+  const sendCallSignal = useCallback((msg: object) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  const registerCallListener = useCallback((fn: ((s: CallSignal) => void) | null) => {
+    callSignalListenerRef.current = fn;
+  }, []);
+
+  const dismissIncomingCall = useCallback(() => {
+    setState((prev) => ({ ...prev, incomingCall: null }));
+  }, []);
+
+  const CALL_SIGNAL_TYPES = new Set(["call-ring","call-accept","call-hangup","call-offer","call-answer","call-ice"]);
+
   const handleIncomingWsMessage = useCallback(async (raw: string) => {
-    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string };
+    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string };
     try {
       wsMsg = JSON.parse(raw);
     } catch {
+      return;
+    }
+
+    // ── Call signals ─────────────────────────────────────────────────────────
+    if (wsMsg.type && CALL_SIGNAL_TYPES.has(wsMsg.type) && wsMsg.from) {
+      if (wsMsg.type === "call-ring") {
+        setState((prev) => ({
+          ...prev,
+          incomingCall: { callId: wsMsg.callId ?? "unknown", from: wsMsg.from!.toUpperCase(), mode: (wsMsg.callMode as "voice" | "video") ?? "voice" },
+        }));
+      } else {
+        callSignalListenerRef.current?.({ type: wsMsg.type, from: wsMsg.from.toUpperCase(), payload: wsMsg.payload, callId: wsMsg.callId, callMode: wsMsg.callMode });
+      }
       return;
     }
 
@@ -1681,6 +1732,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteConversation,
         setDisappearTimer,
         verifyConversation,
+        sendCallSignal,
+        registerCallListener,
+        dismissIncomingCall,
         panicWipe,
         setStripeEmail,
         connectWallet,

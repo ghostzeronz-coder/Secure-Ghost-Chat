@@ -6,7 +6,10 @@ import { createHash } from "crypto";
 import { logger } from "../lib/logger";
 
 export interface WireMessage {
-  type: "auth" | "msg" | "ack" | "ping" | "pong" | "pending";
+  type:
+    | "auth" | "msg" | "ack" | "ping" | "pong" | "pending"
+    | "call-ring" | "call-accept" | "call-hangup"
+    | "call-offer" | "call-answer" | "call-ice";
   token?: string;
   alias?: string;
   to?: string;
@@ -14,6 +17,8 @@ export interface WireMessage {
   msgId?: number;
   payload?: string;
   x3dhHeader?: string;
+  callId?: string;
+  callMode?: string;
 }
 
 interface AuthedSocket {
@@ -22,6 +27,11 @@ interface AuthedSocket {
 }
 
 const connectedClients = new Map<string, AuthedSocket>();
+
+const CALL_SIGNAL_TYPES = new Set([
+  "call-ring", "call-accept", "call-hangup",
+  "call-offer", "call-answer", "call-ice",
+]);
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -147,6 +157,23 @@ export function createWsServer(wss: WebSocketServer): void {
         return;
       }
 
+      // ── Call signalling — ephemeral relay, never persisted ────────────────
+      if (CALL_SIGNAL_TYPES.has(msg.type)) {
+        if (!msg.to) return;
+        const toAlias = msg.to.toUpperCase();
+        const recipient = connectedClients.get(toAlias);
+        if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
+          recipient.ws.send(JSON.stringify({ ...msg, from: authedAlias }));
+          logger.debug({ type: msg.type, from: authedAlias, to: toAlias }, "Call signal relayed");
+        } else if (msg.type === "call-ring") {
+          // Callee is offline — bounce hangup back to caller immediately
+          ws.send(JSON.stringify({ type: "call-hangup", from: toAlias, callId: msg.callId, payload: "offline" }));
+          logger.debug({ from: authedAlias, to: toAlias }, "Call ring bounced: callee offline");
+        }
+        return;
+      }
+
+      // ── Text messages ─────────────────────────────────────────────────────
       if (msg.type === "msg") {
         if (!msg.to || !msg.payload) {
           ws.send(JSON.stringify({ type: "error", message: "msg requires to + payload" }));
