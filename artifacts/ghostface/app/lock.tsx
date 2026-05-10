@@ -95,10 +95,16 @@ export default function LockScreen() {
   // Duress grace-period state
   const [duressCountdown, setDuressCountdown] = useState<number | null>(null);
   const duressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const duressProgressAnim = useRef(new Animated.Value(1)).current;
+  const duressAnimRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
     return () => {
       if (duressIntervalRef.current) clearInterval(duressIntervalRef.current);
+      if (duressAnimRef.current) {
+        duressAnimRef.current.stop();
+        duressAnimRef.current = null;
+      }
     };
   }, []);
 
@@ -226,12 +232,23 @@ export default function LockScreen() {
           // IMPORTANT: panicWipe() is called with no surrounding haptic or
           // audio — the silence contract in AppContext.tsx must be maintained.
           setDuressCountdown(duressGracePeriod);
+          duressProgressAnim.setValue(1);
+          duressAnimRef.current = Animated.timing(duressProgressAnim, {
+            toValue: 0,
+            duration: duressGracePeriod * 1000,
+            useNativeDriver: false,
+          });
+          duressAnimRef.current.start();
           let remaining = duressGracePeriod;
           duressIntervalRef.current = setInterval(() => {
             remaining -= 1;
             if (remaining <= 0) {
               clearInterval(duressIntervalRef.current!);
               duressIntervalRef.current = null;
+              if (duressAnimRef.current) {
+                duressAnimRef.current.stop();
+                duressAnimRef.current = null;
+              }
               setDuressCountdown(null);
               setLocked(false);
               panicWipe(); // silent — see SILENCE CONTRACT in AppContext.tsx
@@ -296,6 +313,11 @@ export default function LockScreen() {
   };
 
   const handleDuressCancel = () => {
+    if (duressAnimRef.current) {
+      duressAnimRef.current.stop();
+      duressAnimRef.current = null;
+    }
+    duressProgressAnim.setValue(1);
     if (duressIntervalRef.current) {
       clearInterval(duressIntervalRef.current);
       duressIntervalRef.current = null;
@@ -447,16 +469,27 @@ export default function LockScreen() {
       position: "absolute",
       bottom: insets.bottom + (Platform.OS === "web" ? 34 : 16),
       right: 24,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
+      width: 140,
       borderRadius: 6,
       backgroundColor: `${colors.background}cc`,
       borderWidth: 1,
       borderColor: `${colors.mutedForeground}20`,
-      opacity: 0.7,
+      overflow: "hidden",
+      opacity: 0.8,
+    },
+    duressTrack: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      bottom: 0,
+      backgroundColor: `${colors.destructive}33`,
+    },
+    duressContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 10,
+      paddingVertical: 6,
     },
     duressCountText: {
       color: colors.mutedForeground,
@@ -580,8 +613,21 @@ export default function LockScreen() {
           activeOpacity={0.6}
           testID="duress-cancel-bar"
         >
-          <Text style={styles.duressCountText}>{duressCountdown}s / {duressGracePeriod}s</Text>
-          <Ionicons name="close" size={12} color={colors.mutedForeground} style={{ opacity: 0.6 }} />
+          <Animated.View
+            style={[
+              styles.duressTrack,
+              {
+                width: duressProgressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ["0%", "100%"],
+                }),
+              },
+            ]}
+          />
+          <View style={styles.duressContent}>
+            <Text style={styles.duressCountText}>{duressCountdown}s / {duressGracePeriod}s</Text>
+            <Ionicons name="close" size={12} color={colors.mutedForeground} style={{ opacity: 0.6 }} />
+          </View>
         </TouchableOpacity>
       )}
     </View>
