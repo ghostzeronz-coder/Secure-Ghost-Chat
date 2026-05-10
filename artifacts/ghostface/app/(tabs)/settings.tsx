@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import {
   ActionSheetIOS,
@@ -217,6 +217,31 @@ export default function SettingsScreen() {
   const [newPinConfirm, setNewPinConfirm] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinSaved, setPinSaved] = useState(false);
+  const [pinSimilar, setPinSimilar] = useState(false);
+
+  useEffect(() => {
+    if (newPin.length < 4) {
+      setPinSimilar(false);
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      const n = newPin.length;
+      const digits = newPin.split("").map(Number);
+      const candidates: string[] = [
+        newPin,
+        ...Array.from({ length: n - 1 }, (_, k) =>
+          [...digits.slice(k + 1), ...digits.slice(0, k + 1)].join("")
+        ),
+        digits.map((d) => (d + 1) % 10).join(""),
+        digits.map((d) => (d + 9) % 10).join(""),
+      ];
+      const results = await Promise.all(candidates.map((c) => checkPin(c)));
+      if (!cancelled) setPinSimilar(results.some(Boolean));
+    };
+    check();
+    return () => { cancelled = true; };
+  }, [newPin]);
 
   const [showDuressPin, setShowDuressPin] = useState(false);
   const [duressPin, setDuressPinInput] = useState("");
@@ -912,6 +937,11 @@ export default function SettingsScreen() {
                     barColor={(level) => ["#ef4444", "#f59e0b", "#22c55e"][level]}
                     mutedColor={colors.border}
                   />
+                  {pinSimilar && (
+                    <Text style={{ color: "#f59e0b", fontSize: 9, fontWeight: "800", letterSpacing: 2, marginTop: -8, marginBottom: 10 }}>
+                      TOO SIMILAR TO CURRENT PIN
+                    </Text>
+                  )}
                   <TextInput
                     style={styles.input}
                     value={newPinConfirm}
@@ -940,7 +970,13 @@ export default function SettingsScreen() {
                   </Pressable>
                   <Pressable
                     style={styles.cancelBtn}
-                    onPress={() => setShowPinChange(false)}
+                    onPress={() => {
+                      setShowPinChange(false);
+                      setNewPin("");
+                      setNewPinConfirm("");
+                      setPinError("");
+                      setPinSimilar(false);
+                    }}
                   >
                     <Text style={styles.cancelText}>CANCEL</Text>
                   </Pressable>
