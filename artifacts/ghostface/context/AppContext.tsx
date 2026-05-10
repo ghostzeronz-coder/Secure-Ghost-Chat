@@ -30,8 +30,8 @@ import {
   type X3DHHeader,
   type RatchetMessage,
 } from "@/lib/doubleRatchet";
-import { x25519, ed25519 } from "@noble/curves/ed25519";
-import { randomBytes } from "@noble/hashes/utils";
+import { x25519, ed25519 } from "@noble/curves/ed25519.js";
+import { randomBytes } from "@noble/hashes/utils.js";
 
 const toHex = (b: Uint8Array) => Array.from(b).map(x => x.toString(16).padStart(2, "0")).join("");
 

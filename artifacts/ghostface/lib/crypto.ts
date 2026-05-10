@@ -28,11 +28,11 @@
  * All operations run 100% on-device. Nothing leaves the device unencrypted.
  */
 
-import { chacha20poly1305 } from "@noble/ciphers/chacha";
-import { managedNonce } from "@noble/ciphers/utils";
-import { pbkdf2 } from "@noble/hashes/pbkdf2";
-import { sha256 } from "@noble/hashes/sha2";
-import { randomBytes } from "@noble/hashes/utils";
+import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
+import { managedNonce } from "@noble/ciphers/utils.js";
+import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { randomBytes } from "@noble/hashes/utils.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -23,12 +23,12 @@
  *   https://signal.org/docs/specifications/x3dh/
  */
 
-import { x25519, ed25519 } from "@noble/curves/ed25519";
-import { chacha20poly1305 } from "@noble/ciphers/chacha";
-import { hkdf } from "@noble/hashes/hkdf";
-import { hmac } from "@noble/hashes/hmac";
-import { sha256 } from "@noble/hashes/sha2";
-import { randomBytes } from "@noble/hashes/utils";
+import { x25519, ed25519 } from "@noble/curves/ed25519.js";
+import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { hmac } from "@noble/hashes/hmac.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { randomBytes } from "@noble/hashes/utils.js";
 
 const MAX_SKIP = 1000;
 
