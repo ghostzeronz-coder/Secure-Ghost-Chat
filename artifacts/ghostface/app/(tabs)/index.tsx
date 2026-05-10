@@ -177,6 +177,61 @@ export default function HomeScreen() {
       letterSpacing: 2,
       fontWeight: "700" as const,
     },
+    // ── Upgrade Banner ────────────────────────────────────────────
+    upgradeBanner: {
+      marginHorizontal: 20,
+      marginBottom: 16,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: "#9945FF44",
+      backgroundColor: "#9945FF12",
+      overflow: "hidden",
+    },
+    upgradeBannerInner: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      gap: 12,
+    },
+    upgradeBannerIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: "#9945FF22",
+      borderWidth: 1,
+      borderColor: "#9945FF55",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    upgradeBannerText: {
+      flex: 1,
+    },
+    upgradeBannerTitle: {
+      color: colors.foreground,
+      fontSize: 12,
+      fontWeight: "800" as const,
+      letterSpacing: 3,
+    },
+    upgradeBannerSub: {
+      color: colors.mutedForeground,
+      fontSize: 9,
+      letterSpacing: 2,
+      marginTop: 2,
+    },
+    upgradeBannerBadge: {
+      backgroundColor: "#9945FF",
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+    },
+    upgradeBannerBadgeText: {
+      color: "#fff",
+      fontSize: 10,
+      fontWeight: "800" as const,
+      letterSpacing: 2,
+    },
+
     scrollPad: {
       height: 40,
     },
@@ -258,6 +313,28 @@ export default function HomeScreen() {
             <Text style={styles.actionLabel}>WALLET</Text>
           </Pressable>
         </View>
+
+        {/* ── Upgrade Banner ── */}
+        <Pressable
+          style={({ pressed }) => [styles.upgradeBanner, pressed && { opacity: 0.8 }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push("/paywall");
+          }}
+        >
+          <View style={styles.upgradeBannerInner}>
+            <View style={styles.upgradeBannerIconWrap}>
+              <Ionicons name="flash" size={18} color="#9945FF" />
+            </View>
+            <View style={styles.upgradeBannerText}>
+              <Text style={styles.upgradeBannerTitle}>GHOST — FREE PLAN</Text>
+              <Text style={styles.upgradeBannerSub}>UPGRADE FOR VPN · WALLET · GHOST NUMBER</Text>
+            </View>
+            <View style={styles.upgradeBannerBadge}>
+              <Text style={styles.upgradeBannerBadgeText}>UPGRADE</Text>
+            </View>
+          </View>
+        </Pressable>
 
         {/* ── Panic Button ── */}
         <View style={styles.panicSection}>
