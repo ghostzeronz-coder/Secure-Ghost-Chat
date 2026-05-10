@@ -29,7 +29,7 @@
  */
 
 import { chacha20poly1305 } from "@noble/ciphers/chacha";
-import { managedNonce } from "@noble/ciphers/webcrypto";
+import { managedNonce } from "@noble/ciphers/utils";
 import { pbkdf2 } from "@noble/hashes/pbkdf2";
 import { sha256 } from "@noble/hashes/sha2";
 import { randomBytes } from "@noble/hashes/utils";
