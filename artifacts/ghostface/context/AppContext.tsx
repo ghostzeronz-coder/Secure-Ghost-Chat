@@ -129,6 +129,8 @@ interface AppState {
   dataUsed: number;
   dataLimit: number;
   stripeEmail: string | null;
+  stripePublishableKey: string | null;
+  subscriptionStatus: { active: boolean; plan: string | null; status: string | null } | null;
   connectedWalletAddress: string | null;
   solBalance: number;
   autoLockTimeout: number | null;
@@ -163,6 +165,7 @@ interface AppContextType extends AppState {
   verifyConversation: (conversationId: string) => void;
   panicWipe: () => Promise<void>;
   setStripeEmail: (email: string | null) => Promise<void>;
+  checkSubscription: (email: string) => Promise<void>;
   connectWallet: (address: string) => Promise<{ error?: string }>;
   disconnectWallet: () => Promise<void>;
   setAutoLockTimeout: (ms: number | null) => Promise<void>;
@@ -728,6 +731,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dataUsed: 2.4,
     dataLimit: 10,
     stripeEmail: null,
+    stripePublishableKey: null,
+    subscriptionStatus: null,
     connectedWalletAddress: null,
     solBalance: 0,
     autoLockTimeout: 5 * 60 * 1000,
@@ -799,6 +804,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const VALID_LANGUAGES = ["en","es","fr","de","ja","zh","ar","pt","ru","ko","hi","it"];
         const language = (languageRaw && VALID_LANGUAGES.includes(languageRaw)) ? languageRaw : "en";
 
+        // Fetch Stripe publishable key in the background (non-blocking)
+        const apiBase = getApiBase();
+        let stripePublishableKey: string | null = null;
+        if (apiBase) {
+          fetch(`${apiBase}/stripe/config`)
+            .then((r) => r.json())
+            .then((d) => {
+              if (d?.publishableKey) {
+                setState((prev) => ({ ...prev, stripePublishableKey: d.publishableKey }));
+              }
+            })
+            .catch(() => {});
+        }
+
         setHasPin(hasPinValue);
         setState((prev) => ({
           ...prev,
@@ -809,6 +828,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           isLocked: true,
           conversations,
           stripeEmail: stripeEmailVal,
+          stripePublishableKey,
           connectedWalletAddress: connectedWallet ?? null,
           autoLockTimeout,
           duressGracePeriod,
@@ -1390,6 +1410,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const checkSubscription = useCallback(async (email: string) => {
+    const apiBase = getApiBase();
+    if (!apiBase || !email) return;
+    try {
+      const res = await fetch(`${apiBase}/stripe/subscription?email=${encodeURIComponent(email)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { active: boolean; plan: string | null; status: string | null };
+      setState((prev) => ({ ...prev, subscriptionStatus: data }));
+    } catch {
+      // Non-critical — subscription status remains as last known
+    }
+  }, []);
+
   const connectWallet = useCallback(async (address: string): Promise<{ error?: string }> => {
     const trimmed = address.trim();
     if (!isValidSolanaAddress(trimmed)) {
@@ -1458,6 +1491,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dataUsed: 2.4,
       dataLimit: 10,
       stripeEmail: null,
+      stripePublishableKey: null,
+      subscriptionStatus: null,
       connectedWalletAddress: null,
       solBalance: 0,
       autoLockTimeout: 5 * 60 * 1000,
@@ -1754,6 +1789,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dismissIncomingCall,
         panicWipe,
         setStripeEmail,
+        checkSubscription,
         connectWallet,
         disconnectWallet,
         setAutoLockTimeout,

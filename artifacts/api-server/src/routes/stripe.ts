@@ -298,4 +298,61 @@ router.post("/stripe/customer-portal", async (req, res) => {
   }
 });
 
+// GET /api/stripe/config — publishable key for client-side use (safe to expose)
+router.get("/stripe/config", async (_req, res) => {
+  try {
+    const { getStripePublishableKey } = await import("../stripeClient");
+    const publishableKey = await getStripePublishableKey();
+    res.json({ publishableKey });
+  } catch (err: any) {
+    console.error("[stripe/config]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/stripe/subscription?email=... — check active/trialing subscription
+router.get("/stripe/subscription", async (req, res) => {
+  try {
+    const email = req.query["email"] as string | undefined;
+    if (!email) {
+      return res.status(400).json({ error: "email is required" });
+    }
+
+    const stripe = await (await import("../stripeClient")).getUncachableStripeClient();
+    const customers = await stripe.customers.list({ email, limit: 1 });
+    if (customers.data.length === 0) {
+      return res.json({ active: false, plan: null, status: null });
+    }
+
+    const customer = customers.data[0];
+
+    for (const status of ["active", "trialing"] as const) {
+      const subs = await stripe.subscriptions.list({
+        customer: customer.id,
+        status,
+        limit: 1,
+        expand: ["data.items.data.price"],
+      });
+      if (subs.data.length > 0) {
+        const sub = subs.data[0];
+        const price = sub.items.data[0]?.price;
+        const plan = price?.metadata?.["tier"] ?? null;
+        return res.json({
+          active: true,
+          status,
+          plan,
+          priceId: price?.id ?? null,
+          trialEnd: sub.trial_end,
+          currentPeriodEnd: sub.current_period_end,
+        });
+      }
+    }
+
+    return res.json({ active: false, plan: null, status: null });
+  } catch (err: any) {
+    console.error("[stripe/subscription]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

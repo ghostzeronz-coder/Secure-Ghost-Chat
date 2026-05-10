@@ -90,6 +90,7 @@ export default function SettingsScreen() {
     biometricEnabled,
     hasDuressPin,
     stripeEmail,
+    subscriptionStatus,
     autoLockTimeout,
     duressGracePeriod,
     language,
@@ -104,6 +105,7 @@ export default function SettingsScreen() {
     setLocked,
     panicWipe,
     setStripeEmail,
+    checkSubscription,
     setAutoLockTimeout,
     setDuressGracePeriod,
     setLanguage,
@@ -272,6 +274,7 @@ export default function SettingsScreen() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not open billing portal");
       await setStripeEmail(billingEmail);
+      checkSubscription(billingEmail).catch(() => {});
       setShowBilling(false);
       setBillingEmail("");
       await Linking.openURL(data.url);
@@ -609,9 +612,13 @@ export default function SettingsScreen() {
                 {stripeEmail ? stripeEmail.toUpperCase() : "STRIPE CUSTOMER PORTAL"}
               </Text>
             </View>
-            {stripeEmail ? (
+            {subscriptionStatus?.active && subscriptionStatus.plan ? (
+              <View style={{ backgroundColor: "#9945FF", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" as const, letterSpacing: 2 }}>{subscriptionStatus.plan.toUpperCase()}</Text>
+              </View>
+            ) : stripeEmail ? (
               <View style={{ backgroundColor: colors.success, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ color: "#000", fontSize: 9, fontWeight: "800", letterSpacing: 2 }}>LINKED</Text>
+                <Text style={{ color: "#000", fontSize: 9, fontWeight: "800" as const, letterSpacing: 2 }}>LINKED</Text>
               </View>
             ) : (
               <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
