@@ -4,8 +4,15 @@ import { eq, and, desc } from "drizzle-orm";
 import { createHash } from "crypto";
 import { vonageClient } from "../lib/vonage";
 import { pool } from "@workspace/db";
+import { RateLimiter, getIpKey } from "../lib/rateLimiter";
 
 const router: IRouter = Router();
+
+// 3 number provisions per hour per IP — prevents abuse of paid Vonage API
+const provisionLimiter = new RateLimiter({ windowMs: 60 * 60_000, max: 3 });
+
+// 30 SMS inbox fetches per minute per IP
+const smsInboxLimiter = new RateLimiter({ windowMs: 60_000, max: 30 });
 
 async function runMigrations() {
   await pool.query(`
@@ -90,6 +97,9 @@ router.get("/numbers", async (req: Request, res: Response) => {
 
 // GET /api/numbers/:id/sms — inbox for a ghost number
 router.get("/numbers/:id/sms", async (req: Request, res: Response) => {
+  if (!smsInboxLimiter.check(getIpKey(req))) {
+    return res.status(429).json({ error: "Too many requests" });
+  }
   try {
     const alias = await getAuthedAlias(req);
     if (!alias) return res.status(401).json({ error: "Unauthorized" });
@@ -115,6 +125,9 @@ router.get("/numbers/:id/sms", async (req: Request, res: Response) => {
 
 // POST /api/numbers/provision — rent a ghost number
 router.post("/numbers/provision", async (req: Request, res: Response) => {
+  if (!provisionLimiter.check(getIpKey(req))) {
+    return res.status(429).json({ error: "Too many requests. Ghost number provisioning is limited to 3 per hour." });
+  }
   try {
     const alias = await getAuthedAlias(req);
     if (!alias) return res.status(401).json({ error: "Unauthorized" });

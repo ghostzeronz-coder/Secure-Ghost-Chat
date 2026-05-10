@@ -2,8 +2,15 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db, messagesTable, identityKeysTable, deviceTokensTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
+import { RateLimiter, getIpKey } from "../lib/rateLimiter";
 
 const router: IRouter = Router();
+
+// 120 message-pending polls per minute per IP (2/sec — ample for normal use)
+const pendingPollLimiter = new RateLimiter({ windowMs: 60_000, max: 120 });
+
+// 60 user-exists lookups per minute per IP (prevents alias enumeration)
+const userExistsLimiter = new RateLimiter({ windowMs: 60_000, max: 60 });
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -24,6 +31,9 @@ async function getAuthedAlias(req: Request): Promise<string | null> {
 }
 
 router.get("/users/exists/:alias", async (req: Request, res: Response) => {
+  if (!userExistsLimiter.check(getIpKey(req))) {
+    return res.status(429).json({ error: "Too many requests" });
+  }
   try {
     const { alias } = req.params;
     const [row] = await db
@@ -41,6 +51,9 @@ router.get("/users/exists/:alias", async (req: Request, res: Response) => {
 });
 
 router.get("/messages/pending", async (req: Request, res: Response) => {
+  if (!pendingPollLimiter.check(getIpKey(req))) {
+    return res.status(429).json({ error: "Too many requests" });
+  }
   try {
     const alias = await getAuthedAlias(req);
     if (!alias) {
