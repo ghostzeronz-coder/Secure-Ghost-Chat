@@ -118,6 +118,7 @@ interface AppState {
   solBalance: number;
   autoLockTimeout: number | null;
   duressGracePeriod: number;
+  language: string;
 }
 
 interface AppContextType extends AppState {
@@ -147,6 +148,7 @@ interface AppContextType extends AppState {
   disconnectWallet: () => Promise<void>;
   setAutoLockTimeout: (ms: number | null) => Promise<void>;
   setDuressGracePeriod: (seconds: number) => Promise<void>;
+  setLanguage: (code: string) => Promise<void>;
   loaded: boolean;
 }
 
@@ -274,6 +276,7 @@ const DEVICE_TOKEN_KEY = "ghostface_device_token";
 const CONTACT_IDENTITY_STORE_KEY = "ghostface_contact_identity_store";
 const AUTO_LOCK_TIMEOUT_KEY = "ghostface_auto_lock_timeout";
 const DURESS_GRACE_KEY = "ghostface_duress_grace_period";
+const LANGUAGE_KEY = "ghostface_language";
 const LAST_VPN_SERVER_KEY = "ghostface_last_vpn_server_id";
 const MY_IK_PRIV_KEY = "ghostface_my_ik_priv";
 const MY_IK_PUB_KEY = "ghostface_my_ik_pub";
@@ -290,6 +293,7 @@ const APP_STORAGE_KEYS = [
   CONTACT_IDENTITY_STORE_KEY,
   AUTO_LOCK_TIMEOUT_KEY,
   DURESS_GRACE_KEY,
+  LANGUAGE_KEY,
   LAST_VPN_SERVER_KEY,
 ] as const;
 
@@ -695,12 +699,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     solBalance: 0,
     autoLockTimeout: 5 * 60 * 1000,
     duressGracePeriod: 3,
+    language: "en",
   });
 
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
@@ -713,6 +718,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           secureGet(DEVICE_TOKEN_KEY),
           AsyncStorage.getItem(LAST_VPN_SERVER_KEY),
           AsyncStorage.getItem(DURESS_GRACE_KEY),
+          AsyncStorage.getItem(LANGUAGE_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -757,6 +763,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ? (VPN_SERVERS.find((s) => s.id === lastVpnServerId) ?? null)
           : null;
 
+        const VALID_LANGUAGES = ["en","es","fr","de","ja","zh","ar","pt","ru","ko","hi","it"];
+        const language = (languageRaw && VALID_LANGUAGES.includes(languageRaw)) ? languageRaw : "en";
+
         setHasPin(hasPinValue);
         setState((prev) => ({
           ...prev,
@@ -770,6 +779,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           connectedWalletAddress: connectedWallet ?? null,
           autoLockTimeout,
           duressGracePeriod,
+          language,
           vpnServer: restoredVpnServer,
           vpnConnected: !!restoredVpnServer,
         }));
@@ -1332,6 +1342,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, connectedWalletAddress: null, solBalance: 0 }));
   }, []);
 
+  const setLanguage = useCallback(async (code: string) => {
+    const VALID_LANGUAGES = ["en","es","fr","de","ja","zh","ar","pt","ru","ko","hi","it"];
+    if (!VALID_LANGUAGES.includes(code)) return;
+    await AsyncStorage.setItem(LANGUAGE_KEY, code);
+    setState((prev) => ({ ...prev, language: code }));
+  }, []);
+
   const panicWipe = useCallback(async () => {
     try {
       await Promise.all([
@@ -1368,6 +1385,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       solBalance: 0,
       autoLockTimeout: 5 * 60 * 1000,
       duressGracePeriod: 3,
+      language: "en",
     });
   }, []);
 
@@ -1618,6 +1636,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         disconnectWallet,
         setAutoLockTimeout,
         setDuressGracePeriod,
+        setLanguage,
         loaded,
       }}
     >

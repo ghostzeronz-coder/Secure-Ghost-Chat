@@ -86,6 +86,7 @@ export default function SettingsScreen() {
     stripeEmail,
     autoLockTimeout,
     duressGracePeriod,
+    language,
     setBiometricEnabled,
     setPin,
     checkPin,
@@ -97,6 +98,7 @@ export default function SettingsScreen() {
     setStripeEmail,
     setAutoLockTimeout,
     setDuressGracePeriod,
+    setLanguage,
   } = useApp();
 
   const AUTO_LOCK_OPTIONS: { label: string; value: number | null }[] = [
@@ -160,6 +162,44 @@ export default function SettingsScreen() {
     }
   };
 
+  const LANGUAGE_OPTIONS: { label: string; flag: string; code: string }[] = [
+    { code: "en", flag: "🇬🇧", label: "ENGLISH" },
+    { code: "es", flag: "🇪🇸", label: "ESPAÑOL" },
+    { code: "fr", flag: "🇫🇷", label: "FRANÇAIS" },
+    { code: "de", flag: "🇩🇪", label: "DEUTSCH" },
+    { code: "ja", flag: "🇯🇵", label: "日本語" },
+    { code: "zh", flag: "🇨🇳", label: "中文" },
+    { code: "ar", flag: "🇸🇦", label: "العربية" },
+    { code: "pt", flag: "🇧🇷", label: "PORTUGUÊS" },
+    { code: "ru", flag: "🇷🇺", label: "РУССКИЙ" },
+    { code: "ko", flag: "🇰🇷", label: "한국어" },
+    { code: "hi", flag: "🇮🇳", label: "हिन्दी" },
+    { code: "it", flag: "🇮🇹", label: "ITALIANO" },
+  ];
+
+  const currentLanguage = LANGUAGE_OPTIONS.find((l) => l.code === language) ?? LANGUAGE_OPTIONS[0];
+
+  const handleLanguagePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...LANGUAGE_OPTIONS.map((l) => `${l.flag}  ${l.label}`), "CANCEL"],
+          cancelButtonIndex: LANGUAGE_OPTIONS.length,
+          title: "LANGUAGE",
+        },
+        (idx) => {
+          if (idx < LANGUAGE_OPTIONS.length) {
+            setLanguage(LANGUAGE_OPTIONS[idx].code);
+          }
+        }
+      );
+    } else {
+      setShowLanguage(true);
+    }
+  };
+
+  const [showLanguage, setShowLanguage] = useState(false);
   const [showGracePeriod, setShowGracePeriod] = useState(false);
   const [showAutoLock, setShowAutoLock] = useState(false);
   const [showPinChange, setShowPinChange] = useState(false);
@@ -661,7 +701,7 @@ export default function SettingsScreen() {
               { icon: "moon-outline", label: "THEME", value: "DARK" },
               { icon: "glasses-outline", label: "GHOST MODE", value: "ENABLED" },
             ] as Array<{ icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; value: string }>
-          ).map((item, idx, arr) => (
+          ).map((item, idx) => (
             <View key={item.label}>
               <View style={styles.settingRow}>
                 <View style={styles.settingIcon}>
@@ -679,9 +719,20 @@ export default function SettingsScreen() {
                   {item.value}
                 </Text>
               </View>
-              {idx < arr.length - 1 && <View style={styles.settingDivider} />}
+              <View style={styles.settingDivider} />
             </View>
           ))}
+          <Pressable style={styles.settingRow} onPress={handleLanguagePress}>
+            <View style={styles.settingIcon}>
+              <Ionicons name="globe-outline" size={18} color={colors.mutedForeground} />
+            </View>
+            <Text style={styles.settingLabel}>LANGUAGE</Text>
+            <Text style={{ color: colors.primary, fontSize: 13, marginRight: 4 }}>{currentLanguage.flag}</Text>
+            <Text style={{ color: colors.primary, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
+              {currentLanguage.label}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} style={{ marginLeft: 4 }} />
+          </Pressable>
         </View>
 
         <Text style={styles.sectionLabel}>PRIVACY</Text>
@@ -955,6 +1006,42 @@ export default function SettingsScreen() {
                   </Pressable>
                 </>
               )}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Language picker modal */}
+      <Modal
+        visible={showLanguage}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowLanguage(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowLanguage(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>LANGUAGE</Text>
+              {LANGUAGE_OPTIONS.map((opt) => (
+                <Pressable
+                  key={opt.code}
+                  style={[styles.settingRow, { paddingHorizontal: 0, paddingVertical: 12 }]}
+                  onPress={() => {
+                    setLanguage(opt.code);
+                    setShowLanguage(false);
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }}
+                >
+                  <Text style={{ fontSize: 20, marginRight: 12 }}>{opt.flag}</Text>
+                  <Text style={[styles.settingLabel, { flex: 1, fontSize: 12 }]}>{opt.label}</Text>
+                  {opt.code === language && (
+                    <Ionicons name="checkmark" size={18} color={colors.primary} />
+                  )}
+                </Pressable>
+              ))}
+              <Pressable style={styles.cancelBtn} onPress={() => setShowLanguage(false)}>
+                <Text style={styles.cancelText}>CANCEL</Text>
+              </Pressable>
             </View>
           </Pressable>
         </Pressable>
