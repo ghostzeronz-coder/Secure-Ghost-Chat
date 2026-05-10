@@ -130,6 +130,8 @@ interface AppContextType extends AppState {
   checkPin: (input: string) => Promise<boolean>;
   checkDuressPin: (input: string) => Promise<boolean>;
   checkPinWithDuress: (input: string) => Promise<{ correct: boolean; isDuress: boolean }>;
+  captureCurrentPinForTransition: () => Promise<void>;
+  checkPreviousMainPin: (candidate: string) => Promise<boolean>;
   setDuressPin: (pin: string) => Promise<void>;
   clearDuressPin: () => Promise<void>;
   setBiometricEnabled: (enabled: boolean) => Promise<void>;
@@ -858,6 +860,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const wsRef = React.useRef<WebSocket | null>(null);
   const latestStateRef = React.useRef(state);
+  const prevMainPinRef = React.useRef<string | null>(null);
   useEffect(() => { latestStateRef.current = state; }, [state]);
 
   const setAlias = useCallback(async (alias: string) => {
@@ -919,6 +922,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error("[AppContext] Failed to check duress PIN:", err);
       return false;
     }
+  }, []);
+
+  const captureCurrentPinForTransition = useCallback(async (): Promise<void> => {
+    try {
+      prevMainPinRef.current = await secureGet(SECURE_PIN_KEY);
+    } catch (err) {
+      console.error("[AppContext] Failed to capture PIN for transition:", err);
+      prevMainPinRef.current = null;
+    }
+  }, []);
+
+  const checkPreviousMainPin = useCallback(async (candidate: string): Promise<boolean> => {
+    return prevMainPinRef.current !== null && prevMainPinRef.current === candidate;
   }, []);
 
   const checkPinWithDuress = useCallback(async (input: string): Promise<{ correct: boolean; isDuress: boolean }> => {
@@ -1636,6 +1652,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         checkPin,
         checkDuressPin,
         checkPinWithDuress,
+        captureCurrentPinForTransition,
+        checkPreviousMainPin,
         setDuressPin,
         clearDuressPin,
         setBiometricEnabled,

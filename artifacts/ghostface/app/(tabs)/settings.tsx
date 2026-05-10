@@ -97,6 +97,8 @@ export default function SettingsScreen() {
     setPin,
     checkPin,
     checkDuressPin,
+    captureCurrentPinForTransition,
+    checkPreviousMainPin,
     setDuressPin,
     clearDuressPin,
     setLocked,
@@ -304,6 +306,7 @@ export default function SettingsScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
+    await captureCurrentPinForTransition();
     await setPin(newPin);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setPinSaved(true);
@@ -329,6 +332,12 @@ export default function SettingsScreen() {
     const matchesMain = await checkPin(duressPin);
     if (matchesMain) {
       setDuressPinError("DURESS PIN CANNOT MATCH YOUR MAIN PIN");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    const matchesPreviousMain = await checkPreviousMainPin(duressPin);
+    if (matchesPreviousMain) {
+      setDuressPinError("DURESS PIN CANNOT MATCH YOUR PREVIOUS MAIN PIN");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return;
     }
