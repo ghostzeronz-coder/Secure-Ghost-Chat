@@ -43,7 +43,7 @@ function LatencyBar({ latency }: { latency: number }) {
 export default function VPNScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { vpnConnected, vpnServer, connectVPN, disconnectVPN, dataUsed, dataLimit } =
+  const { vpnConnected, vpnServer, connectVPN, disconnectVPN, dataUsed, dataLimit, vpnAutoReconnecting } =
     useApp();
   const [connecting, setConnecting] = useState(false);
   const [currentIp, setCurrentIp] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export default function VPNScreen() {
   }, []);
 
   useEffect(() => {
-    if (connecting) {
+    if (connecting || vpnAutoReconnecting) {
       Animated.loop(
         Animated.timing(rotateAnim, {
           toValue: 1,
@@ -81,9 +81,10 @@ export default function VPNScreen() {
     } else {
       rotateAnim.setValue(0);
     }
-  }, [connecting]);
+  }, [connecting, vpnAutoReconnecting]);
 
   const handleToggle = () => {
+    if (vpnAutoReconnecting) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     if (vpnConnected) {
       disconnectVPN();
@@ -268,11 +269,11 @@ export default function VPNScreen() {
         <View style={{ alignItems: "flex-end", gap: 2 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <StatusDot active={vpnConnected} size={6} />
-            <Text style={{ color: vpnConnected ? colors.success : colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
-              {vpnConnected ? "CONNECTED" : "DISCONNECTED"}
+            <Text style={{ color: vpnAutoReconnecting ? colors.primary : vpnConnected ? colors.success : colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
+              {vpnAutoReconnecting ? "RECONNECTING…" : vpnConnected ? "CONNECTED" : "DISCONNECTED"}
             </Text>
           </View>
-          {vpnConnected && vpnServer && (
+          {(vpnConnected || vpnAutoReconnecting) && vpnServer && (
             <Text style={{ color: colors.mutedForeground, fontSize: 11, letterSpacing: 1 }}>
               {vpnServer.flag} {vpnServer.shortRegion}
             </Text>
@@ -310,14 +311,14 @@ export default function VPNScreen() {
                 onPress={handleToggle}
                 testID="vpn-toggle"
               >
-                <Animated.View style={connecting ? { transform: [{ rotate: spin }] } : {}}>
+                <Animated.View style={(connecting || vpnAutoReconnecting) ? { transform: [{ rotate: spin }] } : {}}>
                   <Ionicons
-                    name={vpnConnected ? "shield-checkmark" : connecting ? "reload" : "shield-outline"}
+                    name={vpnConnected ? "shield-checkmark" : (connecting || vpnAutoReconnecting) ? "reload" : "shield-outline"}
                     size={48}
                     color={
                       vpnConnected
                         ? colors.success
-                        : connecting
+                        : (connecting || vpnAutoReconnecting)
                         ? colors.primary
                         : colors.mutedForeground
                     }
@@ -330,7 +331,7 @@ export default function VPNScreen() {
                   {
                     color: vpnConnected
                       ? colors.success
-                      : connecting
+                      : (connecting || vpnAutoReconnecting)
                       ? colors.primary
                       : colors.mutedForeground,
                   },
@@ -338,12 +339,14 @@ export default function VPNScreen() {
               >
                 {vpnConnected
                   ? "PROTECTED"
+                  : vpnAutoReconnecting
+                  ? "RECONNECTING…"
                   : connecting
                   ? "CONNECTING..."
                   : "UNPROTECTED"}
               </Text>
               <Text style={styles.serverLabel}>
-                {vpnConnected && vpnServer
+                {(vpnConnected || vpnAutoReconnecting) && vpnServer
                   ? `${vpnServer.flag} ${vpnServer.name} — ${vpnServer.latency}ms`
                   : "TAP SHIELD TO CONNECT"}
               </Text>

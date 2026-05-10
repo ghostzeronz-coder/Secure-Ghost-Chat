@@ -150,6 +150,7 @@ interface AppContextType extends AppState {
   setDuressGracePeriod: (seconds: number) => Promise<void>;
   setLanguage: (code: string) => Promise<void>;
   loaded: boolean;
+  vpnAutoReconnecting: boolean;
 }
 
 /**
@@ -679,6 +680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
   const [hasDuressPin, setHasDuressPin] = useState(false);
+  const [vpnAutoReconnecting, setVpnAutoReconnecting] = useState(false);
   const [state, setState] = useState<AppState>({
     alias: null,
     deviceToken: null,
@@ -781,8 +783,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           duressGracePeriod,
           language,
           vpnServer: restoredVpnServer,
-          vpnConnected: !!restoredVpnServer,
+          // Start disconnected; if a server was saved, show reconnecting for 1.5 s then connect
+          vpnConnected: false,
         }));
+
+        if (restoredVpnServer) {
+          setVpnAutoReconnecting(true);
+          setTimeout(() => {
+            setState((prev) => ({ ...prev, vpnConnected: true }));
+            setVpnAutoReconnecting(false);
+          }, 1500);
+        }
 
         // Fetch SOL balance in background after state is set
         if (connectedWallet) {
@@ -1643,6 +1654,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setDuressGracePeriod,
         setLanguage,
         loaded,
+        vpnAutoReconnecting,
       }}
     >
       {children}
