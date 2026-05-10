@@ -1349,6 +1349,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, language: code }));
   }, []);
 
+  // SILENCE CONTRACT: panicWipe must never produce any haptic or audio
+  // feedback. A bystander must not be able to detect that a wipe occurred
+  // because of an unexpected vibration or sound. Do not add Haptics calls,
+  // Audio playback, or any other perceptible feedback here — including in
+  // future changes. The duress countdown in lock.tsx relies on this guarantee.
   const panicWipe = useCallback(async () => {
     try {
       await Promise.all([

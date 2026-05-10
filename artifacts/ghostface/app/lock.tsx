@@ -217,6 +217,12 @@ export default function LockScreen() {
       try {
         const { correct, isDuress } = await checkPinWithDuress(next);
         if (correct) {
+          // The success haptic fires here — before we know whether this is a
+          // duress unlock — so it looks identical to a normal unlock and does
+          // not reveal the duress intent to a bystander. This is intentional:
+          // the haptic mimics a successful PIN entry, not a wipe trigger.
+          // No further haptic or audio must fire from this point onward in the
+          // duress path (including inside panicWipe — see AppContext.tsx).
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           await clearFailCount();
           failedAttemptsRef.current = 0;
@@ -226,6 +232,8 @@ export default function LockScreen() {
             // duress trigger. The countdown is subtle — a bystander watching
             // the brief animation won't register it. If not cancelled, the wipe
             // fires exactly as it would have before this change.
+            // IMPORTANT: panicWipe() is called with no surrounding haptic or
+            // audio — the silence contract in AppContext.tsx must be maintained.
             setDuressCountdown(duressGracePeriod);
             let remaining = duressGracePeriod;
             duressIntervalRef.current = setInterval(() => {
@@ -235,7 +243,7 @@ export default function LockScreen() {
                 duressIntervalRef.current = null;
                 setDuressCountdown(null);
                 setLocked(false);
-                panicWipe();
+                panicWipe(); // silent — see SILENCE CONTRACT in AppContext.tsx
               } else {
                 setDuressCountdown(remaining);
               }
