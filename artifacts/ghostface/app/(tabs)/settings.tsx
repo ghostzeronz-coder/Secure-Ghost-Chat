@@ -27,6 +27,7 @@ import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
+import { useScrollPersist } from "@/hooks/useScrollPersist";
 
 function getPinStrength(pin: string): { level: 0 | 1 | 2; label: string } | null {
   if (pin.length === 0) return null;
@@ -100,6 +101,8 @@ export default function SettingsScreen() {
     setDuressGracePeriod,
     setLanguage,
   } = useApp();
+
+  const { scrollRef, onScroll } = useScrollPersist<ScrollView>();
 
   const AUTO_LOCK_OPTIONS: { label: string; value: number | null }[] = [
     { label: "30 SECONDS", value: 30 * 1000 },
@@ -519,7 +522,12 @@ export default function SettingsScreen() {
       </View>
       <View style={styles.divider} />
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.profileSection}>
           <GhostLogo size={140} color={colors.primary} />
           <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>

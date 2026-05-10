@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useRef, useCallback, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -22,6 +22,7 @@ import { StatusDot } from "@/components/StatusDot";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
+import { useScrollPersist } from "@/hooks/useScrollPersist";
 
 function formatTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -42,6 +43,8 @@ export default function MessagesScreen() {
   const [pageTab, setPageTab] = useState<PageTab>("messages");
   const [showNew, setShowNew] = useState(false);
   const [newAlias, setNewAlias] = useState("");
+
+  const { scrollRef: listRef, onScroll: onListScroll } = useScrollPersist<FlatList>("flatlist");
 
   const handleLongPressConversation = (convId: string, alias: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -411,6 +414,9 @@ export default function MessagesScreen() {
         <GhostInvite />
       ) : (
         <FlatList
+          ref={listRef}
+          onScroll={onListScroll}
+          scrollEventThrottle={16}
           data={sorted}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}

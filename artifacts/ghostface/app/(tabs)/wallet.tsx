@@ -2,7 +2,7 @@ import "react-native-get-random-values";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,7 @@ import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
+import { useScrollPersist } from "@/hooks/useScrollPersist";
 
 function formatDate(ts: number): string {
   const d = new Date(ts);
@@ -46,6 +47,8 @@ export default function WalletScreen() {
     connectWallet,
     disconnectWallet,
   } = useApp();
+  const { scrollRef, onScroll } = useScrollPersist<ScrollView>();
+
   const [copied, setCopied] = useState(false);
   const [copiedConnected, setCopiedConnected] = useState(false);
   const [activeToken, setActiveToken] = useState<"FD" | "CASPER">("FD");
@@ -545,7 +548,12 @@ export default function WalletScreen() {
       </View>
       <View style={styles.divider} />
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+      >
 
         {/* ── PERSONAL SOLANA WALLET ─────────────────────── */}
         <Text style={styles.sectionLabel}>PERSONAL WALLET</Text>

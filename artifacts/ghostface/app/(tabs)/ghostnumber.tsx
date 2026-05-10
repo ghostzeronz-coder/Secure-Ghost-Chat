@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
+import { useScrollPersist } from "@/hooks/useScrollPersist";
 
 const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
@@ -46,6 +47,8 @@ export default function GhostNumberScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { alias, deviceToken } = useApp();
+
+  const { scrollRef, onScroll } = useScrollPersist<ScrollView>();
 
   const [numbers, setNumbers] = useState<GhostNumber[]>([]);
   const [loading, setLoading] = useState(true);
@@ -410,6 +413,9 @@ export default function GhostNumberScreen() {
         </View>
       ) : (
         <ScrollView
+          ref={scrollRef}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           style={styles.scroll}
           contentContainerStyle={styles.listContent}
           refreshControl={

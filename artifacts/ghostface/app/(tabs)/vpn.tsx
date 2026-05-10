@@ -16,6 +16,7 @@ import { useApp } from "@/context/AppContext";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 import { VPN_SERVERS } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { useScrollPersist } from "@/hooks/useScrollPersist";
 
 function LatencyBar({ latency }: { latency: number }) {
   const colors = useColors();
@@ -48,6 +49,7 @@ export default function VPNScreen() {
   const [currentIp, setCurrentIp] = useState<string | null>(null);
   const [ipLoading, setIpLoading] = useState(true);
   const rotateAnim = useRef(new Animated.Value(0)).current;
+  const { scrollRef: listRef, onScroll: onListScroll } = useScrollPersist<FlatList>("flatlist");
 
   useEffect(() => {
     let cancelled = false;
@@ -273,6 +275,9 @@ export default function VPNScreen() {
       <View style={styles.divider} />
 
       <FlatList
+        ref={listRef}
+        onScroll={onListScroll}
+        scrollEventThrottle={16}
         data={VPN_SERVERS}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
