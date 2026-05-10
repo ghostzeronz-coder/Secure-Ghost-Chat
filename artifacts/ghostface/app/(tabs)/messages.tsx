@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useRef, useCallback, useState } from "react";
+import React, { useState } from "react";
 import {
   Alert,
   FlatList,
