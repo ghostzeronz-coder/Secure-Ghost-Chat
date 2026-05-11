@@ -730,7 +730,7 @@ export default function SettingsScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.settingLabel, { color: colors.destructive }]}>DURESS GRACE PERIOD</Text>
                   <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
-                    CANCEL WINDOW AFTER DURESS PIN
+                    {currentGraceLabel} TO CANCEL AFTER ENTRY
                   </Text>
                 </View>
                 <Text style={{ color: colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
