@@ -74,7 +74,7 @@
         }
       ],
       [
-        "expo-local-authentication",
+        "expo-local-a,
         {
           "faceIDPermission": "GHOSTFACE uses Face ID to protect your private messages and identity with biometric authentication."
         }
