@@ -3,5 +3,5 @@ export function normalizeAlias(input: string): string {
     .trim()
     .toUpperCase()
     .replace(/\s+/g, "")
-    .replace(/[^\w\-]/g, "");
+    .replace(/[^\w-]/g, "");
 }

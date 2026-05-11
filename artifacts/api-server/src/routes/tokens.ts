@@ -14,6 +14,8 @@ import {
   mintTo,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { logger } from "../lib/logger";
+import { toErrorMessage } from "../utils/error";
 
 const router: IRouter = Router();
 
@@ -56,15 +58,15 @@ async function ensureSeedTokens() {
   ]);
 }
 
-ensureSeedTokens().catch(console.error);
+ensureSeedTokens().catch((err: unknown) => logger.error({ err }, "Token seed failed"));
 
 // ── GET /api/tokens ───────────────────────────────────────────────────────────
 router.get("/tokens", async (_req: Request, res: Response) => {
   try {
     const tokens = await db.select().from(tokensTable).orderBy(tokensTable.id);
     return res.json({ data: tokens });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -74,8 +76,8 @@ router.get("/tokens/:id", async (req: Request, res: Response) => {
     const [token] = await db.select().from(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
     if (!token) return res.status(404).json({ error: "Token not found" });
     return res.json({ data: token });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -89,8 +91,8 @@ router.post("/tokens", async (req: Request, res: Response) => {
       totalSupply: totalSupply ?? 1_000_000_000, logoColor: logoColor ?? "#00C8FF", notes,
     }).returning();
     return res.status(201).json({ data: token });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -104,8 +106,8 @@ router.put("/tokens/:id", async (req: Request, res: Response) => {
       .returning();
     if (!token) return res.status(404).json({ error: "Token not found" });
     return res.json({ data: token });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -117,8 +119,8 @@ router.delete("/tokens/:id", async (req: Request, res: Response) => {
     if (token.status === "deployed") return res.status(400).json({ error: "Cannot delete a deployed token" });
     await db.delete(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
     return res.json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -182,11 +184,11 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
 
     const [updated] = await db.select().from(tokensTable).where(eq(tokensTable.id, token.id));
     return res.json({ success: true, data: updated });
-  } catch (err: any) {
+  } catch (err) {
     // Mark as failed
-    try { await db.update(tokensTable).set({ status: "failed" }).where(eq(tokensTable.id, Number(req.params.id))); } catch {}
-    console.error("[tokens/deploy]", err.message);
-    return res.status(500).json({ error: err.message });
+    try { await db.update(tokensTable).set({ status: "failed" }).where(eq(tokensTable.id, Number(req.params.id))); } catch { /* best-effort rollback — ignore secondary failure */ }
+    logger.error({ err }, "[tokens/deploy]");
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 

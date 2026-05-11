@@ -7,6 +7,8 @@ import { pool } from "@workspace/db";
 import { RateLimiter, getIpKey } from "../lib/rateLimiter";
 import { normalizeAlias } from "../utils/alias";
 import { broadcastToAlias } from "../ws/manager";
+import { logger } from "../lib/logger";
+import { toErrorMessage } from "../utils/error";
 
 const router: IRouter = Router();
 
@@ -44,7 +46,7 @@ async function runMigrations() {
   `);
 }
 
-runMigrations().catch(console.error);
+runMigrations().catch((err: unknown) => logger.error({ err }, "DB migration failed"));
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -92,8 +94,8 @@ router.get("/numbers", async (req: Request, res: Response) => {
       .orderBy(desc(ghostNumbersTable.createdAt));
 
     return res.json({ data: numbers });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -120,8 +122,8 @@ router.get("/numbers/:id/sms", async (req: Request, res: Response) => {
       .orderBy(desc(ghostSmsTable.createdAt));
 
     return res.json({ data: sms });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -187,8 +189,8 @@ router.post("/numbers/provision", async (req: Request, res: Response) => {
       .returning();
 
     return res.status(201).json({ data: number });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -220,8 +222,8 @@ router.delete("/numbers/:id", async (req: Request, res: Response) => {
       .where(eq(ghostNumbersTable.id, numberId));
 
     return res.json({ ok: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -257,8 +259,8 @@ router.post("/webhooks/sms/inbound", async (req: Request, res: Response) => {
     }
 
     return res.json({ ok: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 

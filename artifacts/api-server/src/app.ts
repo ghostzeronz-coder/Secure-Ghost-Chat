@@ -5,6 +5,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { WebhookHandlers } from "./webhookHandlers";
 import { logger } from "./lib/logger";
+import { toErrorMessage } from "./utils/error";
 
 const app: Express = express();
 
@@ -90,9 +91,9 @@ app.post(
       const sig = Array.isArray(signature) ? signature[0] : signature;
       await WebhookHandlers.processWebhook(req.body as Buffer, sig);
       return res.status(200).json({ received: true });
-    } catch (err: any) {
+    } catch (err) {
       logger.error({ err }, "Stripe webhook error");
-      return res.status(400).json({ error: "Webhook processing error" });
+      return res.status(400).json({ error: toErrorMessage(err) });
     }
   }
 );

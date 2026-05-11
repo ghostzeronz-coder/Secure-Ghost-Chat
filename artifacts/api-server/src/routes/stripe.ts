@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
 import { stripeService } from "../stripeService";
+import { logger } from "../lib/logger";
+import { toErrorMessage } from "../utils/error";
 
 const router: IRouter = Router();
 
@@ -8,9 +10,9 @@ router.get("/stripe/plans", async (_req, res) => {
   try {
     const products = await stripeService.listActiveProducts();
     res.json({ data: products });
-  } catch (err: any) {
-    console.error("[stripe/plans]", err.message);
-    res.status(500).json({ error: err.message });
+  } catch (err) {
+    logger.error({ err }, "[stripe/plans]");
+    res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -37,7 +39,9 @@ router.post("/stripe/seed", async (_req, res) => {
       },
     ];
 
-    const results: any[] = [];
+    type PriceEntry = { id: string; interval: string; amount: number };
+    type ProductResult = { product: { id: string; name: string }; prices: PriceEntry[] };
+    const results: ProductResult[] = [];
 
     for (const plan of PLANS) {
       const existing = await stripe.products.search({
@@ -56,7 +60,7 @@ router.post("/stripe/seed", async (_req, res) => {
       }
 
       const existingPrices = await stripe.prices.list({ product: product.id, active: true });
-      const prices: any[] = [];
+      const prices: PriceEntry[] = [];
 
       const hasMonthly = existingPrices.data.find(
         (p) => p.recurring?.interval === "month" && p.unit_amount === plan.monthly
@@ -90,9 +94,9 @@ router.post("/stripe/seed", async (_req, res) => {
     }
 
     return res.json({ success: true, data: results });
-  } catch (err: any) {
-    console.error("[stripe/seed]", err.message);
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    logger.error({ err }, "[stripe/seed]");
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -201,9 +205,9 @@ router.post("/stripe/checkout", async (req, res) => {
     );
 
     return res.json({ url: session.url, sessionId: session.id });
-  } catch (err: any) {
-    console.error("[stripe/checkout]", err.message);
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    logger.error({ err }, "[stripe/checkout]");
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -292,9 +296,9 @@ router.post("/stripe/customer-portal", async (req, res) => {
     });
 
     return res.json({ url: session.url });
-  } catch (err: any) {
-    console.error("[stripe/customer-portal]", err.message);
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    logger.error({ err }, "[stripe/customer-portal]");
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -304,9 +308,9 @@ router.get("/stripe/config", async (_req, res) => {
     const { getStripePublishableKey } = await import("../stripeClient");
     const publishableKey = await getStripePublishableKey();
     return res.json({ publishableKey });
-  } catch (err: any) {
-    console.error("[stripe/config]", err.message);
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    logger.error({ err }, "[stripe/config]");
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -349,9 +353,9 @@ router.get("/stripe/subscription", async (req, res) => {
     }
 
     return res.json({ active: false, plan: null, status: null });
-  } catch (err: any) {
-    console.error("[stripe/subscription]", err.message);
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    logger.error({ err }, "[stripe/subscription]");
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 

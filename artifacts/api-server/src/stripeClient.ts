@@ -1,6 +1,10 @@
 import Stripe from "stripe";
 
-let connectionSettings: any;
+interface ConnectionSettings {
+  settings: { publishable: string; secret: string };
+}
+
+let connectionSettings: ConnectionSettings | undefined;
 
 async function getCredentials(): Promise<{ publishableKey: string; secretKey: string }> {
   // Prefer direct env vars — set these for live/production use
@@ -39,7 +43,7 @@ async function getCredentials(): Promise<{ publishableKey: string; secretKey: st
     },
   });
 
-  const data = await response.json() as { items?: Record<string, unknown>[] };
+  const data = await response.json() as { items?: ConnectionSettings[] };
   connectionSettings = data.items?.[0];
 
   if (
@@ -62,6 +66,7 @@ async function getCredentials(): Promise<{ publishableKey: string; secretKey: st
 export async function getUncachableStripeClient(): Promise<Stripe> {
   const { secretKey } = await getCredentials();
   return new Stripe(secretKey, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     apiVersion: "2025-04-30.basil" as any,
   });
 }
@@ -76,6 +81,7 @@ export async function getStripeSecretKey(): Promise<string> {
   return secretKey;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _stripeSync: any = null;
 
 export async function getStripeSync() {

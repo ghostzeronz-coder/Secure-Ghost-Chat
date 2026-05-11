@@ -3,6 +3,11 @@ const VONAGE_API_SECRET = process.env.VONAGE_API_SECRET ?? "";
 
 const BASE = "https://rest.nexmo.com";
 
+export interface VonageNumber {
+  msisdn: string;
+  [key: string]: unknown;
+}
+
 function configured(): boolean {
   return Boolean(VONAGE_API_KEY && VONAGE_API_SECRET);
 }
@@ -11,7 +16,7 @@ async function vonageFetch(
   path: string,
   method: "GET" | "POST" = "GET",
   params: Record<string, string> = {},
-): Promise<any> {
+): Promise<unknown> {
   const qs = new URLSearchParams({
     api_key: VONAGE_API_KEY,
     api_secret: VONAGE_API_SECRET,
@@ -33,15 +38,15 @@ async function vonageFetch(
     const text = await res.text();
     throw new Error(`Vonage ${method} ${path} failed (${res.status}): ${text}`);
   }
-  return res.json();
+  return res.json() as Promise<unknown>;
 }
 
 export const vonageClient = {
   configured,
 
-  async searchNumbers(country: string): Promise<any[]> {
+  async searchNumbers(country: string): Promise<VonageNumber[]> {
     if (!configured()) return [];
-    const data = await vonageFetch("/number/search", "GET", { country, features: "SMS" });
+    const data = await vonageFetch("/number/search", "GET", { country, features: "SMS" }) as { numbers?: VonageNumber[] };
     return data.numbers ?? [];
   },
 

@@ -12,6 +12,8 @@ import {
   mintTo,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { logger } from "../lib/logger";
+import { toErrorMessage } from "../utils/error";
 
 const router: IRouter = Router();
 
@@ -46,12 +48,12 @@ router.get("/wallet/deployer", async (_req, res) => {
       publicKey: kp.publicKey.toBase58(),
       solBalance: lamports / LAMPORTS_PER_SOL,
     });
-  } catch (err: any) {
+  } catch (err) {
     return res.json({
       configured: true,
       publicKey: kp.publicKey.toBase58(),
       solBalance: null,
-      rpcError: err.message,
+      rpcError: toErrorMessage(err),
     });
   }
 });
@@ -155,9 +157,9 @@ router.post("/wallet/deploy-token", async (req, res) => {
       explorerUrl,
       network: "mainnet-beta",
     });
-  } catch (err: any) {
-    console.error("[wallet/deploy-token]", err.message);
-    return res.status(500).json({ error: err.message || "Token deployment failed" });
+  } catch (err) {
+    logger.error({ err }, "[wallet/deploy-token]");
+    return res.status(500).json({ error: toErrorMessage(err) || "Token deployment failed" });
   }
 });
 

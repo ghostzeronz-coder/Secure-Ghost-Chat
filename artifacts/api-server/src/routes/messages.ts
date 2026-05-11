@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
 import { RateLimiter, getIpKey } from "../lib/rateLimiter";
 import { normalizeAlias } from "../utils/alias";
+import { toErrorMessage } from "../utils/error";
 
 const router: IRouter = Router();
 
@@ -46,8 +47,8 @@ router.get("/users/exists/:alias", async (req: Request, res: Response) => {
       return res.json({ exists: true, alias: row.userId });
     }
     return res.status(404).json({ exists: false });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -75,8 +76,8 @@ router.get("/messages/pending", async (req: Request, res: Response) => {
     }
 
     return res.json({ messages: pending });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 

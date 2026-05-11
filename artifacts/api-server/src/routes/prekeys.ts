@@ -3,6 +3,7 @@ import { db, prekeysTable, identityKeysTable, deviceTokensTable, pool } from "@w
 import { eq, and, count as drizzleCount } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { normalizeAlias } from "../utils/alias";
+import { toErrorMessage } from "../utils/error";
 
 const router: IRouter = Router();
 
@@ -153,8 +154,8 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
 
     // Return the plain-text token — client must store this securely
     return res.status(201).json({ token, userId: normalizedUserId });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -189,8 +190,8 @@ router.post(
         .where(and(eq(prekeysTable.userId, userId), eq(prekeysTable.consumed, false)));
 
       return res.status(201).json({ uploaded: keys.length, remaining: Number(remaining) });
-    } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+    } catch (err) {
+      return res.status(500).json({ error: toErrorMessage(err) });
     }
   }
 );
@@ -252,8 +253,8 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
       remaining:       remainingNum,
       lowSupply:       remainingNum < OPK_LOW_WATERMARK,
     });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
   }
 });
 
@@ -273,8 +274,8 @@ router.get(
 
       const remainingNum = Number(remaining);
       return res.json({ remaining: remainingNum, lowSupply: remainingNum < OPK_LOW_WATERMARK });
-    } catch (err: any) {
-      return res.status(500).json({ error: err.message });
+    } catch (err) {
+      return res.status(500).json({ error: toErrorMessage(err) });
     }
   }
 );
