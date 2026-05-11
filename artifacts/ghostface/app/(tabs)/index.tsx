@@ -40,17 +40,18 @@ export default function HomeScreen() {
     },
     aliasText: {
       color: colors.foreground,
-      fontSize: 28,
-      fontWeight: "300" as const,
+      fontSize: 32,
+      fontWeight: "800" as const,
       letterSpacing: 10,
       marginTop: 24,
       marginBottom: 6,
     },
     tagline: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 4,
-      fontWeight: "700" as const,
+      color: colors.foreground,
+      fontSize: 12,
+      letterSpacing: 5,
+      fontWeight: "800" as const,
+      opacity: 0.6,
     },
 
     divider: {
@@ -72,9 +73,9 @@ export default function HomeScreen() {
       gap: 10,
     },
     actionCircle: {
-      width: 54,
-      height: 54,
-      borderRadius: 27,
+      width: 60,
+      height: 60,
+      borderRadius: 30,
       backgroundColor: colors.card,
       borderWidth: 1,
       borderColor: colors.border,
@@ -82,10 +83,10 @@ export default function HomeScreen() {
       justifyContent: "center",
     },
     actionLabel: {
-      color: colors.mutedForeground,
-      fontSize: 9,
+      color: colors.foreground,
+      fontSize: 10,
       letterSpacing: 2,
-      fontWeight: "700" as const,
+      fontWeight: "800" as const,
     },
 
     // ── Panic Button (fixed at bottom above tab bar) ──────────────
