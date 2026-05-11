@@ -501,7 +501,7 @@ export default function LockScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.logo}>
-        <GhostLogo size={120} color={colors.foreground} />
+        <GhostLogo size={180} color="#FFB800" />
       </View>
       <Text style={styles.appName}>GHOSTFACE</Text>
       <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
