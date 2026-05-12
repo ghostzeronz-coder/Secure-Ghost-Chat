@@ -37,6 +37,8 @@ app.use(
 const ALLOWED_ORIGINS = [
   // Replit dev proxy (Expo WebView + browser preview)
   process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : null,
+  // Expo web preview runs on *.expo.spock.replit.dev — add that variant too
+  process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN.replace("spock.replit.dev", "expo.spock.replit.dev")}` : null,
   // Deployed app domain (set ALLOWED_ORIGIN env var in production)
   process.env.ALLOWED_ORIGIN ?? null,
   // Local Expo dev
@@ -50,6 +52,10 @@ app.use(
     origin(origin, callback) {
       // Allow non-browser requests (mobile app, curl, Stripe webhooks)
       if (!origin) return callback(null, true);
+      // Allow any Replit dev subdomain (*.spock.replit.dev) — covers expo.*, api.*, etc.
+      if (origin.endsWith(".spock.replit.dev") || origin.endsWith(".replit.dev")) {
+        return callback(null, true);
+      }
       if (ALLOWED_ORIGINS.some((o) => origin.startsWith(o))) {
         return callback(null, true);
       }
