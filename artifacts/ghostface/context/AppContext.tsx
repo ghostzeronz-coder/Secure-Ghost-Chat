@@ -1721,20 +1721,69 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.log("[WS] Connection opened, authenticating as", alias);
         };
 
+        // Auth-error flag: set by onmessage when server sends { type:"error", message:"auth failed" }.
+        // Checked by onclose so we re-register instead of looping blindly.
+        // Also catches code 4001 for environments where the proxy passes it through.
+        let authRejected = false;
+
         ws.onmessage = (event) => {
-          handleIncomingWsMessage(event.data as string).catch(console.error);
+          const raw = event.data as string;
+          try {
+            const parsed = JSON.parse(raw) as { type?: string; message?: string };
+            if (parsed.type === "error" && typeof parsed.message === "string" && parsed.message.toLowerCase().includes("auth")) {
+              authRejected = true;
+              console.warn("[WS] Auth error received from server — will re-register on close");
+              return;
+            }
+          } catch { /* not JSON or not an error — pass through */ }
+          handleIncomingWsMessage(raw).catch(console.error);
         };
 
         ws.onerror = (e) => {
           console.warn("[WS] Error:", e);
         };
 
-        ws.onclose = () => {
-          console.log("[WS] Connection closed");
+        ws.onclose = (event) => {
+          console.log("[WS] Connection closed", event.code);
           setWsConnected(false);
-          if (mounted) {
-            reconnectTimer = setTimeout(connect, 5000);
+          if (!mounted) return;
+
+          if (event.code === 4001 || authRejected) {
+            authRejected = false;
+            // Auth rejected — stale or mismatched device token.
+            // Clear local credentials, re-register with the server, then reconnect.
+            console.warn("[WS] Auth rejected — clearing stale token and re-registering");
+            (async () => {
+              try {
+                await Promise.all([
+                  secureDelete(DEVICE_TOKEN_KEY),
+                  secureDelete(MY_IK_PRIV_KEY),
+                  secureDelete(MY_IK_PUB_KEY),
+                  secureDelete(MY_SPK_PRIV_KEY),
+                  secureDelete(MY_SPK_PUB_KEY),
+                ]);
+                const reg = await registerWithServer(alias);
+                if (reg && mounted) {
+                  await secureSet(DEVICE_TOKEN_KEY, reg.token);
+                  await secureSet(MY_IK_PRIV_KEY, reg.ikPriv);
+                  await secureSet(MY_IK_PUB_KEY, reg.ikPub);
+                  await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
+                  await secureSet(MY_SPK_PUB_KEY, reg.spkPub);
+                  await generateAndUploadOPKs(alias, reg.token);
+                  reconnectTimer = setTimeout(connect, 1000);
+                } else if (mounted) {
+                  // Alias taken on server (409) or server unreachable — back off
+                  console.warn("[WS] Re-registration failed — retrying in 15 s");
+                  reconnectTimer = setTimeout(connect, 15_000);
+                }
+              } catch {
+                if (mounted) reconnectTimer = setTimeout(connect, 10_000);
+              }
+            })();
+            return;
           }
+
+          reconnectTimer = setTimeout(connect, 5000);
         };
       } catch (e) {
         console.warn("[WS] Failed to connect:", e);
