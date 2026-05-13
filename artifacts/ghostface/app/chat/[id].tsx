@@ -104,11 +104,16 @@ export default function ChatScreen() {
     };
 
     if (Platform.OS !== "web") {
-      Alert.alert("MESSAGE", undefined, [
-        { text: "Copy", onPress: copy },
-        { text: "Delete", style: "destructive", onPress: () => deleteMessage(conv.id, msgId) },
-        { text: "Cancel", style: "cancel" },
-      ]);
+      Alert.alert(
+        "MESSAGE",
+        fromMe ? "Copy text or permanently delete this message?" : "Copy text or remove this message from your view?",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Copy", onPress: copy },
+          { text: "Delete", style: "destructive", onPress: () => deleteMessage(conv.id, msgId) },
+        ],
+        { cancelable: true }
+      );
     } else {
       const choice = window.prompt(`MESSAGE\nType "copy" to copy text, "delete" to ${fromMe ? "delete" : "remove"}:`, "copy");
       if (choice === "copy") copy();
