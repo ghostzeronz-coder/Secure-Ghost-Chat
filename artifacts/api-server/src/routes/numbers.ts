@@ -9,6 +9,7 @@ import { normalizeAlias } from "../utils/alias";
 import { broadcastToAlias } from "../ws/manager";
 import { logger } from "../lib/logger";
 import { toErrorMessage } from "../utils/error";
+import { performRotation, MS_PER_DAY } from "../lib/rotationScheduler";
 
 const router: IRouter = Router();
 
@@ -35,6 +36,7 @@ async function runMigrations() {
     ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS rotate_every_days INTEGER;
     ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS next_rotation_at TIMESTAMP;
     ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS archived_msisdns JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS last_manual_rotate_at TIMESTAMP;
     CREATE INDEX IF NOT EXISTS idx_ghost_numbers_next_rotation
       ON ghost_numbers(next_rotation_at)
       WHERE next_rotation_at IS NOT NULL;
@@ -53,7 +55,6 @@ async function runMigrations() {
 }
 
 const ALLOWED_ROTATION_DAYS = new Set([0, 7, 30, 90]);
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 runMigrations().catch((err: unknown) => logger.error({ err }, "DB migration failed"));
 
@@ -236,7 +237,7 @@ router.delete("/numbers/:id", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/numbers/:id/rotation — set or clear auto-rotation schedule
+// PATCH /api/numbers/:id/rotation — set or clear auto-rotation schedule
 router.patch("/numbers/:id/rotation", async (req: Request, res: Response) => {
   try {
     const alias = await getAuthedAlias(req);
@@ -277,6 +278,63 @@ router.patch("/numbers/:id/rotation", async (req: Request, res: Response) => {
 
     return res.json({ data: updated });
   } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
+  }
+});
+
+// POST /api/numbers/:id/rotate-now — immediately rotate a ghost number (1/day per number)
+router.post("/numbers/:id/rotate-now", async (req: Request, res: Response) => {
+  try {
+    const alias = await getAuthedAlias(req);
+    if (!alias) return res.status(401).json({ error: "Unauthorized" });
+
+    const numberId = Number(req.params.id);
+    if (!Number.isInteger(numberId) || numberId <= 0) {
+      return res.status(400).json({ error: "Invalid number id" });
+    }
+
+    const [number] = await db
+      .select()
+      .from(ghostNumbersTable)
+      .where(and(
+        eq(ghostNumbersTable.id, numberId),
+        eq(ghostNumbersTable.userId, alias),
+        eq(ghostNumbersTable.status, "active"),
+      ));
+    if (!number) return res.status(404).json({ error: "Number not found" });
+
+    // Rate limit: 1 manual rotation per number per 24 hours
+    const rateRow = await pool.query<{ last_manual_rotate_at: Date | null }>(
+      "SELECT last_manual_rotate_at FROM ghost_numbers WHERE id = $1",
+      [numberId],
+    );
+    const lastRotate = rateRow.rows[0]?.last_manual_rotate_at ?? null;
+    if (lastRotate && Date.now() - lastRotate.getTime() < MS_PER_DAY) {
+      const nextAllowedAt = new Date(lastRotate.getTime() + MS_PER_DAY);
+      return res.status(429).json({
+        error: "You can only rotate a number once every 24 hours.",
+        nextAllowedAt: nextAllowedAt.toISOString(),
+      });
+    }
+
+    await performRotation(number, { resetCountdown: true });
+
+    // Stamp the manual rotation time
+    await pool.query(
+      "UPDATE ghost_numbers SET last_manual_rotate_at = NOW() WHERE id = $1",
+      [numberId],
+    );
+
+    // Re-fetch and return the updated number
+    const [updated] = await db
+      .select()
+      .from(ghostNumbersTable)
+      .where(eq(ghostNumbersTable.id, numberId));
+
+    logger.info({ numberId, alias }, "[rotate-now] On-demand rotation complete");
+    return res.json({ data: updated });
+  } catch (err) {
+    logger.error({ err }, "[rotate-now] Failed");
     return res.status(500).json({ error: toErrorMessage(err) });
   }
 });

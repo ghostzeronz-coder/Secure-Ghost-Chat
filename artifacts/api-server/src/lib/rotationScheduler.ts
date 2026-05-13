@@ -3,7 +3,7 @@ import { and, eq, isNotNull, lte, sql } from "drizzle-orm";
 import { vonageClient } from "./vonage";
 import { logger } from "./logger";
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+export const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const TICK_INTERVAL_MS = 60 * 60 * 1000;
 const INITIAL_DELAY_MS = 30 * 1000;
 const MAX_PER_TICK = 100;
@@ -24,9 +24,17 @@ function generateDemoMsisdn(country: string): { phoneNumber: string; msisdn: str
   return { phoneNumber: `${areaCode} ${suffix}`, msisdn: `${suffix}` };
 }
 
-async function rotateOne(row: typeof ghostNumbersTable.$inferSelect): Promise<void> {
+/**
+ * Core rotation logic — exported for reuse in the on-demand rotate-now endpoint.
+ * Obtains a new phone number (Vonage or demo), archives the old MSISDN, and
+ * updates the DB row.  Pass `resetCountdown: true` to recalculate nextRotationAt
+ * based on the number's existing rotateEveryDays schedule.
+ */
+export async function performRotation(
+  row: Pick<typeof ghostNumbersTable.$inferSelect, "id" | "country" | "msisdn" | "rotateEveryDays">,
+  opts: { resetCountdown: boolean } = { resetCountdown: false },
+): Promise<void> {
   const { id, country, msisdn: oldMsisdn, rotateEveryDays } = row;
-  if (!rotateEveryDays || rotateEveryDays <= 0) return;
 
   let nextPhone: string;
   let nextMsisdn: string;
@@ -38,8 +46,7 @@ async function rotateOne(row: typeof ghostNumbersTable.$inferSelect): Promise<vo
   } else {
     const available = await vonageClient.searchNumbers(country);
     if (!available.length) {
-      logger.warn({ id, country }, "[rotation] No Vonage numbers available — keeping current");
-      return;
+      throw new Error(`No Vonage numbers available in ${country}`);
     }
     const chosen = available[0];
     await vonageClient.rentNumber(country, chosen.msisdn);
@@ -53,27 +60,34 @@ async function rotateOne(row: typeof ghostNumbersTable.$inferSelect): Promise<vo
     }
   }
 
-  const nextRotationAt = new Date(Date.now() + rotateEveryDays * MS_PER_DAY);
+  const nextRotationAt =
+    opts.resetCountdown && rotateEveryDays
+      ? new Date(Date.now() + rotateEveryDays * MS_PER_DAY)
+      : undefined;
 
   await db
     .update(ghostNumbersTable)
     .set({
       msisdn: nextMsisdn,
       phoneNumber: nextPhone,
-      nextRotationAt,
       archivedMsisdns: sql`COALESCE(${ghostNumbersTable.archivedMsisdns}, '[]'::jsonb) || ${JSON.stringify([oldMsisdn])}::jsonb`,
+      ...(nextRotationAt !== undefined ? { nextRotationAt } : {}),
     })
     .where(eq(ghostNumbersTable.id, id));
 
   logger.info({ id, oldMsisdn, nextMsisdn, country }, "[rotation] Rotated ghost number");
 }
 
+async function rotateOne(row: typeof ghostNumbersTable.$inferSelect): Promise<void> {
+  const { rotateEveryDays } = row;
+  if (!rotateEveryDays || rotateEveryDays <= 0) return;
+  await performRotation(row, { resetCountdown: true });
+}
+
 async function tick(): Promise<void> {
   if (running) return;
   running = true;
 
-  // Postgres advisory lock — prevents concurrent ticks (idempotency safety net,
-  // even though our in-process `running` guard should already be sufficient).
   const lockRes = await pool.query<{ locked: boolean }>(
     `SELECT pg_try_advisory_lock($1) AS locked`,
     [ROTATION_LOCK_KEY.toString()],

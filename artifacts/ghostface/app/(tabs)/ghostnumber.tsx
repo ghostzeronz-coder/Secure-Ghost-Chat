@@ -79,6 +79,7 @@ export default function GhostNumberScreen() {
   const [releasing, setReleasing] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
   const [savingRotation, setSavingRotation] = useState<number | null>(null);
+  const [rotatingNow, setRotatingNow] = useState<number | null>(null);
 
   const authHeaders = useCallback(
     () => ({
@@ -209,6 +210,39 @@ export default function GhostNumberScreen() {
     } finally {
       setSavingRotation(null);
     }
+  };
+
+  const handleRotateNow = (number: GhostNumber) => {
+    Alert.alert(
+      "ROTATE NUMBER",
+      `Replace ${number.phoneNumber} with a new ghost number now?\n\nYour old number will be archived for in-flight SMS. You can only do this once every 24 hours.`,
+      [
+        { text: "CANCEL", style: "cancel" },
+        {
+          text: "ROTATE NOW",
+          onPress: async () => {
+            setRotatingNow(number.id);
+            try {
+              const res = await fetch(
+                `${API_BASE}/numbers/${number.id}/rotate-now?alias=${alias}`,
+                { method: "POST", headers: authHeaders() }
+              );
+              const json = await res.json();
+              if (!res.ok) throw new Error(json.error ?? "Rotation failed");
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              setNumbers((prev) =>
+                prev.map((n) => (n.id === number.id ? { ...n, ...json.data } : n))
+              );
+            } catch (err: any) {
+              Alert.alert("ERROR", err.message);
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            } finally {
+              setRotatingNow(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleCopy = async (number: GhostNumber) => {
@@ -430,6 +464,22 @@ export default function GhostNumberScreen() {
       marginTop: 4,
       marginBottom: 4,
     },
+    rotateNowBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      marginTop: 8,
+      borderRadius: colors.radius,
+      paddingVertical: 10,
+      backgroundColor: colors.primary,
+    },
+    rotateNowBtnText: {
+      color: "#000",
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 2,
+    },
     releaseBtn: {
       flexDirection: "row",
       alignItems: "center",
@@ -648,7 +698,26 @@ export default function GhostNumberScreen() {
                   </Text>
                 ) : null}
 
-                <View style={[styles.cardDivider, { marginTop: 8 }]} />
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.rotateNowBtn,
+                    (rotatingNow === n.id) && { opacity: 0.6 },
+                    pressed && { opacity: 0.75 },
+                  ]}
+                  onPress={() => handleRotateNow(n)}
+                  disabled={rotatingNow === n.id}
+                >
+                  {rotatingNow === n.id ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <>
+                      <Ionicons name="refresh-outline" size={12} color="#000" />
+                      <Text style={styles.rotateNowBtnText}>ROTATE NOW</Text>
+                    </>
+                  )}
+                </Pressable>
+
+                <View style={[styles.cardDivider, { marginTop: 12 }]} />
 
                 <Pressable
                   style={styles.releaseBtn}
