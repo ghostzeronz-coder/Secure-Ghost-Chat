@@ -1616,6 +1616,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (outboxRef.current.length === 0) return;
     outboxDrainingRef.current = true;
     try {
+      // Per-conversation ratchet cursor for the duration of this drain.
+      // Critical: React setState is async, so reading conv.drSession.alice
+      // from latestStateRef on each iteration would return the same stale
+      // alice for back-to-back messages, producing duplicate header.n values
+      // and an unrecoverable receiver desync. We instead thread the freshly
+      // advanced alice through the loop locally and let setState merge each
+      // commit sequentially via the prev callback.
+      const aliceCursor = new Map<string, ReturnType<typeof ratchetEncrypt>["state"]>();
+      const headerSent = new Set<string>();
+
       // Iterate over a snapshot. We bump `attempts` only for items the loop
       // actually reaches (i.e. real delivery attempts) — never for items that
       // sit untouched because the WS died mid-drain. This prevents premature
@@ -1645,18 +1655,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
         persistOutbox(outboxRef.current);
         try {
-          const { state: newAlice, message: aliceMsg } = ratchetEncrypt(conv.drSession.alice, item.text);
+          // Use the local cursor if we've already encrypted at least one
+          // message for this conversation in this drain; otherwise fall
+          // back to the committed session.
+          const aliceForEncrypt = aliceCursor.get(item.conversationId) ?? conv.drSession.alice;
+          const { state: newAlice, message: aliceMsg } = ratchetEncrypt(aliceForEncrypt, item.text);
+          // pendingX3DHHeader bootstraps the receiver's Bob session and is
+          // only required on the very first ciphertext per conversation.
+          // After that, header.dh + the ratchet step do the work and a
+          // re-sent X3DH header on subsequent messages would force the
+          // receiver to discard the live session.
+          const x3dhHeader = headerSent.has(item.conversationId) ? undefined : conv.pendingX3DHHeader;
           ws.send(JSON.stringify({
             type: "msg",
             to: conv.alias,
             payload: JSON.stringify(aliceMsg),
-            x3dhHeader: conv.pendingX3DHHeader,
+            x3dhHeader,
           }));
+          aliceCursor.set(item.conversationId, newAlice);
+          headerSent.add(item.conversationId);
           const expiresAt = conv.disappearAfterSec ? Date.now() + conv.disappearAfterSec * 1000 : undefined;
           setState((prev) => {
             const updated = prev.conversations.map((c) => {
               if (c.id !== item.conversationId) return c;
-              const updatedSession = { ...c.drSession!, alice: newAlice, lastAliceHeader: aliceMsg.header };
+              if (!c.drSession) return c;
+              const updatedSession = { ...c.drSession, alice: newAlice, lastAliceHeader: aliceMsg.header };
               const updatedMsgs = c.messages.map((m) =>
                 m.id === item.id
                   ? { ...m, pending: false, encrypted: true, sealed: true, ciphertext: aliceMsg.ciphertext, fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`, expiresAt }
