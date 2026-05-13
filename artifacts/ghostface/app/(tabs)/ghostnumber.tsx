@@ -47,10 +47,10 @@ function formatNextRotation(nextRotationAt: string | null): string | null {
   const ms = new Date(nextRotationAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return null;
   if (ms <= 0) return "ROTATING SOON";
-  const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
-  if (days <= 1) return "ROTATES TODAY";
-  if (days === 2) return "ROTATES TOMORROW";
-  return `ROTATES IN ${days - 1} DAYS`;
+  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
+  if (days === 0) return "ROTATES TODAY";
+  if (days === 1) return "ROTATES TOMORROW";
+  return `ROTATES IN ${days} DAYS`;
 }
 
 function formatTime(ts: string): string {
