@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -41,9 +41,10 @@ export default function SmsInboxScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { alias, deviceToken } = useApp();
-  const { numberId, phoneNumber } = useLocalSearchParams<{
+  const { numberId, phoneNumber, currentMsisdn } = useLocalSearchParams<{
     numberId: string;
     phoneNumber: string;
+    currentMsisdn: string;
   }>();
 
   const [messages, setMessages] = useState<Sms[]>([]);
@@ -90,6 +91,25 @@ export default function SmsInboxScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Re-fetch when screen regains focus (e.g. navigating back).
+  useFocusEffect(
+    useCallback(() => {
+      void fetchMessages();
+    }, [fetchMessages])
+  );
+
+  // Determine whether a toNumber is the current MSISDN or an archived one.
+  // currentMsisdn comes from the ghost number record's `msisdn` column.
+  // If the param isn't present (old nav path) we can't tell — show neutral.
+  const getMsisdnStatus = (toNumber: string): "current" | "archived" | "unknown" => {
+    if (!currentMsisdn) return "unknown";
+    // toNumber stored as raw msisdn (no prefix) OR as phoneNumber (with prefix).
+    // Normalise by stripping non-digits for comparison.
+    const stripped = (s: string) => s.replace(/\D/g, "");
+    if (stripped(toNumber) === stripped(currentMsisdn)) return "current";
+    return "archived";
+  };
 
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
@@ -182,7 +202,7 @@ export default function SmsInboxScreen() {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      marginBottom: 8,
+      marginBottom: 6,
     },
     fromRow: {
       flexDirection: "row",
@@ -208,6 +228,49 @@ export default function SmsInboxScreen() {
       fontSize: 9,
       letterSpacing: 1,
       fontWeight: "600",
+    },
+    toRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginBottom: 8,
+    },
+    toLabel: {
+      color: colors.mutedForeground,
+      fontSize: 9,
+      letterSpacing: 2,
+      fontWeight: "600",
+    },
+    toNumber: {
+      color: colors.mutedForeground,
+      fontSize: 9,
+      letterSpacing: 1,
+      fontWeight: "600",
+      flex: 1,
+    },
+    badgeCurrent: {
+      backgroundColor: "rgba(0,200,255,0.15)",
+      borderRadius: 3,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    badgeArchived: {
+      backgroundColor: "rgba(255,200,0,0.12)",
+      borderRadius: 3,
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+    },
+    badgeCurrentText: {
+      color: colors.primary,
+      fontSize: 8,
+      fontWeight: "800",
+      letterSpacing: 1.5,
+    },
+    badgeArchivedText: {
+      color: "#FFC800",
+      fontSize: 8,
+      fontWeight: "800",
+      letterSpacing: 1.5,
     },
     body: {
       color: colors.foreground,
@@ -272,28 +335,46 @@ export default function SmsInboxScreen() {
               </View>
               <Text style={styles.centerTitle}>NO MESSAGES YET</Text>
               <Text style={styles.centerBody}>
-                Share your ghost number to start receiving anonymous SMS. Messages appear here instantly.
+                Share your ghost number to start receiving anonymous SMS.
+                Messages appear here instantly.
               </Text>
             </View>
           ) : (
-            messages.map((msg) => (
-              <View key={msg.id} style={styles.card}>
-                <View style={styles.cardTop}>
-                  <View style={styles.fromRow}>
-                    <View style={styles.fromDot}>
-                      <Ionicons
-                        name="person-outline"
-                        size={14}
-                        color={colors.primary}
-                      />
+            messages.map((msg) => {
+              const status = getMsisdnStatus(msg.toNumber);
+              return (
+                <View key={msg.id} style={styles.card}>
+                  <View style={styles.cardTop}>
+                    <View style={styles.fromRow}>
+                      <View style={styles.fromDot}>
+                        <Ionicons name="person-outline" size={14} color={colors.primary} />
+                      </View>
+                      <Text style={styles.fromNumber}>{msg.fromNumber}</Text>
                     </View>
-                    <Text style={styles.fromNumber}>{msg.fromNumber}</Text>
+                    <Text style={styles.timestamp}>{formatTime(msg.createdAt)}</Text>
                   </View>
-                  <Text style={styles.timestamp}>{formatTime(msg.createdAt)}</Text>
+
+                  {/* MSISDN target row — shows which number this SMS was sent to */}
+                  <View style={styles.toRow}>
+                    <Ionicons name="arrow-forward-outline" size={9} color={colors.mutedForeground} />
+                    <Text style={styles.toLabel}>TO</Text>
+                    <Text style={styles.toNumber} numberOfLines={1}>{msg.toNumber}</Text>
+                    {status === "current" && (
+                      <View style={styles.badgeCurrent}>
+                        <Text style={styles.badgeCurrentText}>CURRENT</Text>
+                      </View>
+                    )}
+                    {status === "archived" && (
+                      <View style={styles.badgeArchived}>
+                        <Text style={styles.badgeArchivedText}>ARCHIVED</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <Text style={styles.body}>{msg.body}</Text>
                 </View>
-                <Text style={styles.body}>{msg.body}</Text>
-              </View>
-            ))
+              );
+            })
           )}
         </ScrollView>
       )}

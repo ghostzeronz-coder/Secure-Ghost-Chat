@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -25,6 +25,7 @@ const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 type GhostNumber = {
   id: number;
   phoneNumber: string;
+  msisdn: string;
   country: string;
   capabilities: string[];
   plan: string;
@@ -46,10 +47,10 @@ function formatNextRotation(nextRotationAt: string | null): string | null {
   const ms = new Date(nextRotationAt).getTime() - Date.now();
   if (Number.isNaN(ms)) return null;
   if (ms <= 0) return "ROTATING SOON";
-  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-  if (days >= 1) return `NEXT ROTATION IN ${days}D`;
-  const hours = Math.max(1, Math.ceil(ms / (60 * 60 * 1000)));
-  return `NEXT ROTATION IN ${hours}H`;
+  const days = Math.ceil(ms / (24 * 60 * 60 * 1000));
+  if (days <= 1) return "ROTATES TODAY";
+  if (days === 2) return "ROTATES TOMORROW";
+  return `ROTATES IN ${days - 1} DAYS`;
 }
 
 function formatTime(ts: string): string {
@@ -120,6 +121,13 @@ export default function GhostNumberScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Recompute countdown every time this tab comes back into focus.
+  useFocusEffect(
+    useCallback(() => {
+      void fetchNumbers();
+    }, [fetchNumbers])
+  );
 
   const handleAcquire = async () => {
     if (!alias || !deviceToken) {
@@ -541,6 +549,7 @@ export default function GhostNumberScreen() {
                   params: {
                     numberId: String(n.id),
                     phoneNumber: n.phoneNumber,
+                    currentMsisdn: n.msisdn,
                   },
                 });
               return (

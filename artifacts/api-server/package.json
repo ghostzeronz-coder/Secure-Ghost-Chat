@@ -8,7 +8,8 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src --max-warnings=0"
+    "lint": "eslint src --max-warnings=0",
+    "test": "vitest run"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
@@ -34,12 +35,16 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "catalog:",
+    "@types/pg": "^8.18.0",
     "@types/ws": "^8.18.1",
+    "@vitest/coverage-v8": "^4.1.6",
     "esbuild": "^0.27.3",
     "esbuild-plugin-pino": "^2.3.3",
     "eslint": "^10.3.0",
+    "pg": "^8.20.0",
     "pino-pretty": "^13",
     "thread-stream": "3.1.0",
-    "typescript-eslint": "^8.59.2"
+    "typescript-eslint": "^8.59.2",
+    "vitest": "^4.1.6"
   }
 }
