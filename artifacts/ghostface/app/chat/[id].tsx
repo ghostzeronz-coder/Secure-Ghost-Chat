@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -90,19 +91,30 @@ export default function ChatScreen() {
     setText("");
   };
 
-  const handleLongPress = (msgId: string, fromMe: boolean) => {
+  const handleLongPress = (msgId: string, fromMe: boolean, plaintext: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const title = fromMe ? "DELETE MESSAGE" : "DELETE FOR ME";
-    const msg = fromMe
+    const deleteTitle = fromMe ? "DELETE MESSAGE" : "DELETE FOR ME";
+    const deleteMsg = fromMe
       ? "Permanently delete this message?"
       : "Remove this message from your view?";
+
+    const copy = async () => {
+      await Clipboard.setStringAsync(plaintext);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
+
     if (Platform.OS !== "web") {
-      Alert.alert(title, msg, [
-        { text: "Cancel", style: "cancel" },
+      Alert.alert("MESSAGE", undefined, [
+        { text: "Copy", onPress: copy },
         { text: "Delete", style: "destructive", onPress: () => deleteMessage(conv.id, msgId) },
+        { text: "Cancel", style: "cancel" },
       ]);
-    } else if (window.confirm(`${title}\n${msg}`)) {
-      deleteMessage(conv.id, msgId);
+    } else {
+      const choice = window.prompt(`MESSAGE\nType "copy" to copy text, "delete" to ${fromMe ? "delete" : "remove"}:`, "copy");
+      if (choice === "copy") copy();
+      else if (choice === "delete") {
+        if (window.confirm(`${deleteTitle}\n${deleteMsg}`)) deleteMessage(conv.id, msgId);
+      }
     }
   };
 
@@ -384,7 +396,7 @@ export default function ChatScreen() {
         renderItem={({ item }) => (
           <Pressable
             style={[styles.msgRow, item.fromMe ? { alignSelf: "flex-end" } : { alignSelf: "flex-start" }]}
-            onLongPress={() => handleLongPress(item.id, item.fromMe)}
+            onLongPress={() => handleLongPress(item.id, item.fromMe, item.text)}
             delayLongPress={400}
           >
             <View style={[

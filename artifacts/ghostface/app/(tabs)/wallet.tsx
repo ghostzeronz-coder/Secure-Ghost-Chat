@@ -2,6 +2,7 @@ import "react-native-get-random-values";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
+import * as WebBrowser from "expo-web-browser";
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -105,6 +106,18 @@ export default function WalletScreen() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setWalletInput("");
       setShowConnect(false);
+    }
+  };
+
+  const handleBuy = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const destination = connectedWalletAddress ?? walletAddress;
+    const currency = activeToken === "FD" ? "usdc_sol" : "sol";
+    const url = `https://buy.moonpay.com/?defaultCurrencyCode=${currency}&walletAddress=${encodeURIComponent(destination)}`;
+    try {
+      await WebBrowser.openBrowserAsync(url);
+    } catch {
+      Alert.alert("BROWSER ERROR", "Could not open the buy page. Try again.");
     }
   };
 
@@ -437,6 +450,14 @@ export default function WalletScreen() {
       backgroundColor: colors.border,
       marginLeft: 74,
     },
+    buyHelp: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 1,
+      lineHeight: 14,
+      paddingHorizontal: 20,
+      marginTop: 10,
+    },
     padBottom: { height: 120 },
     modalOverlay: {
       flex: 1,
@@ -704,7 +725,21 @@ export default function WalletScreen() {
             <Ionicons name="arrow-down" size={16} color={colors.success} />
             <Text style={[styles.actionBtnText, { color: colors.success }]}>RECEIVE</Text>
           </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionBtn,
+              { backgroundColor: pressed ? colors.muted : colors.card, borderColor: "#9945FF" },
+            ]}
+            onPress={handleBuy}
+          >
+            <Ionicons name="card-outline" size={16} color="#9945FF" />
+            <Text style={[styles.actionBtnText, { color: "#9945FF" }]}>BUY</Text>
+          </Pressable>
         </View>
+        <Text style={styles.buyHelp}>
+          Buy SOL or USDC with a card. Funds land in your{" "}
+          {connectedWalletAddress ? "linked Solana wallet" : "GHOSTFACE wallet"}.
+        </Text>
 
         <Text style={styles.txSectionLabel}>TRANSACTIONS</Text>
         {filteredTx.map((tx, idx) => (
