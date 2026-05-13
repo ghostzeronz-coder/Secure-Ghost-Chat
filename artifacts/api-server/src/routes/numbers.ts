@@ -36,7 +36,6 @@ async function runMigrations() {
     ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS rotate_every_days INTEGER;
     ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS next_rotation_at TIMESTAMP;
     ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS archived_msisdns JSONB NOT NULL DEFAULT '[]'::jsonb;
-    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS last_manual_rotate_at TIMESTAMP;
     CREATE INDEX IF NOT EXISTS idx_ghost_numbers_next_rotation
       ON ghost_numbers(next_rotation_at)
       WHERE next_rotation_at IS NOT NULL;
@@ -50,6 +49,11 @@ async function runMigrations() {
       direction        TEXT NOT NULL DEFAULT 'inbound',
       provider_metadata JSONB,
       created_at       TIMESTAMP DEFAULT NOW()
+    );
+    -- Per-user on-demand rotation rate-limit table (1 rotation per user per 24 hours)
+    CREATE TABLE IF NOT EXISTS user_rotation_limits (
+      user_id      TEXT PRIMARY KEY,
+      last_rotate_at TIMESTAMP NOT NULL
     );
   `);
 }
@@ -282,7 +286,8 @@ router.patch("/numbers/:id/rotation", async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/numbers/:id/rotate-now — immediately rotate a ghost number (1/day per number)
+// POST /api/numbers/:id/rotate-now — immediately rotate a ghost number
+// Rate limit: 1 per USER per 24 hours (enforced atomically via user_rotation_limits table).
 router.post("/numbers/:id/rotate-now", async (req: Request, res: Response) => {
   try {
     const alias = await getAuthedAlias(req);
@@ -303,27 +308,45 @@ router.post("/numbers/:id/rotate-now", async (req: Request, res: Response) => {
       ));
     if (!number) return res.status(404).json({ error: "Number not found" });
 
-    // Rate limit: 1 manual rotation per number per 24 hours
-    const rateRow = await pool.query<{ last_manual_rotate_at: Date | null }>(
-      "SELECT last_manual_rotate_at FROM ghost_numbers WHERE id = $1",
-      [numberId],
+    // Atomically claim the per-user rate-limit slot.
+    // The conditional DO UPDATE only fires when the existing row is older than 24 hours,
+    // so two concurrent requests cannot both succeed — only the first UPSERT wins.
+    const claimResult = await pool.query<{ last_rotate_at: Date }>(
+      `INSERT INTO user_rotation_limits (user_id, last_rotate_at)
+       VALUES ($1, NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET last_rotate_at = NOW()
+         WHERE user_rotation_limits.last_rotate_at < NOW() - INTERVAL '24 hours'
+       RETURNING last_rotate_at`,
+      [alias],
     );
-    const lastRotate = rateRow.rows[0]?.last_manual_rotate_at ?? null;
-    if (lastRotate && Date.now() - lastRotate.getTime() < MS_PER_DAY) {
-      const nextAllowedAt = new Date(lastRotate.getTime() + MS_PER_DAY);
+
+    if ((claimResult.rowCount ?? 0) === 0) {
+      // Slot is taken — fetch the existing timestamp to compute nextAllowedAt
+      const limRow = await pool.query<{ last_rotate_at: Date }>(
+        "SELECT last_rotate_at FROM user_rotation_limits WHERE user_id = $1",
+        [alias],
+      );
+      const nextAllowedAt = new Date(
+        (limRow.rows[0]?.last_rotate_at.getTime() ?? Date.now()) + MS_PER_DAY,
+      );
       return res.status(429).json({
         error: "You can only rotate a number once every 24 hours.",
         nextAllowedAt: nextAllowedAt.toISOString(),
       });
     }
 
-    await performRotation(number, { resetCountdown: true });
-
-    // Stamp the manual rotation time
-    await pool.query(
-      "UPDATE ghost_numbers SET last_manual_rotate_at = NOW() WHERE id = $1",
-      [numberId],
-    );
+    // Perform the actual rotation — if it fails, release the slot so the user
+    // can retry immediately rather than being locked out for 24 hours.
+    try {
+      await performRotation(number, { resetCountdown: true });
+    } catch (rotateErr) {
+      await pool.query(
+        "DELETE FROM user_rotation_limits WHERE user_id = $1",
+        [alias],
+      );
+      throw rotateErr;
+    }
 
     // Re-fetch and return the updated number
     const [updated] = await db
