@@ -63,6 +63,13 @@ export interface Message {
   ciphertext?: string;
   fingerprint?: string;
   expiresAt?: number;
+  pending?: boolean;
+}
+
+export interface OutboxItem {
+  id: string;
+  conversationId: string;
+  text: string;
 }
 
 export interface Conversation {
@@ -231,47 +238,7 @@ function buildMessage(
  * conversations are always DR-enabled from the first render.
  */
 function createDefaultConversations(): Conversation[] {
-  return [
-    {
-      id: "1",
-      alias: "PHANTOM_7",
-      lastMessage: "All clear. No trace.",
-      timestamp: Date.now() - 1000 * 60 * 5,
-      unread: 2,
-      safetyNumber: generateSafetyNumber("GHOST_USER", "PHANTOM_7"),
-      drSession: initSession(),
-      messages: [
-        buildMessage("Connection established. Key exchange complete.", false, "1", "PHANTOM_7"),
-        buildMessage("Copy that. Transfer ready.", true, "1", "GHOST_USER"),
-        buildMessage("All clear. No trace.", false, "1", "PHANTOM_7"),
-      ],
-    },
-    {
-      id: "2",
-      alias: "WRAITH_X",
-      lastMessage: "Package delivered. Secure.",
-      timestamp: Date.now() - 1000 * 60 * 60 * 2,
-      unread: 0,
-      safetyNumber: generateSafetyNumber("GHOST_USER", "WRAITH_X"),
-      drSession: initSession(),
-      messages: [
-        buildMessage("Initiating handshake.", true, "2", "GHOST_USER"),
-        buildMessage("Package delivered. Secure.", false, "2", "WRAITH_X"),
-      ],
-    },
-    {
-      id: "3",
-      alias: "NULL_PTR",
-      lastMessage: "VPN hopping complete. Stand by.",
-      timestamp: Date.now() - 1000 * 60 * 60 * 12,
-      unread: 1,
-      safetyNumber: generateSafetyNumber("GHOST_USER", "NULL_PTR"),
-      drSession: initSession(),
-      messages: [
-        buildMessage("VPN hopping complete. Stand by.", false, "3", "NULL_PTR"),
-      ],
-    },
-  ];
+  return [];
 }
 
 const CALL_SIGNAL_TYPES = new Set([
@@ -300,6 +267,7 @@ export { VPN_SERVERS };
 const SECURE_PIN_KEY = "ghostface_pin";
 const SECURE_DURESS_PIN_KEY = "ghostface_duress_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
+const OUTBOX_KEY = "ghostface_outbox";
 const STRIPE_EMAIL_KEY = "stripeEmail";
 const CONNECTED_WALLET_KEY = "ghostface_connected_wallet";
 const OPK_STORE_KEY = "ghostface_opk_store";
@@ -319,6 +287,7 @@ const APP_STORAGE_KEYS = [
   "isOnboarded",
   "biometricEnabled",
   CONVERSATIONS_KEY,
+  OUTBOX_KEY,
   STRIPE_EMAIL_KEY,
   CONNECTED_WALLET_KEY,
   OPK_STORE_KEY,
@@ -743,7 +712,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
@@ -757,6 +726,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(LAST_VPN_SERVER_KEY),
           AsyncStorage.getItem(DURESS_GRACE_KEY),
           AsyncStorage.getItem(LANGUAGE_KEY),
+          AsyncStorage.getItem(OUTBOX_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -816,6 +786,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             })
             .catch(() => {});
+        }
+
+        // Restore the outbox (queued messages pending WS delivery)
+        if (outboxRaw) {
+          try {
+            const parsed = JSON.parse(outboxRaw);
+            if (Array.isArray(parsed)) outboxRef.current = parsed;
+          } catch { outboxRef.current = []; }
         }
 
         setHasPin(hasPinValue);
@@ -907,10 +885,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const persistOutbox = useCallback((items: OutboxItem[]) => {
+    AsyncStorage.setItem(OUTBOX_KEY, JSON.stringify(items)).catch(console.error);
+  }, []);
+
   const wsRef = React.useRef<WebSocket | null>(null);
   const callSignalListenerRef = React.useRef<((s: CallSignal) => void) | null>(null);
   const latestStateRef = React.useRef(state);
   const prevMainPinRef = React.useRef<string | null>(null);
+  const outboxRef = React.useRef<OutboxItem[]>([]);
+  const outboxDrainingRef = React.useRef(false);
   useEffect(() => { latestStateRef.current = state; }, [state]);
 
   const setAlias = useCallback(async (alias: string) => {
@@ -1138,7 +1122,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (isRealContact) {
         const ws = wsRef.current;
         if (!ws || ws.readyState !== 1) {
-          console.warn("[WS] Not connected — refusing to advance ratchet. Message not sent.");
+          // WS is down — queue plaintext for delivery on reconnect.
+          // We do NOT advance the ratchet here; drainOutbox will encrypt
+          // at the moment of actual delivery, preserving ratchet ordering.
+          const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text };
+          const nextOutbox = [...outboxRef.current, outboxItem];
+          outboxRef.current = nextOutbox;
+          persistOutbox(nextOutbox);
+          const pendingMsg: Message = {
+            id: pendingId,
+            text,
+            fromMe: true,
+            timestamp: Date.now(),
+            encrypted: false,
+            sealed: false,
+            pending: true,
+          };
+          setState((prev) => {
+            const updated = prev.conversations.map((c) =>
+              c.id === conversationId
+                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                : c
+            );
+            persistConversations(updated);
+            return { ...prev, conversations: updated };
+          });
+          console.warn("[WS] Offline — message queued:", pendingId);
           return;
         }
       }
@@ -1543,6 +1553,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, incomingCall: null }));
   }, []);
 
+  const drainOutbox = useCallback(async () => {
+    if (outboxDrainingRef.current) return;
+    const items = outboxRef.current;
+    if (items.length === 0) return;
+    outboxDrainingRef.current = true;
+    try {
+      for (const item of [...items]) {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== 1) break;
+        const conv = latestStateRef.current.conversations.find((c) => c.id === item.conversationId);
+        if (!conv?.drSession) {
+          // No session to encrypt with — drop this item silently
+          outboxRef.current = outboxRef.current.filter((i) => i.id !== item.id);
+          persistOutbox(outboxRef.current);
+          continue;
+        }
+        try {
+          const { state: newAlice, message: aliceMsg } = ratchetEncrypt(conv.drSession.alice, item.text);
+          ws.send(JSON.stringify({
+            type: "msg",
+            to: conv.alias,
+            payload: JSON.stringify(aliceMsg),
+            x3dhHeader: conv.pendingX3DHHeader,
+          }));
+          const expiresAt = conv.disappearAfterSec ? Date.now() + conv.disappearAfterSec * 1000 : undefined;
+          setState((prev) => {
+            const updated = prev.conversations.map((c) => {
+              if (c.id !== item.conversationId) return c;
+              const updatedSession = { ...c.drSession!, alice: newAlice, lastAliceHeader: aliceMsg.header };
+              const updatedMsgs = c.messages.map((m) =>
+                m.id === item.id
+                  ? { ...m, pending: false, encrypted: true, sealed: true, ciphertext: aliceMsg.ciphertext, fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`, expiresAt }
+                  : m
+              );
+              return { ...c, messages: updatedMsgs, drSession: updatedSession, pendingX3DHHeader: undefined };
+            });
+            persistConversations(updated);
+            return { ...prev, conversations: updated };
+          });
+          outboxRef.current = outboxRef.current.filter((i) => i.id !== item.id);
+          persistOutbox(outboxRef.current);
+          console.log("[Outbox] Drained queued message:", item.id);
+        } catch (e) {
+          console.error("[Outbox] Failed to drain item:", item.id, e);
+          break; // Stop on error — ratchet ordering requires sequential delivery
+        }
+      }
+    } finally {
+      outboxDrainingRef.current = false;
+    }
+  }, [persistConversations, persistOutbox]);
+
   const handleIncomingWsMessage = useCallback(async (raw: string) => {
     let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string };
     try {
@@ -1555,6 +1617,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (wsMsg.type === "ack" && !wsMsg.from) {
       wsEverConnectedRef.current = true;
       setWsConnected(true);
+      drainOutbox().catch(console.error);
       return;
     }
 
@@ -1711,7 +1774,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error("[X3DH] Failed to init Bob session or decrypt first message from", senderAlias, e);
     }
-  }, [persistConversations]);
+  }, [persistConversations, drainOutbox]);
 
   useEffect(() => {
     const alias = state.alias;

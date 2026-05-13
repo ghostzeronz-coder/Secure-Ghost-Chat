@@ -392,14 +392,23 @@ export default function ChatScreen() {
               <Text style={[styles.msgTime, { color: colors.mutedForeground }]}>
                 {formatTime(item.timestamp)}
               </Text>
-              {item.encrypted && (
-                <Ionicons name="lock-closed" size={8} color={colors.mutedForeground} />
-              )}
-              {item.sealed && (
-                <View style={styles.sealedBadge}>
-                  <Ionicons name="mail-unread-outline" size={7} color={colors.primary} />
-                  <Text style={styles.sealedTxt}>SEALED</Text>
+              {item.pending ? (
+                <View style={[styles.sealedBadge, { backgroundColor: `${colors.mutedForeground}22` }]}>
+                  <Ionicons name="time-outline" size={7} color={colors.mutedForeground} />
+                  <Text style={[styles.sealedTxt, { color: colors.mutedForeground }]}>QUEUED</Text>
                 </View>
+              ) : (
+                <>
+                  {item.encrypted && (
+                    <Ionicons name="lock-closed" size={8} color={colors.mutedForeground} />
+                  )}
+                  {item.sealed && (
+                    <View style={styles.sealedBadge}>
+                      <Ionicons name="mail-unread-outline" size={7} color={colors.primary} />
+                      <Text style={styles.sealedTxt}>SEALED</Text>
+                    </View>
+                  )}
+                </>
               )}
               {item.fingerprint && (
                 <Text style={styles.fingerprint}>{item.fingerprint}</Text>
