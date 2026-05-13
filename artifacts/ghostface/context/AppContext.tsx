@@ -1686,8 +1686,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const currentConversations = latestStateRef.current.conversations;
     const existing = currentConversations.find((c) => c.alias === senderAlias);
 
-    if (existing) {
-      if (!existing.drSession) return;
+    if (existing && existing.drSession) {
       try {
         const { state: newAlice, plaintext } = ratchetDecrypt(existing.drSession.alice, ratchetMsg);
         const newMsgObj: Message = {
@@ -1715,9 +1714,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           persistConversations(updated);
           return { ...prev, conversations: updated };
         });
+        return;
       } catch (e) {
-        console.error("[DR] Failed to decrypt incoming message from", senderAlias, e);
+        // Decryption failed with current session. If the sender included a fresh
+        // X3DH header, they've re-initialized their session (e.g. after clearing
+        // storage). Fall through to rebuild Bob's session from the new header
+        // rather than dropping the message and leaving the session permanently
+        // desynced.
+        if (!wsMsg.x3dhHeader) {
+          console.error("[DR] Failed to decrypt incoming message from", senderAlias, e);
+          return;
+        }
+        console.warn("[DR] Decrypt failed with existing session — sender provided fresh X3DH header, rebuilding Bob session for", senderAlias);
       }
+    }
+
+    if (existing && !existing.drSession && !wsMsg.x3dhHeader) {
+      console.warn("[WS] Existing conversation has no DR session and no X3DH header on incoming message", senderAlias);
       return;
     }
 
@@ -1789,7 +1802,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       setState((prev) => {
         const alreadyExists = prev.conversations.find((c) => c.alias === senderAlias);
-        if (alreadyExists) return prev;
+
+        if (alreadyExists) {
+          // Sender re-initialized their session and we fell through from the
+          // decrypt-fail path. Replace the stale DR session and append the
+          // decrypted message to the existing conversation rather than creating
+          // a duplicate.
+          const updated = prev.conversations.map((c) =>
+            c.id === alreadyExists.id
+              ? {
+                  ...c,
+                  drSession: { ...bobSession, alice: newAlice },
+                  messages: [...c.messages, firstMsg],
+                  lastMessage: plaintext,
+                  timestamp: Date.now(),
+                  unread: c.unread + 1,
+                  safetyNumber,
+                }
+              : c
+          );
+          persistConversations(updated);
+          return { ...prev, conversations: updated };
+        }
 
         const id = `${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
         const newConv: Conversation = {
