@@ -134,12 +134,31 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
       .from(deviceTokensTable)
       .where(eq(deviceTokensTable.userId, normalizedUserId));
 
-    if (existing) {
-      return res.status(409).json({ error: "userId is already registered" });
-    }
-
     const token = randomBytes(32).toString("hex");
     const tokenHash = hashToken(token);
+
+    if (existing) {
+      // Demo recovery: device lost its SecureStore (token + private keys).
+      // Re-issue a fresh device token and replace identity keys so the
+      // device can resume real X3DH sessions. This is intentional for the
+      // demo and removes the prior "first-writer wins" guarantee.
+      await db.transaction(async (tx) => {
+        await tx
+          .update(deviceTokensTable)
+          .set({ tokenHash })
+          .where(eq(deviceTokensTable.userId, normalizedUserId));
+        await tx
+          .update(identityKeysTable)
+          .set({
+            ikPublicKey,
+            spkPublicKey,
+            ikSignPublicKey: ikSignPublicKey ?? null,
+            spkSignature:    spkSignature    ?? null,
+          })
+          .where(eq(identityKeysTable.userId, normalizedUserId));
+      });
+      return res.status(200).json({ token, userId: normalizedUserId, reissued: true });
+    }
 
     await db.transaction(async (tx) => {
       await tx.insert(deviceTokensTable).values({ userId: normalizedUserId, tokenHash });

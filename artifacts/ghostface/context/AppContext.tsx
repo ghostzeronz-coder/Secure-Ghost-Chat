@@ -975,9 +975,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               await secureSet(MY_IK_PUB_KEY, reg.ikPub);
               await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
               await secureSet(MY_SPK_PUB_KEY, reg.spkPub);
+              setState((prev) => ({ ...prev, deviceToken: reg.token }));
               await generateAndUploadOPKs(alias, reg.token);
             }
           } else {
+            // Token persisted but in-memory state was never seeded (first
+            // run after onboarding). Hydrate it so screens that need the
+            // bearer token (e.g. GHOST NUMBER) work without a reload.
+            setState((prev) => (prev.deviceToken ? prev : { ...prev, deviceToken: existing }));
             // Token present — check that own private keys are also stored.
             // If they're missing (e.g. SecureStore was cleared after a
             // previous registration), rotate keys on the server so this
