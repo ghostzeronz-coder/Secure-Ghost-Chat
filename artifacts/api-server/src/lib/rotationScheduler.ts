@@ -79,9 +79,15 @@ export async function performRotation(
 }
 
 async function rotateOne(row: typeof ghostNumbersTable.$inferSelect): Promise<void> {
-  const { rotateEveryDays } = row;
+  const { id, country, rotateEveryDays } = row;
   if (!rotateEveryDays || rotateEveryDays <= 0) return;
-  await performRotation(row, { resetCountdown: true });
+  try {
+    await performRotation(row, { resetCountdown: true });
+  } catch (err) {
+    // Scheduler path: no available numbers → warn and skip until next tick,
+    // matching original "keep current" behaviour.
+    logger.warn({ err, id, country }, "[rotation] Could not obtain replacement number — will retry next tick");
+  }
 }
 
 async function tick(): Promise<void> {
