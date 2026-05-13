@@ -1131,6 +1131,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const myAlias = latestStateRef.current.alias ?? "GHOST_USER";
       const isRealContact = conv.isRealContact ?? false;
 
+      // For real contacts, verify the WebSocket is open BEFORE advancing the
+      // ratchet. Advancing the ratchet state without delivering the message
+      // causes an unrecoverable desync — the receiver's chain key will be
+      // behind the sender's and every subsequent message will fail to decrypt.
+      if (isRealContact) {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== 1) {
+          console.warn("[WS] Not connected — refusing to advance ratchet. Message not sent.");
+          return;
+        }
+      }
+
       let aliceMsg: RatchetMessage | undefined;
       let updatedDRSession = conv.drSession;
 
@@ -1180,6 +1192,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const headerToSend = conv.pendingX3DHHeader;
 
+      // For real contacts: send over WebSocket FIRST, then commit the advanced
+      // ratchet state to React state. If the send throws for any reason, we
+      // bail before persisting — keeping sender and receiver in sync.
+      if (isRealContact && aliceMsg) {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({
+              type: "msg",
+              to: conv.alias,
+              payload: JSON.stringify(aliceMsg),
+              x3dhHeader: headerToSend,
+            }));
+          } catch (e) {
+            console.error("[WS] send() threw — aborting ratchet commit", e);
+            return;
+          }
+        } else {
+          // WS became unavailable between the guard check and here (race).
+          console.warn("[WS] Socket closed before send — aborting ratchet commit");
+          return;
+        }
+      }
+
       setState((prev) => {
         const updated = prev.conversations.map((c) =>
           c.id === conversationId
@@ -1190,6 +1226,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 timestamp: Date.now(),
                 unread: 0,
                 drSession: updatedDRSession,
+                // Clear the pending X3DH header only for real contacts after a
+                // confirmed send. Non-real contacts don't use this field.
                 pendingX3DHHeader: isRealContact ? undefined : c.pendingX3DHHeader,
               }
             : c
@@ -1198,19 +1236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, conversations: updated };
       });
 
-      if (isRealContact && aliceMsg) {
-        const ws = wsRef.current;
-        if (ws && ws.readyState === 1) {
-          ws.send(JSON.stringify({
-            type: "msg",
-            to: conv.alias,
-            payload: JSON.stringify(aliceMsg),
-            x3dhHeader: headerToSend,
-          }));
-        } else {
-          console.warn("[WS] Not connected — message sent to state but not delivered over WS");
-        }
-      } else if (!isRealContact) {
+      if (!isRealContact) {
         const delay = 1500 + Math.random() * 1000;
         const REPLY_POOL = [
           "Understood. Signal secure.",
@@ -1755,6 +1781,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn("[WS] Auth rejected — clearing stale token and re-registering");
             (async () => {
               try {
+                if (!alias) {
+                  // Alias was cleared while we were connected (e.g. panic wipe).
+                  // Can't re-register without one — just back off and let the
+                  // normal WS useEffect guard handle reconnection once alias is set.
+                  console.warn("[WS] Auth rejected but alias is null — skipping re-registration");
+                  return;
+                }
+                // Capture alias as a local const so TypeScript can narrow the type
+                // from string | null to string across the async boundary.
+                const currentAlias: string = alias;
                 await Promise.all([
                   secureDelete(DEVICE_TOKEN_KEY),
                   secureDelete(MY_IK_PRIV_KEY),
@@ -1762,14 +1798,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   secureDelete(MY_SPK_PRIV_KEY),
                   secureDelete(MY_SPK_PUB_KEY),
                 ]);
-                const reg = await registerWithServer(alias);
+                const reg = await registerWithServer(currentAlias);
                 if (reg && mounted) {
                   await secureSet(DEVICE_TOKEN_KEY, reg.token);
                   await secureSet(MY_IK_PRIV_KEY, reg.ikPriv);
                   await secureSet(MY_IK_PUB_KEY, reg.ikPub);
                   await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
                   await secureSet(MY_SPK_PUB_KEY, reg.spkPub);
-                  await generateAndUploadOPKs(alias, reg.token);
+                  await generateAndUploadOPKs(currentAlias, reg.token);
                   reconnectTimer = setTimeout(connect, 1000);
                 } else if (mounted) {
                   // Alias taken on server (409) or server unreachable — back off

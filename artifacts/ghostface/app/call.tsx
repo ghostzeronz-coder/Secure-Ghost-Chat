@@ -49,10 +49,27 @@ const VOICE_PRESETS: VoicePreset[] = [
   { id: "high",     label: "HIGH",      icon: "arrow-up-outline",       description: "High pitched" },
 ];
 
-const STUN = { iceServers: [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-]};
+const ICE_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+    {
+      urls: "turns:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
+  ],
+};
 
 type CallState = "ringing" | "connecting" | "active" | "ended" | "no_answer";
 
@@ -129,7 +146,7 @@ export default function CallScreen() {
       : NativeRTCPeerConnection;
     if (!RTC) return null;
 
-    const pc = new RTC(STUN);
+    const pc = new RTC(ICE_CONFIG);
 
     pc.ontrack = (ev: any) => {
       if (Platform.OS === "web") {
@@ -203,12 +220,11 @@ export default function CallScreen() {
       }, 30_000);
       return () => { mountedRef.current = false; clearTimeout(timeout); };
     }
-    // Callee: send accept immediately
+    // Callee: send accept and let the call-offer signal drive WebRTC setup.
+    // The signal listener handles both web and native — if NativeRTCPeerConnection
+    // is unavailable (plain Expo Go without WebRTC), makePC() returns null and
+    // the handler falls back to setCallState("active") gracefully.
     sendCallSignal({ type: "call-accept", to: alias, callId: effectiveCallId });
-    if (Platform.OS !== "web") {
-      // Native Expo Go — no WebRTC; mark active right away
-      setCallState("active");
-    }
     return () => { mountedRef.current = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
