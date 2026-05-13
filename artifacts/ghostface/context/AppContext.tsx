@@ -1473,9 +1473,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             // Own keys missing — try to rotate them on the server using the
             // existing device token so we can proceed with real X3DH.
             const token = await secureGet(DEVICE_TOKEN_KEY);
-            if (token) {
-              console.warn("[X3DH] Own keys missing — attempting rekey before session init for", aliasUpper);
-              const rekey = await rekeyWithServer(aliasUpper, token);
+            const selfAlias = state.alias;
+            if (token && selfAlias) {
+              console.warn("[X3DH] Own keys missing — attempting rekey before session init for self:", selfAlias);
+              const rekey = await rekeyWithServer(selfAlias, token);
               if (rekey) {
                 await Promise.all([
                   secureSet(MY_IK_PRIV_KEY, rekey.ikPriv),
@@ -1483,7 +1484,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv),
                   secureSet(MY_SPK_PUB_KEY,  rekey.spkPub),
                 ]);
-                await generateAndUploadOPKs(aliasUpper, token);
+                await generateAndUploadOPKs(selfAlias, token);
                 ikPrivFinal  = rekey.ikPriv;
                 ikPubFinal   = rekey.ikPub;
                 spkPrivFinal = rekey.spkPriv;
