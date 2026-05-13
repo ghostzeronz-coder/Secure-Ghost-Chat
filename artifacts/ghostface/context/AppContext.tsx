@@ -744,6 +744,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
+        const DEMO_ALIASES = new Set(["PHANTOM_7", "WRAITH_X", "NULL_PTR"]);
+        const beforeCount = conversations.length;
+        conversations = conversations.filter(
+          (c) => !DEMO_ALIASES.has((c.alias ?? "").toUpperCase())
+        );
+        if (conversations.length !== beforeCount) {
+          AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations)).catch(
+            (e) => console.warn("[AppContext] Failed to persist demo cleanup:", e)
+          );
+        }
+
         // Ensure every conversation has a valid DR session.
         // Conversations loaded from an older app version (or corrupted storage)
         // may be missing a session or have malformed hex fields — reinitialise
