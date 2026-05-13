@@ -4,6 +4,7 @@ import {
   jsonb,
   timestamp,
   serial,
+  integer,
 } from "drizzle-orm/pg-core";
 
 export const ghostNumbersTable = pgTable("ghost_numbers", {
@@ -16,6 +17,9 @@ export const ghostNumbersTable = pgTable("ghost_numbers", {
   status: text("status").notNull().default("active"),
   plan: text("plan").notNull().default("basic"),
   msisdn: text("msisdn").notNull(),
+  rotateEveryDays: integer("rotate_every_days"),
+  nextRotationAt: timestamp("next_rotation_at"),
+  archivedMsisdns: jsonb("archived_msisdns").notNull().default([]),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

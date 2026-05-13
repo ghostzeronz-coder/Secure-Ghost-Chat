@@ -30,7 +30,27 @@ type GhostNumber = {
   plan: string;
   status: string;
   createdAt: string;
+  rotateEveryDays: number | null;
+  nextRotationAt: string | null;
 };
+
+const ROTATION_OPTIONS: { label: string; days: 0 | 7 | 30 | 90 }[] = [
+  { label: "OFF", days: 0 },
+  { label: "7D", days: 7 },
+  { label: "30D", days: 30 },
+  { label: "90D", days: 90 },
+];
+
+function formatNextRotation(nextRotationAt: string | null): string | null {
+  if (!nextRotationAt) return null;
+  const ms = new Date(nextRotationAt).getTime() - Date.now();
+  if (Number.isNaN(ms)) return null;
+  if (ms <= 0) return "ROTATING SOON";
+  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
+  if (days >= 1) return `NEXT ROTATION IN ${days}D`;
+  const hours = Math.max(1, Math.ceil(ms / (60 * 60 * 1000)));
+  return `NEXT ROTATION IN ${hours}H`;
+}
 
 function formatTime(ts: string): string {
   const d = new Date(ts);
@@ -57,6 +77,7 @@ export default function GhostNumberScreen() {
   const [provisioning, setProvisioning] = useState(false);
   const [releasing, setReleasing] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
+  const [savingRotation, setSavingRotation] = useState<number | null>(null);
 
   const authHeaders = useCallback(
     () => ({
@@ -153,6 +174,33 @@ export default function GhostNumberScreen() {
         },
       ]
     );
+  };
+
+  const handleSetRotation = async (number: GhostNumber, days: 0 | 7 | 30 | 90) => {
+    if (number.rotateEveryDays === (days === 0 ? null : days)) return;
+    if (!alias || !deviceToken) return;
+    setSavingRotation(number.id);
+    try {
+      const res = await fetch(
+        `${API_BASE}/numbers/${number.id}/rotation?alias=${alias}`,
+        {
+          method: "PATCH",
+          headers: authHeaders(),
+          body: JSON.stringify({ rotateEveryDays: days }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not save");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setNumbers((prev) =>
+        prev.map((n) => (n.id === number.id ? { ...n, ...json.data } : n))
+      );
+    } catch (err: any) {
+      Alert.alert("ERROR", err.message);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setSavingRotation(null);
+    }
   };
 
   const handleCopy = async (number: GhostNumber) => {
@@ -307,24 +355,72 @@ export default function GhostNumberScreen() {
       letterSpacing: 1,
       fontWeight: "600",
     },
-    inboxHint: {
+    inboxBtn: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 6,
-      paddingTop: 2,
-      paddingBottom: 14,
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 10,
+      marginTop: 4,
+      marginBottom: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: "rgba(0,200,255,0.08)",
     },
-    inboxHintText: {
+    inboxBtnText: {
       flex: 1,
-      color: colors.mutedForeground,
-      fontSize: 9,
-      fontWeight: "700",
+      textAlign: "center",
+      color: colors.primary,
+      fontSize: 11,
+      fontWeight: "800",
       letterSpacing: 2,
     },
     cardDivider: {
       height: 1,
       backgroundColor: colors.border,
       marginBottom: 12,
+    },
+    rotationLabel: {
+      color: colors.mutedForeground,
+      fontSize: 9,
+      fontWeight: "800",
+      letterSpacing: 2,
+      marginBottom: 8,
+    },
+    rotationRow: {
+      flexDirection: "row",
+      gap: 6,
+      marginBottom: 6,
+    },
+    rotationChip: {
+      flex: 1,
+      paddingVertical: 8,
+      borderRadius: 6,
+      borderWidth: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    rotationChipActive: {
+      backgroundColor: "rgba(0,200,255,0.15)",
+      borderColor: colors.primary,
+    },
+    rotationChipInactive: {
+      backgroundColor: "transparent",
+      borderColor: colors.border,
+    },
+    rotationChipText: {
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 1,
+    },
+    rotationCountdown: {
+      color: colors.primary,
+      fontSize: 9,
+      fontWeight: "700",
+      letterSpacing: 1,
+      marginTop: 4,
+      marginBottom: 4,
     },
     releaseBtn: {
       flexDirection: "row",
@@ -438,20 +534,18 @@ export default function GhostNumberScreen() {
               </Text>
             </View>
           ) : (
-            numbers.map((n) => (
+            numbers.map((n) => {
+              const openInbox = () =>
+                router.push({
+                  pathname: "/sms-inbox/[numberId]",
+                  params: {
+                    numberId: String(n.id),
+                    phoneNumber: n.phoneNumber,
+                  },
+                });
+              return (
               <View key={n.id} style={styles.card}>
-                {/* Tappable upper area → SMS inbox */}
-                <Pressable
-                  onPress={() =>
-                    router.push({
-                      pathname: "/sms-inbox/[numberId]",
-                      params: {
-                        numberId: String(n.id),
-                        phoneNumber: n.phoneNumber,
-                      },
-                    })
-                  }
-                >
+                <View>
                   <View style={styles.cardHead}>
                     <View style={styles.statusBadge}>
                       <View style={styles.statusDot} />
@@ -497,15 +591,55 @@ export default function GhostNumberScreen() {
                     </View>
                   </View>
 
-                  {/* Inbox chevron hint */}
-                  <View style={styles.inboxHint}>
-                    <Ionicons name="mail-outline" size={12} color={colors.mutedForeground} />
-                    <Text style={styles.inboxHintText}>VIEW SMS INBOX</Text>
-                    <Ionicons name="chevron-forward" size={12} color={colors.mutedForeground} />
-                  </View>
+                </View>
+
+                {/* Dedicated inbox button — own Pressable to avoid nested-touchable swallowing */}
+                <Pressable
+                  style={({ pressed }) => [styles.inboxBtn, pressed && { opacity: 0.7 }]}
+                  onPress={openInbox}
+                >
+                  <Ionicons name="mail-outline" size={14} color={colors.primary} />
+                  <Text style={styles.inboxBtnText}>VIEW SMS INBOX</Text>
+                  <Ionicons name="chevron-forward" size={14} color={colors.primary} />
                 </Pressable>
 
                 <View style={styles.cardDivider} />
+
+                <Text style={styles.rotationLabel}>AUTO-ROTATE</Text>
+                <View style={styles.rotationRow}>
+                  {ROTATION_OPTIONS.map((opt) => {
+                    const isActive =
+                      (opt.days === 0 && !n.rotateEveryDays) ||
+                      n.rotateEveryDays === opt.days;
+                    return (
+                      <Pressable
+                        key={opt.days}
+                        style={[
+                          styles.rotationChip,
+                          isActive ? styles.rotationChipActive : styles.rotationChipInactive,
+                        ]}
+                        onPress={() => handleSetRotation(n, opt.days)}
+                        disabled={savingRotation === n.id}
+                      >
+                        <Text
+                          style={[
+                            styles.rotationChipText,
+                            { color: isActive ? colors.primary : colors.mutedForeground },
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                {n.rotateEveryDays && n.nextRotationAt ? (
+                  <Text style={styles.rotationCountdown}>
+                    {formatNextRotation(n.nextRotationAt)}
+                  </Text>
+                ) : null}
+
+                <View style={[styles.cardDivider, { marginTop: 8 }]} />
 
                 <Pressable
                   style={styles.releaseBtn}
@@ -522,7 +656,8 @@ export default function GhostNumberScreen() {
                   )}
                 </Pressable>
               </View>
-            ))
+              );
+            })
           )}
         </ScrollView>
       )}

@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, ghostNumbersTable, ghostSmsTable, deviceTokensTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, or, sql } from "drizzle-orm";
 import { createHash } from "crypto";
 import { vonageClient } from "../lib/vonage";
 import { pool } from "@workspace/db";
@@ -32,6 +32,12 @@ async function runMigrations() {
       msisdn      TEXT NOT NULL,
       created_at  TIMESTAMP DEFAULT NOW()
     );
+    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS rotate_every_days INTEGER;
+    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS next_rotation_at TIMESTAMP;
+    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS archived_msisdns JSONB NOT NULL DEFAULT '[]'::jsonb;
+    CREATE INDEX IF NOT EXISTS idx_ghost_numbers_next_rotation
+      ON ghost_numbers(next_rotation_at)
+      WHERE next_rotation_at IS NOT NULL;
     CREATE TABLE IF NOT EXISTS ghost_sms (
       id               SERIAL PRIMARY KEY,
       number_id        TEXT NOT NULL,
@@ -45,6 +51,9 @@ async function runMigrations() {
     );
   `);
 }
+
+const ALLOWED_ROTATION_DAYS = new Set([0, 7, 30, 90]);
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 runMigrations().catch((err: unknown) => logger.error({ err }, "DB migration failed"));
 
@@ -227,16 +236,69 @@ router.delete("/numbers/:id", async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/numbers/:id/rotation — set or clear auto-rotation schedule
+router.patch("/numbers/:id/rotation", async (req: Request, res: Response) => {
+  try {
+    const alias = await getAuthedAlias(req);
+    if (!alias) return res.status(401).json({ error: "Unauthorized" });
+
+    const numberId = Number(req.params.id);
+    if (!Number.isInteger(numberId) || numberId <= 0) {
+      return res.status(400).json({ error: "Invalid number id" });
+    }
+
+    const rotateEveryDays = Number(req.body?.rotateEveryDays);
+    if (!ALLOWED_ROTATION_DAYS.has(rotateEveryDays)) {
+      return res.status(400).json({ error: "rotateEveryDays must be one of: 0, 7, 30, 90" });
+    }
+
+    const [number] = await db
+      .select()
+      .from(ghostNumbersTable)
+      .where(and(
+        eq(ghostNumbersTable.id, numberId),
+        eq(ghostNumbersTable.userId, alias),
+        eq(ghostNumbersTable.status, "active"),
+      ));
+    if (!number) return res.status(404).json({ error: "Number not found" });
+
+    const nextRotationAt = rotateEveryDays === 0
+      ? null
+      : new Date(Date.now() + rotateEveryDays * MS_PER_DAY);
+
+    const [updated] = await db
+      .update(ghostNumbersTable)
+      .set({
+        rotateEveryDays: rotateEveryDays === 0 ? null : rotateEveryDays,
+        nextRotationAt,
+      })
+      .where(eq(ghostNumbersTable.id, numberId))
+      .returning();
+
+    return res.json({ data: updated });
+  } catch (err) {
+    return res.status(500).json({ error: toErrorMessage(err) });
+  }
+});
+
 // POST /api/webhooks/sms/inbound — Vonage inbound SMS webhook
 router.post("/webhooks/sms/inbound", async (req: Request, res: Response) => {
   try {
     const { msisdn: from, to, text } = req.body;
     if (!to || !from) return res.json({ ok: true });
 
+    // Match against current MSISDN OR any archived MSISDN — covers in-flight SMS
+    // sent to a recently-rotated number.
     const [number] = await db
       .select()
       .from(ghostNumbersTable)
-      .where(and(eq(ghostNumbersTable.msisdn, to), eq(ghostNumbersTable.status, "active")));
+      .where(and(
+        eq(ghostNumbersTable.status, "active"),
+        or(
+          eq(ghostNumbersTable.msisdn, to),
+          sql`${ghostNumbersTable.archivedMsisdns} @> ${JSON.stringify([to])}::jsonb`,
+        ),
+      ));
 
     if (number) {
       await db.insert(ghostSmsTable).values({

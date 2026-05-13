@@ -5,6 +5,7 @@ import { logger } from "./lib/logger";
 import { runMigrations } from "stripe-replit-sync";
 import { getStripeSync } from "./stripeClient";
 import { createWsServer } from "./ws/manager";
+import { startRotationScheduler } from "./lib/rotationScheduler";
 
 const rawPort = process.env["PORT"];
 
@@ -58,6 +59,8 @@ const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer, path: "/api/ws" });
 createWsServer(wss);
 logger.info("WebSocket server attached at /api/ws");
+
+startRotationScheduler();
 
 httpServer.listen(port, () => {
   logger.info({ port }, "Server listening");
