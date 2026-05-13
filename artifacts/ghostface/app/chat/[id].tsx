@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Animated,
   FlatList,
   Modal,
   Platform,
@@ -53,6 +54,15 @@ export default function ChatScreen() {
   const [showDisappear, setShowDisappear] = useState(false);
   const [, setTick] = useState(0);
   const listRef = useRef<FlatList>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+
+  const showQueuedToast = () => {
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(2000),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
+  };
 
   const conv = conversations.find((c) => c.id === id);
 
@@ -75,7 +85,8 @@ export default function ChatScreen() {
   const handleSend = () => {
     if (!text.trim()) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sendMessage(conv.id, text.trim());
+    const result = sendMessage(conv.id, text.trim());
+    if (result.queued) showQueuedToast();
     setText("");
   };
 
@@ -644,6 +655,31 @@ export default function ChatScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      {/* Queued message toast — shown briefly when a message is held for delivery */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          bottom: insets.bottom + 80,
+          left: 20,
+          right: 20,
+          opacity: toastOpacity,
+          backgroundColor: `${colors.card}F2`,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: 10,
+          paddingVertical: 10,
+          paddingHorizontal: 16,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <Ionicons name="time-outline" size={14} color={colors.mutedForeground} />
+        <Text style={{ color: colors.mutedForeground, fontSize: 12, letterSpacing: 1, fontWeight: "600" }}>
+          MESSAGE QUEUED — will send when connected
+        </Text>
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }

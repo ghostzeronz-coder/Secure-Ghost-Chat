@@ -163,7 +163,7 @@ interface AppContextType extends AppState {
   setLocked: (locked: boolean) => void;
   connectVPN: (server: VPNServer) => void;
   disconnectVPN: () => void;
-  sendMessage: (conversationId: string, text: string) => void;
+  sendMessage: (conversationId: string, text: string) => { queued: boolean };
   addConversation: (alias: string) => Promise<{ isReal: boolean }>;
   deleteMessage: (conversationId: string, messageId: string) => void;
   clearConversation: (conversationId: string) => void;
@@ -1108,9 +1108,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [persistConversations]);
 
   const sendMessage = useCallback(
-    (conversationId: string, text: string) => {
+    (conversationId: string, text: string): { queued: boolean } => {
       const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
-      if (!conv) return;
+      if (!conv) return { queued: false };
 
       const myAlias = latestStateRef.current.alias ?? "GHOST_USER";
       const isRealContact = conv.isRealContact ?? false;
@@ -1149,7 +1149,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             return { ...prev, conversations: updated };
           });
           console.warn("[WS] Offline — message queued:", pendingId);
-          return;
+          return { queued: true };
         }
       }
 
@@ -1178,7 +1178,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         if (!aliceMsg) {
           console.error("[DR] Aborting send: could not encrypt with DR after reinit");
-          return;
+          return { queued: false };
         }
       }
 
@@ -1217,12 +1217,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }));
           } catch (e) {
             console.error("[WS] send() threw — aborting ratchet commit", e);
-            return;
+            return { queued: false };
           }
         } else {
           // WS became unavailable between the guard check and here (race).
-          console.warn("[WS] Socket closed before send — aborting ratchet commit");
-          return;
+          // Queue the message so it delivers on reconnect instead of being lost.
+          console.warn("[WS] Socket closed before send — queuing message for retry");
+          const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text };
+          const nextOutbox = [...outboxRef.current, outboxItem];
+          outboxRef.current = nextOutbox;
+          persistOutbox(nextOutbox);
+          const pendingMsg: Message = {
+            id: pendingId,
+            text,
+            fromMe: true,
+            timestamp: Date.now(),
+            encrypted: false,
+            sealed: false,
+            pending: true,
+          };
+          setState((prev) => {
+            const updated = prev.conversations.map((c) =>
+              c.id === conversationId
+                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                : c
+            );
+            persistConversations(updated);
+            return { ...prev, conversations: updated };
+          });
+          return { queued: true };
         }
       }
 
@@ -1248,6 +1272,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (!isRealContact) {
         const delay = 1500 + Math.random() * 1000;
+        // Satisfy return type — non-real contacts deliver synchronously
+        // (return at end of callback)
         const REPLY_POOL = [
           "Understood. Signal secure.",
           "Roger. Transmission encrypted.",
@@ -1311,8 +1337,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
         }, delay);
       }
+      return { queued: false };
     },
-    [persistConversations]
+    [persistConversations, persistOutbox]
   );
 
   const addConversation = useCallback(
