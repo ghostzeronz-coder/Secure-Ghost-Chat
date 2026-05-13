@@ -65,6 +65,7 @@
     "expo-clipboard": "^8.0.8",
     "expo-local-authentication": "^17.0.8",
     "expo-secure-store": "^15.0.8",
+    "jsqr": "^1.4.0",
     "react-native-get-random-values": "^1.11.0",
     "react-native-qrcode-svg": "^6.3.21",
     "react-native-webrtc": "^124.0.7"

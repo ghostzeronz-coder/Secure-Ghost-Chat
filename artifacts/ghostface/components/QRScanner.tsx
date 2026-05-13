@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
   Platform,
@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { Ionicons } from "@expo/vector-icons";
+import { WebQRScanner } from "./WebQRScanner";
 
 const GHOSTFACE_QR_PREFIX = "ghostface://add/";
 
@@ -45,13 +46,13 @@ export function QRScanner({ visible, onClose, onScan }: QRScannerProps) {
     if (visible) {
       scannedRef.current = false;
       setFlash(false);
-      if (!permission?.granted) requestPermission();
+      if (Platform.OS !== "web" && !permission?.granted) requestPermission();
     }
   }, [visible]);
 
-  const handleBarcode = ({ data }: { data: string }) => {
+  const handleDecoded = useCallback((raw: string) => {
     if (scannedRef.current) return;
-    const alias = decodeContactQR(data);
+    const alias = decodeContactQR(raw);
     if (!alias) return;
     scannedRef.current = true;
     setFlash(true);
@@ -60,7 +61,21 @@ export function QRScanner({ visible, onClose, onScan }: QRScannerProps) {
       onScan(alias);
       onClose();
     }, 200);
-  };
+  }, [onScan, onClose]);
+
+  const handleBarcode = ({ data }: { data: string }) => handleDecoded(data);
+
+  // Web uses getUserMedia + jsqr (expo-camera's onBarcodeScanned is mobile-only).
+  if (Platform.OS === "web") {
+    return (
+      <WebQRScanner
+        visible={visible}
+        onClose={onClose}
+        onDecoded={handleDecoded}
+        flash={flash}
+      />
+    );
+  }
 
   const styles = StyleSheet.create({
     overlay: {
