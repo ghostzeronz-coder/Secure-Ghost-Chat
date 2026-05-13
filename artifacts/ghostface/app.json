@@ -40,7 +40,7 @@
       "targetSdkVersion": 35,
       "minSdkVersion": 26,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
+        "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
       "permissions": [
