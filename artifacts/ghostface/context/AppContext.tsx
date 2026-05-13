@@ -895,16 +895,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           );
         }
 
-        // Replenish OPKs in the background if returning user's supply is low
+        // Self-heal crypto state for returning users.
+        // Three cases:
+        //   1. No token in SecureStore  → re-register (upserts on the server)
+        //   2. Token but no own IK      → rekey
+        //   3. Both present             → just top up OPKs if low
         if (alias && onboarded === "true") {
           (async () => {
             try {
               const token = await secureGet(DEVICE_TOKEN_KEY);
-              if (token) {
-                await replenishOPKsIfNeeded(alias, token);
+              if (!token) {
+                console.warn("[AppContext] No device token on mount — re-registering", alias);
+                const reg = await registerWithServer(alias);
+                if (reg) {
+                  await secureSet(DEVICE_TOKEN_KEY, reg.token);
+                  await secureSet(MY_IK_PRIV_KEY,  reg.ikPriv);
+                  await secureSet(MY_IK_PUB_KEY,   reg.ikPub);
+                  await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
+                  await secureSet(MY_SPK_PUB_KEY,  reg.spkPub);
+                  setState((prev) => ({ ...prev, deviceToken: reg.token }));
+                  await generateAndUploadOPKs(alias, reg.token);
+                  console.log("[AppContext] Re-registration recovered identity for", alias);
+                }
+                return;
               }
-            } catch {
-              // Non-critical
+              const ikPriv = await secureGet(MY_IK_PRIV_KEY);
+              if (!ikPriv) {
+                console.warn("[AppContext] Token present but own IK missing on mount — rekeying", alias);
+                const rekey = await rekeyWithServer(alias, token);
+                if (rekey) {
+                  await secureSet(MY_IK_PRIV_KEY,  rekey.ikPriv);
+                  await secureSet(MY_IK_PUB_KEY,   rekey.ikPub);
+                  await secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv);
+                  await secureSet(MY_SPK_PUB_KEY,  rekey.spkPub);
+                  await generateAndUploadOPKs(alias, token);
+                  console.log("[AppContext] Rekey recovered identity for", alias);
+                }
+                return;
+              }
+              await replenishOPKsIfNeeded(alias, token);
+            } catch (e) {
+              console.warn("[AppContext] Identity self-heal failed:", e);
             }
           })();
         }
