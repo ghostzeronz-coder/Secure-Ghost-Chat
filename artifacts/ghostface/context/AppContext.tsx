@@ -64,13 +64,17 @@ export interface Message {
   fingerprint?: string;
   expiresAt?: number;
   pending?: boolean;
+  failed?: boolean;
 }
 
 export interface OutboxItem {
   id: string;
   conversationId: string;
   text: string;
+  attempts?: number;
 }
+
+const MAX_OUTBOX_ATTEMPTS = 3;
 
 export interface Conversation {
   id: string;
@@ -164,6 +168,7 @@ interface AppContextType extends AppState {
   connectVPN: (server: VPNServer) => void;
   disconnectVPN: () => void;
   sendMessage: (conversationId: string, text: string) => { queued: boolean };
+  retryMessage: (conversationId: string, messageId: string) => void;
   addConversation: (alias: string) => Promise<{ isReal: boolean }>;
   deleteMessage: (conversationId: string, messageId: string) => void;
   clearConversation: (conversationId: string) => void;
@@ -1137,7 +1142,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // We do NOT advance the ratchet here; drainOutbox will encrypt
           // at the moment of actual delivery, preserving ratchet ordering.
           const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-          const outboxItem: OutboxItem = { id: pendingId, conversationId, text };
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0 };
           const nextOutbox = [...outboxRef.current, outboxItem];
           outboxRef.current = nextOutbox;
           persistOutbox(nextOutbox);
@@ -1235,7 +1240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Queue the message so it delivers on reconnect instead of being lost.
           console.warn("[WS] Socket closed before send — queuing message for retry");
           const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-          const outboxItem: OutboxItem = { id: pendingId, conversationId, text };
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0 };
           const nextOutbox = [...outboxRef.current, outboxItem];
           outboxRef.current = nextOutbox;
           persistOutbox(nextOutbox);
@@ -1591,13 +1596,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, incomingCall: null }));
   }, []);
 
+  const markMessageFailed = useCallback((conversationId: string, messageId: string) => {
+    setState((prev) => {
+      const updated = prev.conversations.map((c) => {
+        if (c.id !== conversationId) return c;
+        const msgs = c.messages.map((m) =>
+          m.id === messageId ? { ...m, pending: false, failed: true } : m
+        );
+        return { ...c, messages: msgs };
+      });
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+    console.warn("[Outbox] Marked failed after", MAX_OUTBOX_ATTEMPTS, "attempts:", messageId);
+  }, [persistConversations]);
+
   const drainOutbox = useCallback(async () => {
     if (outboxDrainingRef.current) return;
-    const items = outboxRef.current;
-    if (items.length === 0) return;
+    if (outboxRef.current.length === 0) return;
     outboxDrainingRef.current = true;
     try {
-      for (const item of [...items]) {
+      // Iterate over a snapshot. We bump `attempts` only for items the loop
+      // actually reaches (i.e. real delivery attempts) — never for items that
+      // sit untouched because the WS died mid-drain. This prevents premature
+      // failure when many messages are queued behind a single failing one.
+      for (const item of [...outboxRef.current]) {
         const ws = wsRef.current;
         if (!ws || ws.readyState !== 1) break;
         const conv = latestStateRef.current.conversations.find((c) => c.id === item.conversationId);
@@ -1607,6 +1630,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           persistOutbox(outboxRef.current);
           continue;
         }
+        const nextAttempts = (item.attempts ?? 0) + 1;
+        if (nextAttempts > MAX_OUTBOX_ATTEMPTS) {
+          // Exhausted — flip Message.failed and remove from outbox.
+          outboxRef.current = outboxRef.current.filter((i) => i.id !== item.id);
+          persistOutbox(outboxRef.current);
+          markMessageFailed(item.conversationId, item.id);
+          continue;
+        }
+        // Persist the attempt before we try to send. If send throws and we
+        // break, the next reconnect will see the bumped count.
+        outboxRef.current = outboxRef.current.map((i) =>
+          i.id === item.id ? { ...i, attempts: nextAttempts } : i
+        );
+        persistOutbox(outboxRef.current);
         try {
           const { state: newAlice, message: aliceMsg } = ratchetEncrypt(conv.drSession.alice, item.text);
           ws.send(JSON.stringify({
@@ -1641,7 +1678,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } finally {
       outboxDrainingRef.current = false;
     }
-  }, [persistConversations, persistOutbox]);
+  }, [persistConversations, persistOutbox, markMessageFailed]);
+
+  const retryMessage = useCallback((conversationId: string, messageId: string) => {
+    const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
+    const msg = conv?.messages.find((m) => m.id === messageId);
+    if (!conv || !msg || !msg.failed) return;
+    // Re-queue the failed message: clear failed flag, re-add to outbox with
+    // attempts reset to 0, and try to drain immediately. Ratchet is not
+    // advanced here — drainOutbox encrypts at the moment of WS delivery.
+    setState((prev) => {
+      const updated = prev.conversations.map((c) => {
+        if (c.id !== conversationId) return c;
+        const msgs = c.messages.map((m) =>
+          m.id === messageId ? { ...m, failed: false, pending: true } : m
+        );
+        return { ...c, messages: msgs };
+      });
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+    if (!outboxRef.current.find((i) => i.id === messageId)) {
+      const next: OutboxItem[] = [...outboxRef.current, { id: messageId, conversationId, text: msg.text, attempts: 0 }];
+      outboxRef.current = next;
+      persistOutbox(next);
+    }
+    drainOutbox().catch(console.error);
+  }, [persistConversations, persistOutbox, drainOutbox]);
 
   const handleIncomingWsMessage = useCallback(async (raw: string) => {
     let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string };
@@ -2009,6 +2072,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         connectVPN,
         disconnectVPN,
         sendMessage,
+        retryMessage,
         addConversation,
         deleteMessage,
         clearConversation,

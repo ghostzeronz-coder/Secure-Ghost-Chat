@@ -49,7 +49,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation } = useApp();
+  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation } = useApp();
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
@@ -420,7 +420,21 @@ export default function ChatScreen() {
               <Text style={[styles.msgTime, { color: colors.mutedForeground }]}>
                 {formatTime(item.timestamp)}
               </Text>
-              {item.pending ? (
+              {item.failed ? (
+                <Pressable
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    retryMessage(conv.id, item.id);
+                  }}
+                  style={[styles.sealedBadge, { backgroundColor: `${colors.destructive}22`, flexDirection: "row", alignItems: "center", gap: 3 }]}
+                  testID={`retry-msg-${item.id}`}
+                >
+                  <Ionicons name="alert-circle-outline" size={8} color={colors.destructive} />
+                  <Text style={[styles.sealedTxt, { color: colors.destructive }]}>FAILED</Text>
+                  <Ionicons name="refresh" size={8} color={colors.destructive} />
+                  <Text style={[styles.sealedTxt, { color: colors.destructive }]}>RETRY</Text>
+                </Pressable>
+              ) : item.pending ? (
                 <View style={[styles.sealedBadge, { backgroundColor: `${colors.mutedForeground}22` }]}>
                   <Ionicons name="time-outline" size={7} color={colors.mutedForeground} />
                   <Text style={[styles.sealedTxt, { color: colors.mutedForeground }]}>QUEUED</Text>
