@@ -1922,6 +1922,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           encrypted: true,
           sealed: true,
           fingerprint: `DR:${ratchetMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+          ...(existing.disappearAfterSec
+            ? { expiresAt: Date.now() + existing.disappearAfterSec * 1000 }
+            : {}),
         };
         setState((prev) => {
           const updated = prev.conversations.map((c) =>
@@ -2042,12 +2045,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // decrypt-fail path. Replace the stale DR session and append the
           // decrypted message to the existing conversation rather than creating
           // a duplicate.
+          const firstMsgWithExpiry: Message = alreadyExists.disappearAfterSec
+            ? { ...firstMsg, expiresAt: Date.now() + alreadyExists.disappearAfterSec * 1000 }
+            : firstMsg;
           const updated = prev.conversations.map((c) =>
             c.id === alreadyExists.id
               ? {
                   ...c,
                   drSession: { ...bobSession, alice: newAlice },
-                  messages: [...c.messages, firstMsg],
+                  messages: [...c.messages, firstMsgWithExpiry],
                   lastMessage: plaintext,
                   timestamp: Date.now(),
                   unread: c.unread + 1,
