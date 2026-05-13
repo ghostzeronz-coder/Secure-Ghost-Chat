@@ -159,6 +159,56 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
   }
 });
 
+// ── PUT /api/prekeys/:userId/rekey — rotate identity keys for existing user ────
+// Used when a client loses its local private keys (e.g. SecureStore cleared)
+// but still holds a valid device token. Replaces IK/SPK in identity_keys so
+// the client can resume real X3DH sessions. All existing open sessions with
+// this user will be invalidated on the receiver side (they'll see a new X3DH
+// header on the next message and rebuild their Bob session).
+// Requires: Authorization: Bearer <device-token>
+router.put(
+  "/prekeys/:userId/rekey",
+  (req, res, next) => requireDeviceAuth(req, res, next),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.params["userId"] as string;
+      const { ikPublicKey, spkPublicKey, ikSignPublicKey, spkSignature } = req.body as {
+        ikPublicKey?: string;
+        spkPublicKey?: string;
+        ikSignPublicKey?: string;
+        spkSignature?: string;
+      };
+
+      if (!isValidPubKey(ikPublicKey)) {
+        return res.status(400).json({ error: "ikPublicKey must be a 64-char hex string" });
+      }
+      if (!isValidPubKey(spkPublicKey)) {
+        return res.status(400).json({ error: "spkPublicKey must be a 64-char hex string" });
+      }
+      if (ikSignPublicKey !== undefined && !isValidPubKey(ikSignPublicKey)) {
+        return res.status(400).json({ error: "ikSignPublicKey must be a 64-char hex string" });
+      }
+      if (spkSignature !== undefined && !isValidSignature(spkSignature)) {
+        return res.status(400).json({ error: "spkSignature must be a 128-char hex string" });
+      }
+
+      await db
+        .update(identityKeysTable)
+        .set({
+          ikPublicKey,
+          spkPublicKey,
+          ikSignPublicKey: ikSignPublicKey ?? null,
+          spkSignature:    spkSignature    ?? null,
+        })
+        .where(eq(identityKeysTable.userId, userId));
+
+      return res.status(200).json({ ok: true });
+    } catch (err) {
+      return res.status(500).json({ error: toErrorMessage(err) });
+    }
+  }
+);
+
 // ── POST /api/prekeys/:userId — upload a batch of one-time prekeys ────────────
 // Requires: Authorization: Bearer <device-token>
 router.post(

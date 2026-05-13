@@ -433,6 +433,52 @@ async function registerWithServer(
 }
 
 /**
+ * Rotate identity keys for an existing registration.
+ * Called when the device token is present but the private keys were lost
+ * (e.g. SecureStore cleared on Expo Go reset). Generates fresh IK/SPK,
+ * uploads new public keys via PUT /prekeys/:userId/rekey, and returns the
+ * new key material for the caller to store.
+ */
+async function rekeyWithServer(
+  userId: string,
+  token: string,
+): Promise<{
+  ikPriv: string; ikPub: string;
+  spkPriv: string; spkPub: string;
+  ikSignPriv: string; ikSignPub: string;
+  spkSignature: string;
+} | null> {
+  const apiBase = getApiBase();
+  if (!apiBase) return null;
+  try {
+    const ik     = generateHexKeypair();
+    const spk    = generateHexKeypair();
+    const ikSign = generateEd25519Keypair();
+    const spkSig = signSPKLocal(spk.pub, ikSign.priv);
+
+    const res = await fetch(`${apiBase}/prekeys/${encodeURIComponent(userId)}/rekey`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        ikPublicKey:     ik.pub,
+        spkPublicKey:    spk.pub,
+        ikSignPublicKey: ikSign.pub,
+        spkSignature:    spkSig,
+      }),
+    });
+    if (!res.ok) {
+      console.warn("[REKEY] Server rekey failed:", res.status);
+      return null;
+    }
+    console.log("[REKEY] Identity keys rotated for", userId);
+    return { ikPriv: ik.priv, ikPub: ik.pub, spkPriv: spk.priv, spkPub: spk.pub, ikSignPriv: ikSign.priv, ikSignPub: ikSign.pub, spkSignature: spkSig };
+  } catch (e) {
+    console.warn("[REKEY] Failed:", e);
+    return null;
+  }
+}
+
+/**
  * Simulate registration for a contact (demo only).
  * Generates their IK + SPK + OPKs, uploads them, and stores private keys locally.
  * Returns the contact identity record or null on failure.
@@ -932,6 +978,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               await generateAndUploadOPKs(alias, reg.token);
             }
           } else {
+            // Token present — check that own private keys are also stored.
+            // If they're missing (e.g. SecureStore was cleared after a
+            // previous registration), rotate keys on the server so this
+            // device can resume real X3DH sessions.
+            const ikPriv = await secureGet(MY_IK_PRIV_KEY);
+            if (!ikPriv) {
+              console.warn("[AppContext] Device token found but own IK missing — rekeying");
+              const rekey = await rekeyWithServer(alias, existing);
+              if (rekey) {
+                await secureSet(MY_IK_PRIV_KEY, rekey.ikPriv);
+                await secureSet(MY_IK_PUB_KEY, rekey.ikPub);
+                await secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv);
+                await secureSet(MY_SPK_PUB_KEY, rekey.spkPub);
+                await generateAndUploadOPKs(alias, existing);
+              }
+            }
             await generateAndUploadOPKs(alias, existing);
           }
         } catch (e) {
@@ -1402,22 +1464,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             secureGet(MY_SPK_PUB_KEY),
           ]);
 
-          if (myIKPriv && myIKPub && mySpkPriv && mySpkPub) {
-            const { session, x3dhHeader } = initSessionAliceWithHeader(bundle, myIKPriv, myIKPub);
+          let ikPrivFinal = myIKPriv;
+          let ikPubFinal  = myIKPub;
+          let spkPrivFinal = mySpkPriv;
+          let spkPubFinal  = mySpkPub;
+
+          if (!ikPrivFinal || !ikPubFinal || !spkPrivFinal || !spkPubFinal) {
+            // Own keys missing — try to rotate them on the server using the
+            // existing device token so we can proceed with real X3DH.
+            const token = await secureGet(DEVICE_TOKEN_KEY);
+            if (token) {
+              console.warn("[X3DH] Own keys missing — attempting rekey before session init for", aliasUpper);
+              const rekey = await rekeyWithServer(aliasUpper, token);
+              if (rekey) {
+                await Promise.all([
+                  secureSet(MY_IK_PRIV_KEY, rekey.ikPriv),
+                  secureSet(MY_IK_PUB_KEY,  rekey.ikPub),
+                  secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv),
+                  secureSet(MY_SPK_PUB_KEY,  rekey.spkPub),
+                ]);
+                await generateAndUploadOPKs(aliasUpper, token);
+                ikPrivFinal  = rekey.ikPriv;
+                ikPubFinal   = rekey.ikPub;
+                spkPrivFinal = rekey.spkPriv;
+                spkPubFinal  = rekey.spkPub;
+                // Re-fetch contact bundle so it picks up fresh OPKs if any
+                bundle = await fetchContactBundle(aliasUpper);
+              }
+            }
+          }
+
+          if (ikPrivFinal && ikPubFinal && spkPrivFinal && spkPubFinal && bundle) {
+            const { session, x3dhHeader } = initSessionAliceWithHeader(bundle, ikPrivFinal, ikPubFinal);
             drSession = session;
             usedOPK = !!(bundle.opkPublicKey);
             pendingX3DHHeader = JSON.stringify(x3dhHeader);
             console.log(`[X3DH] Real ${usedOPK ? "4-DH" : "3-DH"} session initiated with ${aliasUpper}`);
           } else {
-            // Own keys not yet saved (user registered before this update) — use simulation
+            // Own keys still unavailable — fall back to local simulation only
             console.warn("[X3DH] Own private keys not found — falling back to simulation for", aliasUpper);
-            drSession = initSessionFromBundle(bundle);
-            usedOPK = !!(bundle.opkPublicKey);
+            if (bundle) {
+              drSession = initSessionFromBundle(bundle);
+              usedOPK = !!(bundle.opkPublicKey);
+            } else {
+              drSession = initSession();
+            }
           }
         } catch (e) {
           console.error("[X3DH] Real session init failed — falling back:", e);
-          drSession = initSessionFromBundle(bundle);
-          usedOPK = !!(bundle.opkPublicKey);
+          if (bundle) {
+            drSession = initSessionFromBundle(bundle);
+            usedOPK = !!(bundle.opkPublicKey);
+          } else {
+            drSession = initSession();
+          }
         }
       } else if (bundle) {
         drSession = initSessionFromBundle(bundle);
