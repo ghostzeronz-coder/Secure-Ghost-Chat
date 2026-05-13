@@ -1686,6 +1686,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const currentConversations = latestStateRef.current.conversations;
     const existing = currentConversations.find((c) => c.alias === senderAlias);
 
+    const myAlias = (latestStateRef.current.alias ?? "").toUpperCase();
+
     if (existing && existing.drSession) {
       try {
         const { state: newAlice, plaintext } = ratchetDecrypt(existing.drSession.alice, ratchetMsg);
@@ -1717,15 +1719,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       } catch (e) {
         // Decryption failed with current session. If the sender included a fresh
-        // X3DH header, they've re-initialized their session (e.g. after clearing
-        // storage). Fall through to rebuild Bob's session from the new header
-        // rather than dropping the message and leaving the session permanently
-        // desynced.
+        // X3DH header, the two sides have diverged sessions (typical "glare":
+        // both initiated X3DH simultaneously after a reset). To converge, both
+        // sides apply the same deterministic tiebreaker — the lexicographically
+        // smaller alias's session wins. This guarantees both ends pick the same
+        // session without further round-trips.
         if (!wsMsg.x3dhHeader) {
           console.error("[DR] Failed to decrypt incoming message from", senderAlias, e);
           return;
         }
-        console.warn("[DR] Decrypt failed with existing session — sender provided fresh X3DH header, rebuilding Bob session for", senderAlias);
+        const senderWins = senderAlias < myAlias;
+        if (!senderWins) {
+          // We "own" the session — drop this message and keep our session intact.
+          // Our next outgoing message will reach the sender, who will rebuild
+          // their Bob session from our X3DH header.
+          console.warn("[DR] Glare detected with", senderAlias, "— our alias wins tiebreaker, keeping local session and dropping incoming message");
+          return;
+        }
+        console.warn("[DR] Glare detected with", senderAlias, "— sender wins tiebreaker, rebuilding Bob session from incoming X3DH header");
       }
     }
 
