@@ -28,7 +28,9 @@
         "NSPrivacyAccessedAPITypes": [
           {
             "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
-            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+            "NSPrivacyAccessedAPITypeReasons": [
+              "CA92.1"
+            ]
           }
         ]
       }
@@ -52,7 +54,8 @@
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_CONNECT"
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.USE_FINGERPRINT"
       ]
     },
     "web": {
@@ -94,7 +97,11 @@
     },
     "extra": {
       "privacyPolicyUrl": "https://ghostface.app/privacy",
-      "marketingUrl": "https://ghostface.app"
-    }
+      "marketingUrl": "https://ghostface.app",
+      "eas": {
+        "projectId": "5384dffd-78ad-41a3-bff3-4ed0a894c22c"
+      }
+    },
+    "owner": "ghostfacecomms"
   }
 }

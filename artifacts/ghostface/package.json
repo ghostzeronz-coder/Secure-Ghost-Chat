@@ -64,6 +64,7 @@
     "expo-av": "~16.0.8",
     "expo-camera": "^55.0.15",
     "expo-clipboard": "^8.0.8",
+    "expo-dev-client": "^56.0.10",
     "expo-document-picker": "~14.0.8",
     "expo-file-system": "~19.0.22",
     "expo-local-authentication": "^17.0.8",
