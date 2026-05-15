@@ -242,6 +242,15 @@ export default function ChatScreen() {
       const base64 = await FileSystem.readAsStringAsync(f.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      // Belt-and-braces: some pickers omit `size`, so re-check post-read so
+      // we never push an oversized blob into state/encryption.
+      if (base64.length > MAX_ATTACHMENT_B64_CHARS) {
+        Alert.alert(
+          "FILE TOO LARGE",
+          "Files up to 5 MB can be sent end-to-end encrypted in this build.",
+        );
+        return;
+      }
       const mime = f.mimeType ?? "application/octet-stream";
       setPendingAttachment({
         kind: "file",
@@ -329,6 +338,13 @@ export default function ChatScreen() {
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
+      if (base64.length > MAX_ATTACHMENT_B64_CHARS) {
+        Alert.alert(
+          "VOICE NOTE TOO LONG",
+          "Voice notes are capped at 5 MB. Try a shorter recording.",
+        );
+        return;
+      }
       const mime = Platform.OS === "ios" ? "audio/mp4" : "audio/m4a";
       setPendingAttachment({
         kind: "audio",
@@ -342,6 +358,12 @@ export default function ChatScreen() {
       Alert.alert("RECORDING FAILED", "Could not save the voice note.");
     } finally {
       setShowRecorder(false);
+      // Restore non-recording audio mode so subsequent playback (in any chat)
+      // is not stuck in iOS record-mode routing.
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+      }).catch(() => {});
     }
   };
 
