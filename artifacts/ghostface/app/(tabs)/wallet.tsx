@@ -786,8 +786,8 @@ export default function WalletScreen() {
         animationType="slide"
         onRequestClose={() => setShowConnect(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowConnect(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowConnect(false)} />
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>LINK WALLET</Text>
               <Text style={styles.modalSubtitle}>
@@ -824,8 +824,7 @@ export default function WalletScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* ── SEND MODAL ──────────────────────────────────── */}
@@ -835,8 +834,8 @@ export default function WalletScreen() {
         animationType="slide"
         onRequestClose={() => setShowSend(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowSend(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSend(false)} />
             <View style={styles.modalContent}>
               {sent ? (
                 <>
@@ -877,8 +876,7 @@ export default function WalletScreen() {
                 </>
               )}
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* ── RECEIVE MODAL ───────────────────────────────── */}
@@ -888,8 +886,8 @@ export default function WalletScreen() {
         animationType="slide"
         onRequestClose={() => setShowReceive(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowReceive(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowReceive(false)} />
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>RECEIVE {activeToken}</Text>
               <View style={styles.qrPlaceholder}>
@@ -909,8 +907,7 @@ export default function WalletScreen() {
                 <Text style={styles.cancelText}>CLOSE</Text>
               </Pressable>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
     </View>

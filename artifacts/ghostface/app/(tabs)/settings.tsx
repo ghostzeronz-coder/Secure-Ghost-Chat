@@ -850,8 +850,8 @@ export default function SettingsScreen() {
         animationType="slide"
         onRequestClose={() => setShowGracePeriod(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowGracePeriod(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowGracePeriod(false)} />
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>DURESS GRACE PERIOD</Text>
               {GRACE_OPTIONS.map((opt) => (
@@ -877,8 +877,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       <Modal
@@ -887,8 +886,8 @@ export default function SettingsScreen() {
         animationType="slide"
         onRequestClose={() => setShowAutoLock(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowAutoLock(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAutoLock(false)} />
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>AUTO-LOCK TIMEOUT</Text>
               {AUTO_LOCK_OPTIONS.map((opt) => (
@@ -914,8 +913,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       <Modal
@@ -930,17 +928,14 @@ export default function SettingsScreen() {
           setPinSimilar(false);
         }}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => {
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => {
             setShowPinChange(false);
             setNewPin("");
             setNewPinConfirm("");
             setPinError("");
             setPinSimilar(false);
-          }}
-        >
-          <View onStartShouldSetResponder={() => true}>
+          }} />
             <View style={styles.modalContent}>
               {pinSaved ? (
                 <Text style={styles.successText}>PIN UPDATED</Text>
@@ -1011,8 +1006,7 @@ export default function SettingsScreen() {
                 </>
               )}
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* Duress PIN modal */}
@@ -1022,8 +1016,8 @@ export default function SettingsScreen() {
         animationType="slide"
         onRequestClose={() => setShowDuressPin(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowDuressPin(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowDuressPin(false)} />
             <View style={styles.modalContent}>
               {duressPinSaved ? (
                 <Text style={styles.successText}>DURESS PIN SAVED</Text>
@@ -1096,8 +1090,7 @@ export default function SettingsScreen() {
                 </>
               )}
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* Language picker modal */}
@@ -1107,8 +1100,8 @@ export default function SettingsScreen() {
         animationType="slide"
         onRequestClose={() => setShowLanguage(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowLanguage(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowLanguage(false)} />
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>LANGUAGE</Text>
               {LANGUAGE_OPTIONS.map((opt) => (
@@ -1132,8 +1125,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* Billing portal modal */}
@@ -1143,8 +1135,8 @@ export default function SettingsScreen() {
         animationType="slide"
         onRequestClose={() => setShowBilling(false)}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowBilling(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowBilling(false)} />
             <View style={styles.modalContent}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
                 <Ionicons name="card" size={20} color={colors.primary} />
@@ -1189,8 +1181,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
     </TabScreenWrapper>

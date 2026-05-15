@@ -502,8 +502,8 @@ export default function MessagesScreen() {
         animationType="slide"
         onRequestClose={() => setShowNew(false)}
       >
-        <Pressable style={styles.overlay} onPress={() => setShowNew(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowNew(false)} />
             <View style={styles.sheet}>
               <Text style={styles.sheetTitle}>NEW SECURE CHANNEL</Text>
               <Text style={styles.sheetSub}>Scan their QR code or enter alias manually</Text>
@@ -547,8 +547,7 @@ export default function MessagesScreen() {
                 <Text style={styles.cancelTxt}>CANCEL</Text>
               </Pressable>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
     </TabScreenWrapper>

@@ -1103,8 +1103,8 @@ export default function ChatScreen() {
         animationType="slide"
         onRequestClose={() => setShowAttachMenu(false)}
       >
-        <Pressable style={styles.overlay} onPress={() => setShowAttachMenu(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowAttachMenu(false)} />
             <View style={styles.sheet}>
               <View style={styles.handle} />
               <View style={styles.sheetHead}>
@@ -1199,8 +1199,7 @@ export default function ChatScreen() {
                 </Pressable>
               </View>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* Voice note recorder */}
@@ -1248,8 +1247,8 @@ export default function ChatScreen() {
 
       {/* Security info sheet */}
       <Modal visible={showInfo} transparent animationType="slide" onRequestClose={() => setShowInfo(false)}>
-        <Pressable style={styles.overlay} onPress={() => setShowInfo(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowInfo(false)} />
             <View style={styles.sheet}>
               <View style={styles.handle} />
               <View style={styles.sheetHead}>
@@ -1397,14 +1396,13 @@ export default function ChatScreen() {
                 </Pressable>
               </View>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
 
       {/* Disappearing messages sheet */}
       <Modal visible={showDisappear} transparent animationType="slide" onRequestClose={() => setShowDisappear(false)}>
-        <Pressable style={styles.overlay} onPress={() => setShowDisappear(false)}>
-          <View onStartShouldSetResponder={() => true}>
+        <View style={styles.overlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowDisappear(false)} />
             <View style={styles.sheet}>
               <View style={styles.handle} />
               <View style={styles.sheetHead}>
@@ -1445,8 +1443,7 @@ export default function ChatScreen() {
                 </View>
               </View>
             </View>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
       {/* Queued message toast — shown briefly when a message is held for delivery */}
       <Animated.View
