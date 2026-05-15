@@ -53,13 +53,27 @@ function signSPKLocal(spkPubHex: string, ikSignPrivHex: string): string {
   return toHex(sig);
 }
 
-export interface Attachment {
-  kind: "image";
-  uri: string;
-  width?: number;
-  height?: number;
-  mimeType?: string;
-}
+export type Attachment =
+  | {
+      kind: "image";
+      uri: string;
+      width?: number;
+      height?: number;
+      mimeType?: string;
+    }
+  | {
+      kind: "file";
+      uri: string;
+      name: string;
+      size?: number;
+      mimeType?: string;
+    }
+  | {
+      kind: "audio";
+      uri: string;
+      durationMs?: number;
+      mimeType?: string;
+    };
 
 export interface Message {
   id: string;
@@ -94,22 +108,47 @@ function wrapPayload(text: string, attachment?: Attachment): string {
   return JSON.stringify({ _gfa: ATTACHMENT_ENVELOPE_VERSION, t: text, a: attachment });
 }
 
-// Only allow inline base64 image data URIs as attachment payloads. This is
-// the only transport we control end-to-end through E2EE — any other URI
-// scheme (http(s), file, content) would either leak the recipient's IP via a
-// silent network fetch when rendered or reference attacker-controlled local
+// Only allow inline base64 data URIs as attachment payloads. This is the
+// only transport we control end-to-end through E2EE — any other URI scheme
+// (http(s), file, content) would either leak the recipient's IP via a silent
+// network fetch when rendered or reference attacker-controlled local
 // content. Reject anything else as plain text rather than render it.
 const DATA_IMAGE_URI_RE = /^data:image\/(png|jpe?g|gif|webp|heic|heif);base64,[A-Za-z0-9+/=]+$/i;
+const DATA_AUDIO_URI_RE = /^data:audio\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+$/i;
+const DATA_FILE_URI_RE  = /^data:[a-zA-Z0-9.+/-]+;base64,[A-Za-z0-9+/=]+$/i;
+const MAX_ATTACHMENT_NAME_LEN = 200;
+// Hard cap on the base64-encoded payload of any attachment. 5 MiB decoded is
+// ~6.99 MiB encoded; we round up to 7.5 MiB of base64 chars to leave a small
+// margin and still bound memory/decode work. Anything larger is rejected at
+// validation time (both on send and on receive) so a malicious peer cannot
+// force the client to decode an arbitrarily large blob.
+export const MAX_ATTACHMENT_B64_CHARS = 7 * 1024 * 1024 + 512 * 1024;
 
 function isValidAttachment(a: unknown): a is Attachment {
   if (!a || typeof a !== "object") return false;
   const att = a as Record<string, unknown>;
-  if (att.kind !== "image") return false;
-  if (typeof att.uri !== "string" || !DATA_IMAGE_URI_RE.test(att.uri)) return false;
-  if (att.width !== undefined && typeof att.width !== "number") return false;
-  if (att.height !== undefined && typeof att.height !== "number") return false;
+  if (typeof att.uri !== "string") return false;
+  if (att.uri.length > MAX_ATTACHMENT_B64_CHARS) return false;
   if (att.mimeType !== undefined && typeof att.mimeType !== "string") return false;
-  return true;
+
+  if (att.kind === "image") {
+    if (!DATA_IMAGE_URI_RE.test(att.uri)) return false;
+    if (att.width !== undefined && typeof att.width !== "number") return false;
+    if (att.height !== undefined && typeof att.height !== "number") return false;
+    return true;
+  }
+  if (att.kind === "audio") {
+    if (!DATA_AUDIO_URI_RE.test(att.uri)) return false;
+    if (att.durationMs !== undefined && typeof att.durationMs !== "number") return false;
+    return true;
+  }
+  if (att.kind === "file") {
+    if (!DATA_FILE_URI_RE.test(att.uri)) return false;
+    if (typeof att.name !== "string" || att.name.length === 0 || att.name.length > MAX_ATTACHMENT_NAME_LEN) return false;
+    if (att.size !== undefined && typeof att.size !== "number") return false;
+    return true;
+  }
+  return false;
 }
 
 function unwrapPayload(plaintext: string): { text: string; attachment?: Attachment } {
@@ -133,7 +172,10 @@ function unwrapPayload(plaintext: string): { text: string; attachment?: Attachme
 
 function previewForMessage(text: string, attachment?: Attachment): string {
   if (text && text.trim()) return text;
-  if (attachment?.kind === "image") return "📷 Photo";
+  if (!attachment) return text;
+  if (attachment.kind === "image") return "📷 Photo";
+  if (attachment.kind === "audio") return "🎙 Voice note";
+  if (attachment.kind === "file") return `📎 ${attachment.name}`;
   return text;
 }
 

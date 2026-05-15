@@ -1,5 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Audio } from "expo-av";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
@@ -22,7 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
 import type { Attachment } from "@/context/AppContext";
-import { useApp } from "@/context/AppContext";
+import { MAX_ATTACHMENT_B64_CHARS, useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { drKeyFingerprint } from "@/lib/doubleRatchet";
 
@@ -59,9 +62,26 @@ export default function ChatScreen() {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
   const [attachBusy, setAttachBusy] = useState(false);
+  const [showRecorder, setShowRecorder] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingMs, setRecordingMs] = useState(0);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recordStartRef = useRef<number>(0);
+  const recordTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const playingSoundRef = useRef<Audio.Sound | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
   const [, setTick] = useState(0);
   const listRef = useRef<FlatList>(null);
   const toastOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    return () => {
+      // Best-effort cleanup if we navigate away mid-record / mid-play.
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      recordingRef.current?.stopAndUnloadAsync().catch(() => {});
+      playingSoundRef.current?.unloadAsync().catch(() => {});
+    };
+  }, []);
 
   const showQueuedToast = () => {
     Animated.sequence([
@@ -124,7 +144,14 @@ export default function ChatScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const a = result.assets[0];
       const mime = a.mimeType ?? "image/jpeg";
-      const uri = a.base64 ? `data:${mime};base64,${a.base64}` : a.uri;
+      if (!a.base64 || a.base64.length > MAX_ATTACHMENT_B64_CHARS) {
+        Alert.alert(
+          "IMAGE TOO LARGE",
+          "Photos up to 5 MB can be sent end-to-end encrypted in this build. Try a smaller image.",
+        );
+        return;
+      }
+      const uri = `data:${mime};base64,${a.base64}`;
       setPendingAttachment({
         kind: "image",
         uri,
@@ -163,7 +190,14 @@ export default function ChatScreen() {
       if (result.canceled || !result.assets?.[0]) return;
       const a = result.assets[0];
       const mime = a.mimeType ?? "image/jpeg";
-      const uri = a.base64 ? `data:${mime};base64,${a.base64}` : a.uri;
+      if (!a.base64 || a.base64.length > MAX_ATTACHMENT_B64_CHARS) {
+        Alert.alert(
+          "PHOTO TOO LARGE",
+          "Photos up to 5 MB can be sent end-to-end encrypted in this build.",
+        );
+        return;
+      }
+      const uri = `data:${mime};base64,${a.base64}`;
       setPendingAttachment({
         kind: "image",
         uri,
@@ -180,12 +214,175 @@ export default function ChatScreen() {
     }
   };
 
-  const comingSoon = (label: string) => {
+  // Files travel through the same E2EE envelope as images, so we read them
+  // into a base64 data URI here (gated by a 5 MB cap to keep the ratchet
+  // ciphertext from bloating). Anything larger should ship via a separate
+  // encrypted blob channel — out of scope for this task.
+  const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+  const pickFile = async () => {
     setShowAttachMenu(false);
-    Alert.alert(
-      `${label.toUpperCase()} COMING SOON`,
-      "This message tool is on the roadmap and will arrive in a future build.",
-    );
+    if (attachBusy) return;
+    setAttachBusy(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const f = result.assets[0];
+      if (f.size && f.size > MAX_FILE_BYTES) {
+        Alert.alert(
+          "FILE TOO LARGE",
+          "Files up to 5 MB can be sent end-to-end encrypted in this build.",
+        );
+        return;
+      }
+      const base64 = await FileSystem.readAsStringAsync(f.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const mime = f.mimeType ?? "application/octet-stream";
+      setPendingAttachment({
+        kind: "file",
+        uri: `data:${mime};base64,${base64}`,
+        name: f.name || "attachment",
+        size: f.size,
+        mimeType: mime,
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      console.warn("[Attach] file pick failed", e);
+      Alert.alert("ATTACH FAILED", "Could not load the selected file.");
+    } finally {
+      setAttachBusy(false);
+    }
+  };
+
+  // Voice notes: record with expo-av, then read the resulting file into a
+  // base64 data URI so it rides the same E2EE envelope as photos/files.
+  const openRecorder = async () => {
+    setShowAttachMenu(false);
+    if (attachBusy) return;
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert(
+          "MICROPHONE ACCESS DENIED",
+          "Enable microphone access in your device settings to record voice notes.",
+        );
+        return;
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      setShowRecorder(true);
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+      recordingRef.current = recording;
+      recordStartRef.current = Date.now();
+      setIsRecording(true);
+      setRecordingMs(0);
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      recordTimerRef.current = setInterval(() => {
+        setRecordingMs(Date.now() - recordStartRef.current);
+      }, 200);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      console.warn("[Voice] start record failed", e);
+      Alert.alert("RECORDING FAILED", "Could not start recording.");
+      setShowRecorder(false);
+    }
+  };
+
+  const stopRecorder = async (keep: boolean) => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    const rec = recordingRef.current;
+    recordingRef.current = null;
+    setIsRecording(false);
+    if (!rec) {
+      setShowRecorder(false);
+      return;
+    }
+    try {
+      await rec.stopAndUnloadAsync();
+      const uri = rec.getURI();
+      const duration = Date.now() - recordStartRef.current;
+      if (!keep || !uri) {
+        setShowRecorder(false);
+        return;
+      }
+      const info = await FileSystem.getInfoAsync(uri);
+      if (info.exists && info.size && info.size > MAX_FILE_BYTES) {
+        Alert.alert(
+          "VOICE NOTE TOO LONG",
+          "Voice notes are capped at 5 MB. Try a shorter recording.",
+        );
+        setShowRecorder(false);
+        return;
+      }
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const mime = Platform.OS === "ios" ? "audio/mp4" : "audio/m4a";
+      setPendingAttachment({
+        kind: "audio",
+        uri: `data:${mime};base64,${base64}`,
+        durationMs: duration,
+        mimeType: mime,
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (e) {
+      console.warn("[Voice] stop record failed", e);
+      Alert.alert("RECORDING FAILED", "Could not save the voice note.");
+    } finally {
+      setShowRecorder(false);
+    }
+  };
+
+  const playAudio = async (msgId: string, dataUri: string) => {
+    try {
+      if (playingSoundRef.current) {
+        await playingSoundRef.current.unloadAsync();
+        playingSoundRef.current = null;
+      }
+      if (playingId === msgId) {
+        setPlayingId(null);
+        return;
+      }
+      const { sound } = await Audio.Sound.createAsync({ uri: dataUri }, { shouldPlay: true });
+      playingSoundRef.current = sound;
+      setPlayingId(msgId);
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          sound.unloadAsync().catch(() => {});
+          if (playingSoundRef.current === sound) playingSoundRef.current = null;
+          setPlayingId((cur) => (cur === msgId ? null : cur));
+        }
+      });
+    } catch (e) {
+      console.warn("[Voice] play failed", e);
+      Alert.alert("PLAYBACK FAILED", "Could not play this voice note.");
+    }
+  };
+
+  const formatBytes = (n?: number) => {
+    if (!n || n <= 0) return "";
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const formatDuration = (ms?: number) => {
+    const total = Math.max(0, Math.floor((ms ?? 0) / 1000));
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
   const handleLongPress = (msgId: string, fromMe: boolean, plaintext: string) => {
@@ -413,6 +610,73 @@ export default function ChatScreen() {
     attachOptionSub: {
       color: colors.mutedForeground, fontSize: 10, marginTop: 2,
     },
+    attachPreviewIconBox: {
+      alignItems: "center", justifyContent: "center",
+      backgroundColor: `${colors.primary}15`,
+    },
+
+    // In-bubble audio chip
+    audioChip: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingHorizontal: 12, paddingVertical: 10,
+      borderRadius: 14, minWidth: 200,
+    },
+    audioBars: {
+      flexDirection: "row", alignItems: "center", gap: 3, flex: 1,
+    },
+    audioBar: {
+      width: 2, borderRadius: 1, opacity: 0.8,
+    },
+    audioDuration: {
+      fontSize: 11, fontWeight: "700", letterSpacing: 1,
+    },
+
+    // In-bubble file chip
+    fileChip: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingHorizontal: 12, paddingVertical: 10,
+      borderRadius: 12, minWidth: 220, maxWidth: 260,
+    },
+    fileIconWrap: {
+      width: 32, height: 32, borderRadius: 16,
+      backgroundColor: "rgba(255,255,255,0.18)",
+      alignItems: "center", justifyContent: "center",
+    },
+    fileName: { fontSize: 12, fontWeight: "700" },
+    fileSize: { fontSize: 10, marginTop: 2 },
+
+    // Recorder modal
+    recorderBox: {
+      backgroundColor: colors.card,
+      margin: 24, borderRadius: 16,
+      borderWidth: 1, borderColor: colors.border,
+      padding: 24, alignItems: "center", gap: 18,
+    },
+    recorderTitle: {
+      color: colors.foreground, fontSize: 12, fontWeight: "800", letterSpacing: 4,
+    },
+    recorderDot: {
+      width: 12, height: 12, borderRadius: 6,
+      backgroundColor: colors.destructive,
+    },
+    recorderTime: {
+      color: colors.foreground, fontSize: 32, fontWeight: "800",
+      letterSpacing: 4, fontVariant: ["tabular-nums"],
+    },
+    recorderHint: {
+      color: colors.mutedForeground, fontSize: 11, textAlign: "center",
+    },
+    recorderRow: {
+      flexDirection: "row", gap: 12, marginTop: 4,
+    },
+    recorderBtn: {
+      flex: 1, paddingVertical: 12, borderRadius: 10,
+      alignItems: "center", justifyContent: "center",
+      borderWidth: 1, borderColor: colors.border,
+    },
+    recorderBtnTxt: {
+      fontSize: 11, fontWeight: "800", letterSpacing: 2,
+    },
 
     // Info modal
     overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" },
@@ -580,6 +844,99 @@ export default function ChatScreen() {
                   accessibilityLabel="Encrypted photo attachment"
                 />
               )}
+              {item.attachment?.kind === "audio" && (
+                <Pressable
+                  style={[
+                    styles.audioChip,
+                    {
+                      backgroundColor: item.fromMe
+                        ? "rgba(255,255,255,0.18)"
+                        : `${colors.primary}18`,
+                    },
+                  ]}
+                  onPress={() => playAudio(item.id, item.attachment!.uri)}
+                  testID={`audio-play-${item.id}`}
+                  accessibilityLabel="Play voice note"
+                >
+                  <Ionicons
+                    name={playingId === item.id ? "pause" : "play"}
+                    size={16}
+                    color={item.fromMe ? colors.primaryForeground : colors.primary}
+                  />
+                  <View style={styles.audioBars}>
+                    {[6, 12, 9, 14, 8, 11, 7].map((h, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.audioBar,
+                          {
+                            height: h,
+                            backgroundColor: item.fromMe ? colors.primaryForeground : colors.primary,
+                          },
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text
+                    style={[
+                      styles.audioDuration,
+                      { color: item.fromMe ? colors.primaryForeground : colors.foreground },
+                    ]}
+                  >
+                    {formatDuration(item.attachment.durationMs)}
+                  </Text>
+                </Pressable>
+              )}
+              {item.attachment?.kind === "file" && (
+                <Pressable
+                  style={[
+                    styles.fileChip,
+                    {
+                      backgroundColor: item.fromMe
+                        ? "rgba(255,255,255,0.18)"
+                        : `${colors.primary}10`,
+                    },
+                  ]}
+                  onPress={async () => {
+                    await Clipboard.setStringAsync(item.attachment!.uri);
+                    Alert.alert(
+                      "FILE COPIED",
+                      "The encrypted file payload was copied to your clipboard. Paste it where you can decode the base64 data URI.",
+                    );
+                  }}
+                  testID={`file-${item.id}`}
+                  accessibilityLabel="Encrypted file attachment"
+                >
+                  <View style={styles.fileIconWrap}>
+                    <Ionicons
+                      name="document"
+                      size={18}
+                      color={item.fromMe ? colors.primaryForeground : colors.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={[
+                        styles.fileName,
+                        { color: item.fromMe ? colors.primaryForeground : colors.foreground },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.attachment.name}
+                    </Text>
+                    {item.attachment.size && (
+                      <Text
+                        style={[
+                          styles.fileSize,
+                          { color: item.fromMe ? "rgba(255,255,255,0.7)" : colors.mutedForeground },
+                        ]}
+                      >
+                        {formatBytes(item.attachment.size)}
+                      </Text>
+                    )}
+                  </View>
+                </Pressable>
+              )}
               {!!item.text && (
                 <Text
                   style={[
@@ -640,16 +997,35 @@ export default function ChatScreen() {
       />
 
       {/* Pending attachment preview chip */}
-      {pendingAttachment?.kind === "image" && (
+      {pendingAttachment && (
         <View style={styles.attachPreviewBar}>
-          <Image
-            source={{ uri: pendingAttachment.uri }}
-            style={styles.attachPreviewImg}
-            contentFit="cover"
-          />
+          {pendingAttachment.kind === "image" ? (
+            <Image
+              source={{ uri: pendingAttachment.uri }}
+              style={styles.attachPreviewImg}
+              contentFit="cover"
+            />
+          ) : (
+            <View style={[styles.attachPreviewImg, styles.attachPreviewIconBox]}>
+              <Ionicons
+                name={pendingAttachment.kind === "audio" ? "mic" : "document"}
+                size={20}
+                color={colors.primary}
+              />
+            </View>
+          )}
           <View style={{ flex: 1 }}>
-            <Text style={styles.attachPreviewLabel}>ENCRYPTED PHOTO</Text>
-            <Text style={styles.attachPreviewSub}>Sent end-to-end through the Double Ratchet</Text>
+            <Text style={styles.attachPreviewLabel}>
+              {pendingAttachment.kind === "image" && "ENCRYPTED PHOTO"}
+              {pendingAttachment.kind === "audio" && "ENCRYPTED VOICE NOTE"}
+              {pendingAttachment.kind === "file" && "ENCRYPTED FILE"}
+            </Text>
+            <Text style={styles.attachPreviewSub} numberOfLines={1}>
+              {pendingAttachment.kind === "image" && "Sent end-to-end through the Double Ratchet"}
+              {pendingAttachment.kind === "audio" && `${formatDuration(pendingAttachment.durationMs)} · Double Ratchet`}
+              {pendingAttachment.kind === "file" &&
+                `${pendingAttachment.name}${pendingAttachment.size ? ` · ${formatBytes(pendingAttachment.size)}` : ""}`}
+            </Text>
           </View>
           <Pressable
             onPress={() => setPendingAttachment(null)}
@@ -752,30 +1128,30 @@ export default function ChatScreen() {
 
                 <Pressable
                   style={styles.attachOption}
-                  onPress={() => comingSoon("File")}
+                  onPress={pickFile}
                   testID="attach-file"
                 >
                   <View style={styles.attachIconWrap}>
-                    <Ionicons name="document" size={18} color={colors.mutedForeground} />
+                    <Ionicons name="document" size={18} color={colors.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.attachOptionTitle, { color: colors.mutedForeground }]}>FILE</Text>
-                    <Text style={styles.attachOptionSub}>Coming soon</Text>
+                    <Text style={styles.attachOptionTitle}>FILE</Text>
+                    <Text style={styles.attachOptionSub}>Send any document up to 5 MB</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
                 </Pressable>
 
                 <Pressable
                   style={styles.attachOption}
-                  onPress={() => comingSoon("Voice note")}
+                  onPress={openRecorder}
                   testID="attach-voice"
                 >
                   <View style={styles.attachIconWrap}>
-                    <Ionicons name="mic" size={18} color={colors.mutedForeground} />
+                    <Ionicons name="mic" size={18} color={colors.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.attachOptionTitle, { color: colors.mutedForeground }]}>VOICE NOTE</Text>
-                    <Text style={styles.attachOptionSub}>Coming soon</Text>
+                    <Text style={styles.attachOptionTitle}>VOICE NOTE</Text>
+                    <Text style={styles.attachOptionSub}>Record an encrypted audio message</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
                 </Pressable>
@@ -803,6 +1179,49 @@ export default function ChatScreen() {
             </View>
           </Pressable>
         </Pressable>
+      </Modal>
+
+      {/* Voice note recorder */}
+      <Modal
+        visible={showRecorder}
+        transparent
+        animationType="fade"
+        onRequestClose={() => stopRecorder(false)}
+      >
+        <View style={[styles.overlay, { justifyContent: "center" }]}>
+          <View style={styles.recorderBox}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              {isRecording && <View style={styles.recorderDot} />}
+              <Text style={styles.recorderTitle}>VOICE NOTE</Text>
+            </View>
+            <Text style={styles.recorderTime}>{formatDuration(recordingMs)}</Text>
+            <Text style={styles.recorderHint}>
+              Audio is encrypted end-to-end through the same Double Ratchet keys as your messages.
+            </Text>
+            <View style={styles.recorderRow}>
+              <Pressable
+                style={[styles.recorderBtn, { backgroundColor: colors.background }]}
+                onPress={() => stopRecorder(false)}
+                testID="recorder-cancel"
+              >
+                <Text style={[styles.recorderBtnTxt, { color: colors.mutedForeground }]}>CANCEL</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.recorderBtn,
+                  { backgroundColor: colors.primary, borderColor: colors.primary },
+                ]}
+                onPress={() => stopRecorder(true)}
+                disabled={!isRecording}
+                testID="recorder-stop"
+              >
+                <Text style={[styles.recorderBtnTxt, { color: colors.primaryForeground }]}>
+                  STOP &amp; ATTACH
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* Security info sheet */}
