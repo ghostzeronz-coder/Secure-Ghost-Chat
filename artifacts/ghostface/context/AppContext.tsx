@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
+import { Alert, Platform } from "react-native";
 import React, {
   createContext,
   useCallback,
@@ -1292,6 +1292,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         if (!aliceMsg) {
           console.error("[DR] Aborting send: could not encrypt with DR after reinit");
+          const failedMsg: Message = {
+            id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+            text,
+            fromMe: true,
+            timestamp: Date.now(),
+            encrypted: false,
+            sealed: false,
+            failed: true,
+          };
+          setState((prev) => {
+            const updated = prev.conversations.map((c) =>
+              c.id === conversationId
+                ? { ...c, messages: [...c.messages, failedMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                : c
+            );
+            persistConversations(updated);
+            return { ...prev, conversations: updated };
+          });
+          Alert.alert("Send failed", "Message could not be encrypted. Please try again.");
           return { queued: false };
         }
       }
@@ -1331,6 +1350,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }));
           } catch (e) {
             console.error("[WS] send() threw — aborting ratchet commit", e);
+            const wsFailedMsg: Message = {
+              ...newMsg,
+              failed: true,
+              pending: false,
+            };
+            setState((prev) => {
+              const updated = prev.conversations.map((c) =>
+                c.id === conversationId
+                  ? { ...c, messages: [...c.messages, wsFailedMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                  : c
+              );
+              persistConversations(updated);
+              return { ...prev, conversations: updated };
+            });
+            Alert.alert("Send failed", "Message could not be sent. Tap RETRY to try again.");
             return { queued: false };
           }
         } else {
@@ -1952,6 +1986,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // session without further round-trips.
         if (!wsMsg.x3dhHeader) {
           console.error("[DR] Failed to decrypt incoming message from", senderAlias, e);
+          const decryptFailMsg: Message = {
+            id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+            text: "⚠ Message could not be decrypted",
+            fromMe: false,
+            timestamp: Date.now(),
+            encrypted: true,
+            sealed: true,
+          };
+          setState((prev) => {
+            const updated = prev.conversations.map((c) =>
+              c.id === existing.id
+                ? { ...c, messages: [...c.messages, decryptFailMsg], lastMessage: "⚠ Message could not be decrypted", timestamp: Date.now(), unread: c.unread + 1 }
+                : c
+            );
+            persistConversations(updated);
+            return { ...prev, conversations: updated };
+          });
           return;
         }
         const senderWins = senderAlias < myAlias;
@@ -2085,6 +2136,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.log(`[X3DH] Bob session established with ${senderAlias} — first message decrypted`);
     } catch (e) {
       console.error("[X3DH] Failed to init Bob session or decrypt first message from", senderAlias, e);
+      setState((prev) => {
+        const conv = prev.conversations.find((c) => c.alias === senderAlias);
+        if (!conv) return prev;
+        const placeholder: Message = {
+          id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+          text: "⚠ Message could not be decrypted",
+          fromMe: false,
+          timestamp: Date.now(),
+          encrypted: true,
+          sealed: false,
+        };
+        const updated = prev.conversations.map((c) =>
+          c.alias === senderAlias
+            ? { ...c, messages: [...c.messages, placeholder], lastMessage: "⚠ Message could not be decrypted", timestamp: Date.now(), unread: c.unread + 1 }
+            : c
+        );
+        persistConversations(updated);
+        return { ...prev, conversations: updated };
+      });
     }
   }, [persistConversations, drainOutbox]);
 
