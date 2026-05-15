@@ -14,16 +14,31 @@ import { Ionicons } from "@expo/vector-icons";
 import { WebQRScanner } from "./WebQRScanner";
 
 const GHOSTFACE_QR_PREFIX = "ghostface://add/";
+const GHOSTFACE_INVITE_PREFIX = "ghostface://invite/";
 
 export function encodeContactQR(alias: string): string {
   return `${GHOSTFACE_QR_PREFIX}${alias.toUpperCase()}`;
 }
 
+export function encodeInviteQR(code: string): string {
+  return `${GHOSTFACE_INVITE_PREFIX}${code.toUpperCase()}`;
+}
+
+/**
+ * Decodes a scanned QR value into either a contact alias or an invite code.
+ * Returns the raw string (alias or GF-XXXX-XXXX invite code).
+ * Returns null if the value is unrecognisable.
+ */
 export function decodeContactQR(data: string): string | null {
   const trimmed = data.trim();
   if (trimmed.startsWith(GHOSTFACE_QR_PREFIX)) {
     const alias = trimmed.slice(GHOSTFACE_QR_PREFIX.length).toUpperCase();
     return alias.length >= 2 ? alias : null;
+  }
+  if (trimmed.startsWith(GHOSTFACE_INVITE_PREFIX)) {
+    // Strip prefix and any query params → return raw invite code e.g. GF-ABCD-1234
+    const code = trimmed.slice(GHOSTFACE_INVITE_PREFIX.length).split("?")[0].toUpperCase();
+    return /^GF-[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(code) ? code : null;
   }
   const upper = trimmed.toUpperCase();
   if (/^[A-Z0-9_-]{2,32}$/.test(upper)) return upper;

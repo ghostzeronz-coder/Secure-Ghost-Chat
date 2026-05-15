@@ -7,6 +7,7 @@ import tokensRouter from "./tokens";
 import prekeysRouter from "./prekeys";
 import messagesRouter from "./messages";
 import numbersRouter from "./numbers";
+import invitesRouter from "./invites";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(tokensRouter);
 router.use(prekeysRouter);
 router.use(messagesRouter);
 router.use(numbersRouter);
+router.use(invitesRouter);
 
 export default router;

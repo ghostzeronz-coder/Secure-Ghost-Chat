@@ -13,7 +13,7 @@ import {
 import QRCode from "react-native-qrcode-svg";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
-import { QRScanner, encodeContactQR } from "@/components/QRScanner";
+import { QRScanner, encodeContactQR, encodeInviteQR } from "@/components/QRScanner";
 
 const TIMER_OPTIONS = [
   { label: "10 MIN", ms: 10 * 60 * 1000 },
@@ -21,6 +21,12 @@ const TIMER_OPTIONS = [
   { label: "24 HR",  ms: 24 * 60 * 60 * 1000 },
   { label: "7 DAY",  ms: 7 * 24 * 60 * 60 * 1000 },
 ];
+
+function getApiBase(): string {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (!domain) return "";
+  return `https://${domain}/api`;
+}
 
 function genCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -44,10 +50,58 @@ function fmtCountdown(ms: number): string {
 
 const CODE_REGEX = /^GF-[A-Z2-9]{4}-[A-Z2-9]{4}$/;
 
-function deriveAlias(code: string): string {
-  const parts = code.split("-");
-  return `GH_${parts[1]}`;
+/**
+ * POST the invite code to the server so it maps to the owner's real alias.
+ * If the server is unreachable we skip silently — typed codes won't work
+ * offline, but QR scanning (which uses the owner's alias directly) still will.
+ */
+async function registerInviteOnServer(
+  code: string,
+  ownerAlias: string,
+  expiresAt: number,
+): Promise<void> {
+  const apiBase = getApiBase();
+  if (!apiBase || !ownerAlias) return;
+  try {
+    await fetch(`${apiBase}/invites`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: code.toUpperCase(), ownerAlias, expiresAt }),
+    });
+  } catch {
+    // Non-critical
+  }
 }
+
+type RedeemFailReason = "bad_format" | "not_found" | "expired" | "used" | "offline";
+type RedeemResult =
+  | { ok: true; ownerAlias: string }
+  | { ok: false; reason: RedeemFailReason };
+
+async function lookupInviteCode(code: string): Promise<RedeemResult> {
+  const apiBase = getApiBase();
+  if (!apiBase) return { ok: false, reason: "offline" };
+  try {
+    const res = await fetch(`${apiBase}/invites/${encodeURIComponent(code.toUpperCase())}`);
+    if (res.ok) {
+      const data = (await res.json()) as { ownerAlias: string };
+      return { ok: true, ownerAlias: data.ownerAlias };
+    }
+    if (res.status === 410) {
+      const data = (await res.json()) as { error?: string };
+      const reason: RedeemFailReason =
+        typeof data.error === "string" && data.error.toLowerCase().includes("expir")
+          ? "expired"
+          : "used";
+      return { ok: false, reason };
+    }
+    return { ok: false, reason: "not_found" };
+  } catch {
+    return { ok: false, reason: "offline" };
+  }
+}
+
+type RedeemState = "idle" | "success" | RedeemFailReason;
 
 export default function GhostInvite() {
   const colors = useColors();
@@ -60,8 +114,17 @@ export default function GhostInvite() {
   const [copied, setCopied] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [redeemInput, setRedeemInput] = useState("");
-  const [redeemState, setRedeemState] = useState<"idle" | "success" | "error">("idle");
+  const [redeemState, setRedeemState] = useState<RedeemState>("idle");
   const [redeemAlias, setRedeemAlias] = useState("");
+
+  // Register the initial code with the server when we first have an alias
+  const registeredRef = useRef<string>("");
+  useEffect(() => {
+    if (myAlias && code && registeredRef.current !== code) {
+      registeredRef.current = code;
+      void registerInviteOnServer(code, myAlias, expiresAt);
+    }
+  }, [myAlias, code, expiresAt]);
 
   const handleRedeemChange = (text: string) => {
     setRedeemState("idle");
@@ -81,35 +144,48 @@ export default function GhostInvite() {
   const handleRedeem = async () => {
     if (!CODE_REGEX.test(redeemInput)) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setRedeemState("error");
+      setRedeemState("bad_format");
+      setTimeout(() => setRedeemState("idle"), 4000);
       return;
     }
-    const alias = deriveAlias(redeemInput);
+
+    const result = await lookupInviteCode(redeemInput);
+
+    if (!result.ok) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setRedeemState(result.reason);
+      setTimeout(() => setRedeemState("idle"), 4000);
+      return;
+    }
+
     try {
-      const result = await addConversation(alias);
-      setRedeemAlias(alias);
+      await addConversation(result.ownerAlias);
+      setRedeemAlias(result.ownerAlias);
       setRedeemInput("");
-      setRedeemState(result.isReal ? "success" : "error");
-      Haptics.notificationAsync(
-        result.isReal ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
-      );
+      setRedeemState("success");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setTimeout(() => setRedeemState("idle"), 4000);
     } catch {
-      setRedeemState("error");
+      setRedeemState("not_found");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
   };
 
-  const reset = useCallback((idx?: number) => {
-    const i = idx ?? timerIdx;
-    const newCode = genCode();
-    const exp = Date.now() + TIMER_OPTIONS[i].ms;
-    setCode(newCode);
-    setExpiresAt(exp);
-    setRemaining(TIMER_OPTIONS[i].ms);
-    setCopied(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [timerIdx]);
+  const reset = useCallback(
+    (idx?: number) => {
+      const i = idx ?? timerIdx;
+      const newCode = genCode();
+      const exp = Date.now() + TIMER_OPTIONS[i].ms;
+      setCode(newCode);
+      setExpiresAt(exp);
+      setRemaining(TIMER_OPTIONS[i].ms);
+      setCopied(false);
+      registeredRef.current = newCode;
+      void registerInviteOnServer(newCode, myAlias ?? "", exp);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    [timerIdx, myAlias],
+  );
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {
@@ -122,7 +198,8 @@ export default function GhostInvite() {
   }, [expiresAt]);
 
   const expired = remaining <= 0;
-  const qrValue = `ghostface://invite/${code}?exp=${expiresAt}`;
+  // QR encodes the invite code so scanners can look it up server-side
+  const qrValue = encodeInviteQR(code);
 
   const handleCopy = async () => {
     await Clipboard.setStringAsync(code);
@@ -138,6 +215,48 @@ export default function GhostInvite() {
     setExpiresAt(exp);
     setRemaining(TIMER_OPTIONS[idx].ms);
   };
+
+  /**
+   * Called by QRScanner after decodeContactQR runs.
+   * The scanned value is either:
+   *  - an invite code (GF-XXXX-XXXX) — look it up server-side, then start conversation
+   *  - a plain alias — start conversation directly
+   */
+  const handleQRScan = async (decoded: string) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    if (CODE_REGEX.test(decoded)) {
+      // Scanned an invite code QR — resolve to real alias via server
+      const result = await lookupInviteCode(decoded);
+      if (result.ok) {
+        await addConversation(result.ownerAlias);
+        setRedeemAlias(result.ownerAlias);
+        setRedeemState("success");
+      } else {
+        setRedeemState(result.reason);
+      }
+    } else {
+      // Scanned a contact QR (ghostface://add/<alias>)
+      await addConversation(decoded);
+      setRedeemAlias(decoded);
+      setRedeemState("success");
+    }
+    setTimeout(() => setRedeemState("idle"), 4000);
+  };
+
+  const redeemErrorLabel = (): string => {
+    switch (redeemState) {
+      case "bad_format": return "INVALID CODE FORMAT";
+      case "not_found":  return "CODE NOT FOUND";
+      case "expired":    return "CODE HAS EXPIRED";
+      case "used":       return "CODE ALREADY USED";
+      case "offline":    return "SERVER UNREACHABLE";
+      default:           return "COULD NOT REDEEM";
+    }
+  };
+
+  const isErrorState = (s: RedeemState): boolean =>
+    s !== "idle" && s !== "success";
 
   const styles = StyleSheet.create({
     scroll: { flex: 1 },
@@ -313,7 +432,11 @@ export default function GhostInvite() {
       letterSpacing: 6,
       fontFamily: "monospace",
       borderWidth: 1,
-      borderColor: redeemState === "error" ? colors.destructive : redeemState === "success" ? colors.success : colors.border,
+      borderColor: isErrorState(redeemState)
+        ? colors.destructive
+        : redeemState === "success"
+          ? colors.success
+          : colors.border,
       borderRadius: colors.radius,
       paddingHorizontal: 16,
       paddingVertical: 14,
@@ -383,14 +506,6 @@ export default function GhostInvite() {
       letterSpacing: 3,
     },
   });
-
-  const handleQRScan = async (alias: string) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const result = await addConversation(alias);
-    setRedeemAlias(alias);
-    setRedeemState(result.isReal ? "success" : "error");
-    setTimeout(() => setRedeemState("idle"), 4000);
-  };
 
   return (
     <>
@@ -557,11 +672,11 @@ export default function GhostInvite() {
                 </Text>
               </View>
             )}
-            {redeemState === "error" && (
+            {isErrorState(redeemState) && (
               <View style={styles.redeemFeedback}>
                 <Ionicons name="close-circle" size={16} color={colors.destructive} />
                 <Text style={[styles.redeemFeedbackTxt, { color: colors.destructive }]}>
-                  INVALID CODE FORMAT
+                  {redeemErrorLabel()}
                 </Text>
               </View>
             )}
