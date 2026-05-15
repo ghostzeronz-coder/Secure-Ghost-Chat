@@ -1,11 +1,5 @@
 import { Router, type IRouter } from "express";
-import {
-  clusterApiUrl,
-  Connection,
-  Keypair,
-  PublicKey,
-  LAMPORTS_PER_SOL,
-} from "@solana/web3.js";
+import { clusterApiUrl, Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
@@ -120,27 +114,15 @@ router.post("/wallet/deploy-token", async (req, res) => {
       decimals,
       undefined,
       undefined,
-      TOKEN_PROGRAM_ID
+      TOKEN_PROGRAM_ID,
     );
 
     // 2. Create ATA for payer and mint initial supply (only if payer is mint authority)
     let mintSignature: string | null = null;
     if (!mintAuthority || mintAuthorityPk.equals(payer.publicKey)) {
-      const ata = await getOrCreateAssociatedTokenAccount(
-        connection,
-        payer,
-        mint,
-        payer.publicKey
-      );
+      const ata = await getOrCreateAssociatedTokenAccount(connection, payer, mint, payer.publicKey);
       const rawSupply = BigInt(supply) * BigInt(10 ** decimals);
-      mintSignature = await mintTo(
-        connection,
-        payer,
-        mint,
-        ata.address,
-        payer,
-        rawSupply
-      );
+      mintSignature = await mintTo(connection, payer, mint, ata.address, payer, rawSupply);
     }
 
     const mintAddress = mint.toBase58();

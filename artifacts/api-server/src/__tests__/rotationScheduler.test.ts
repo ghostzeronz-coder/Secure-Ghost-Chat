@@ -22,10 +22,11 @@ const makeSet = (returning: () => unknown[]) => ({
 vi.mock("@workspace/db", () => {
   // Build a minimal drizzle-like `db` object that records calls.
   const db = {
-    update: () => makeSet(() => {
-      mockDbUpdate();
-      return [];
-    }),
+    update: () =>
+      makeSet(() => {
+        mockDbUpdate();
+        return [];
+      }),
     select: () => ({
       from: () => ({
         where: () => ({

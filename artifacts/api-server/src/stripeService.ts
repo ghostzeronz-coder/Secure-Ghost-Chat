@@ -6,7 +6,7 @@ export class StripeService {
     successUrl: string,
     cancelUrl: string,
     customerEmail?: string,
-    trialDays: number = 7
+    trialDays: number = 7,
   ) {
     const stripe = await getUncachableStripeClient();
     return stripe.checkout.sessions.create({

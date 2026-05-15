@@ -34,9 +34,7 @@ async function initStripe() {
     const stripeSync = await getStripeSync();
 
     const domain =
-      process.env.REPLIT_DOMAINS?.split(",")[0] ||
-      process.env.REPLIT_DEV_DOMAIN ||
-      "localhost";
+      process.env.REPLIT_DOMAINS?.split(",")[0] || process.env.REPLIT_DEV_DOMAIN || "localhost";
 
     const webhookUrl = `https://${domain}/api/stripe/webhook`;
 

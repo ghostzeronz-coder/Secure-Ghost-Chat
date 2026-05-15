@@ -7,8 +7,7 @@ const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 // Receiving wallet — set GHOST_WALLET_ADDRESS env var to override
 const GHOST_WALLET =
-  process.env.GHOST_WALLET_ADDRESS ||
-  "GHosTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+  process.env.GHOST_WALLET_ADDRESS || "GHosTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
 
 const PLAN_PRICES: Record<string, { usdc: number; label: string }> = {
   specter: { usdc: 9.99, label: "GHOSTFACE SPECTER" },

@@ -8,9 +8,18 @@ import { normalizeAlias } from "../utils/alias";
 
 export interface WireMessage {
   type:
-    | "auth" | "msg" | "ack" | "ping" | "pong" | "pending"
-    | "call-ring" | "call-accept" | "call-hangup"
-    | "call-offer" | "call-answer" | "call-ice"
+    | "auth"
+    | "msg"
+    | "ack"
+    | "ping"
+    | "pong"
+    | "pending"
+    | "call-ring"
+    | "call-accept"
+    | "call-hangup"
+    | "call-offer"
+    | "call-answer"
+    | "call-ice"
     | "sms_inbound";
   token?: string;
   alias?: string;
@@ -35,8 +44,12 @@ interface AuthedSocket {
 const connectedClients = new Map<string, AuthedSocket>();
 
 const CALL_SIGNAL_TYPES = new Set([
-  "call-ring", "call-accept", "call-hangup",
-  "call-offer", "call-answer", "call-ice",
+  "call-ring",
+  "call-accept",
+  "call-hangup",
+  "call-offer",
+  "call-answer",
+  "call-ice",
 ]);
 
 function hashToken(token: string): string {
@@ -49,12 +62,7 @@ async function validateToken(alias: string, token: string): Promise<boolean> {
     const [row] = await db
       .select()
       .from(deviceTokensTable)
-      .where(
-        and(
-          eq(deviceTokensTable.userId, alias),
-          eq(deviceTokensTable.tokenHash, hash),
-        ),
-      );
+      .where(and(eq(deviceTokensTable.userId, alias), eq(deviceTokensTable.tokenHash, hash)));
     return !!row;
   } catch {
     return false;
@@ -66,19 +74,14 @@ async function deliverPending(alias: string, ws: WebSocket): Promise<void> {
     const pending = await db
       .select()
       .from(messagesTable)
-      .where(
-        and(
-          eq(messagesTable.toAlias, alias),
-          eq(messagesTable.delivered, false),
-        ),
-      );
+      .where(and(eq(messagesTable.toAlias, alias), eq(messagesTable.delivered, false)));
 
     for (const msg of pending) {
       const wire: WireMessage = {
-        type:       "msg",
-        msgId:      msg.id,
-        from:       msg.fromAlias,
-        payload:    msg.payload,
+        type: "msg",
+        msgId: msg.id,
+        from: msg.fromAlias,
+        payload: msg.payload,
         x3dhHeader: msg.x3dhHeader ?? undefined,
       };
       ws.send(JSON.stringify(wire));
@@ -88,10 +91,7 @@ async function deliverPending(alias: string, ws: WebSocket): Promise<void> {
       const ids = pending.map((m) => m.id);
       await Promise.all(
         ids.map((id) =>
-          db
-            .update(messagesTable)
-            .set({ delivered: true })
-            .where(eq(messagesTable.id, id)),
+          db.update(messagesTable).set({ delivered: true }).where(eq(messagesTable.id, id)),
         ),
       );
       logger.info({ alias, count: pending.length }, "Delivered pending messages");
@@ -192,7 +192,14 @@ export function createWsServer(wss: WebSocketServer): void {
           logger.debug({ type: msg.type, from: authedAlias, to: toAlias }, "Call signal relayed");
         } else if (msg.type === "call-ring") {
           // Callee is offline — bounce hangup back to caller immediately
-          ws.send(JSON.stringify({ type: "call-hangup", from: toAlias, callId: msg.callId, payload: "offline" }));
+          ws.send(
+            JSON.stringify({
+              type: "call-hangup",
+              from: toAlias,
+              callId: msg.callId,
+              payload: "offline",
+            }),
+          );
           logger.debug({ from: authedAlias, to: toAlias }, "Call ring bounced: callee offline");
         }
         return;
@@ -210,21 +217,21 @@ export function createWsServer(wss: WebSocketServer): void {
         const [stored] = await db
           .insert(messagesTable)
           .values({
-            fromAlias:  authedAlias,
+            fromAlias: authedAlias,
             toAlias,
-            payload:    msg.payload,
+            payload: msg.payload,
             x3dhHeader: msg.x3dhHeader ?? null,
-            delivered:  false,
+            delivered: false,
           })
           .returning();
 
         const recipient = connectedClients.get(toAlias);
         if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
           const wire: WireMessage = {
-            type:       "msg",
-            msgId:      stored.id,
-            from:       authedAlias,
-            payload:    msg.payload,
+            type: "msg",
+            msgId: stored.id,
+            from: authedAlias,
+            payload: msg.payload,
             x3dhHeader: msg.x3dhHeader ?? undefined,
           };
           recipient.ws.send(JSON.stringify(wire));

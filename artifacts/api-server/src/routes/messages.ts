@@ -28,7 +28,12 @@ async function getAuthedAlias(req: Request): Promise<string | null> {
   const [row] = await db
     .select()
     .from(deviceTokensTable)
-    .where(and(eq(deviceTokensTable.userId, normalizeAlias(alias)), eq(deviceTokensTable.tokenHash, hash)));
+    .where(
+      and(
+        eq(deviceTokensTable.userId, normalizeAlias(alias)),
+        eq(deviceTokensTable.tokenHash, hash),
+      ),
+    );
   return row ? normalizeAlias(alias) : null;
 }
 

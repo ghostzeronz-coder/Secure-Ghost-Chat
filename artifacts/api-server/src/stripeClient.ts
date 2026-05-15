@@ -9,7 +9,8 @@ let connectionSettings: ConnectionSettings | undefined;
 async function getCredentials(): Promise<{ publishableKey: string; secretKey: string }> {
   // Prefer direct env vars — set these for live/production use
   const directSecret = process.env.STRIPE_SECRET_KEY;
-  const directPublishable = process.env.STRIPE_PUBLISHABLE_KEY || process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  const directPublishable =
+    process.env.STRIPE_PUBLISHABLE_KEY || process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 
   if (directSecret && directPublishable) {
     return { publishableKey: directPublishable, secretKey: directSecret };
@@ -43,7 +44,7 @@ async function getCredentials(): Promise<{ publishableKey: string; secretKey: st
     },
   });
 
-  const data = await response.json() as { items?: ConnectionSettings[] };
+  const data = (await response.json()) as { items?: ConnectionSettings[] };
   connectionSettings = data.items?.[0];
 
   if (
@@ -52,7 +53,7 @@ async function getCredentials(): Promise<{ publishableKey: string; secretKey: st
     !connectionSettings.settings.secret
   ) {
     throw new Error(
-      `Stripe ${targetEnvironment} connection not found. Set STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY env vars, or configure the Stripe connector.`
+      `Stripe ${targetEnvironment} connection not found. Set STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY env vars, or configure the Stripe connector.`,
     );
   }
 

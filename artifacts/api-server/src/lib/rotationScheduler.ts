@@ -14,12 +14,19 @@ let running = false;
 
 function generateDemoMsisdn(country: string): { phoneNumber: string; msisdn: string } {
   const areaCode =
-    country === "NZ" ? "+64" :
-    country === "AU" ? "+61" :
-    country === "US" ? "+1" :
-    country === "GB" ? "+44" :
-    country === "CA" ? "+1" :
-    country === "DE" ? "+49" : "+1";
+    country === "NZ"
+      ? "+64"
+      : country === "AU"
+        ? "+61"
+        : country === "US"
+          ? "+1"
+          : country === "GB"
+            ? "+44"
+            : country === "CA"
+              ? "+1"
+              : country === "DE"
+                ? "+49"
+                : "+1";
   const suffix = Math.floor(Math.random() * 9_000_000) + 1_000_000;
   return { phoneNumber: `${areaCode} ${suffix}`, msisdn: `${suffix}` };
 }
@@ -86,7 +93,10 @@ async function rotateOne(row: typeof ghostNumbersTable.$inferSelect): Promise<vo
   } catch (err) {
     // Scheduler path: no available numbers → warn and skip until next tick,
     // matching original "keep current" behaviour.
-    logger.warn({ err, id, country }, "[rotation] Could not obtain replacement number — will retry next tick");
+    logger.warn(
+      { err, id, country },
+      "[rotation] Could not obtain replacement number — will retry next tick",
+    );
   }
 }
 
@@ -107,11 +117,13 @@ async function tick(): Promise<void> {
     const due = await db
       .select()
       .from(ghostNumbersTable)
-      .where(and(
-        eq(ghostNumbersTable.status, "active"),
-        isNotNull(ghostNumbersTable.nextRotationAt),
-        lte(ghostNumbersTable.nextRotationAt, new Date()),
-      ))
+      .where(
+        and(
+          eq(ghostNumbersTable.status, "active"),
+          isNotNull(ghostNumbersTable.nextRotationAt),
+          lte(ghostNumbersTable.nextRotationAt, new Date()),
+        ),
+      )
       .limit(MAX_PER_TICK);
 
     if (due.length === 0) return;

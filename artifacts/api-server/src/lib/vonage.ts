@@ -23,14 +23,15 @@ async function vonageFetch(
     ...params,
   });
 
-  const url =
-    method === "GET"
-      ? `${BASE}${path}?${qs}`
-      : `${BASE}${path}`;
+  const url = method === "GET" ? `${BASE}${path}?${qs}` : `${BASE}${path}`;
 
   const opts: RequestInit =
     method === "POST"
-      ? { method: "POST", body: qs, headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+      ? {
+          method: "POST",
+          body: qs,
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        }
       : { method: "GET" };
 
   const res = await fetch(url, opts);
@@ -46,7 +47,9 @@ export const vonageClient = {
 
   async searchNumbers(country: string): Promise<VonageNumber[]> {
     if (!configured()) return [];
-    const data = await vonageFetch("/number/search", "GET", { country, features: "SMS" }) as { numbers?: VonageNumber[] };
+    const data = (await vonageFetch("/number/search", "GET", { country, features: "SMS" })) as {
+      numbers?: VonageNumber[];
+    };
     return data.numbers ?? [];
   },
 

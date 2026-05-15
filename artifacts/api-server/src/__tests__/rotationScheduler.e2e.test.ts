@@ -79,10 +79,9 @@ describe.skipIf(SKIP)("rotationScheduler — E2E (real DB)", () => {
       msisdn: string;
       archived_msisdns: string[];
       next_rotation_at: string;
-    }>(
-      "SELECT id, msisdn, archived_msisdns, next_rotation_at FROM ghost_numbers WHERE id = $1",
-      [rowId],
-    );
+    }>("SELECT id, msisdn, archived_msisdns, next_rotation_at FROM ghost_numbers WHERE id = $1", [
+      rowId,
+    ]);
 
     const row = res.rows[0];
     expect(row).toBeDefined();

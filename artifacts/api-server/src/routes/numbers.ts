@@ -76,7 +76,12 @@ async function getAuthedAlias(req: Request): Promise<string | null> {
   const [row] = await db
     .select()
     .from(deviceTokensTable)
-    .where(and(eq(deviceTokensTable.userId, normalizeAlias(alias)), eq(deviceTokensTable.tokenHash, hash)));
+    .where(
+      and(
+        eq(deviceTokensTable.userId, normalizeAlias(alias)),
+        eq(deviceTokensTable.tokenHash, hash),
+      ),
+    );
   return row ? normalizeAlias(alias) : null;
 }
 
@@ -144,7 +149,9 @@ router.get("/numbers/:id/sms", async (req: Request, res: Response) => {
 // POST /api/numbers/provision — rent a ghost number
 router.post("/numbers/provision", async (req: Request, res: Response) => {
   if (!provisionLimiter.check(getIpKey(req))) {
-    return res.status(429).json({ error: "Too many requests. Ghost number provisioning is limited to 3 per hour." });
+    return res
+      .status(429)
+      .json({ error: "Too many requests. Ghost number provisioning is limited to 3 per hour." });
   }
   try {
     const alias = await getAuthedAlias(req);
@@ -163,7 +170,9 @@ router.post("/numbers/provision", async (req: Request, res: Response) => {
 
     const maxNumbers = plan === "phantom" ? 2 : 1;
     if (existing.length >= maxNumbers) {
-      return res.status(400).json({ error: `Your ${plan} plan allows ${maxNumbers} ghost number(s). Release one first.` });
+      return res.status(400).json({
+        error: `Your ${plan} plan allows ${maxNumbers} ghost number(s). Release one first.`,
+      });
     }
 
     let phoneNumber: string;
@@ -171,14 +180,25 @@ router.post("/numbers/provision", async (req: Request, res: Response) => {
 
     if (!vonageClient.configured()) {
       // Demo mode — generate a realistic-looking ghost number
-      const areaCode = country === "NZ" ? "+64" : country === "AU" ? "+61" : country === "US" ? "+1" : country === "GB" ? "+44" : "+1";
+      const areaCode =
+        country === "NZ"
+          ? "+64"
+          : country === "AU"
+            ? "+61"
+            : country === "US"
+              ? "+1"
+              : country === "GB"
+                ? "+44"
+                : "+1";
       const suffix = Math.floor(Math.random() * 9000000) + 1000000;
       phoneNumber = `${areaCode} ${suffix}`;
       msisdn = `${suffix}`;
     } else {
       const available = await vonageClient.searchNumbers(country);
       if (!available.length) {
-        return res.status(404).json({ error: `No numbers available in ${COUNTRY_NAMES[country] ?? country}` });
+        return res
+          .status(404)
+          .json({ error: `No numbers available in ${COUNTRY_NAMES[country] ?? country}` });
       }
       const chosen = available[0];
       await vonageClient.rentNumber(country, chosen.msisdn);
@@ -260,16 +280,17 @@ router.patch("/numbers/:id/rotation", async (req: Request, res: Response) => {
     const [number] = await db
       .select()
       .from(ghostNumbersTable)
-      .where(and(
-        eq(ghostNumbersTable.id, numberId),
-        eq(ghostNumbersTable.userId, alias),
-        eq(ghostNumbersTable.status, "active"),
-      ));
+      .where(
+        and(
+          eq(ghostNumbersTable.id, numberId),
+          eq(ghostNumbersTable.userId, alias),
+          eq(ghostNumbersTable.status, "active"),
+        ),
+      );
     if (!number) return res.status(404).json({ error: "Number not found" });
 
-    const nextRotationAt = rotateEveryDays === 0
-      ? null
-      : new Date(Date.now() + rotateEveryDays * MS_PER_DAY);
+    const nextRotationAt =
+      rotateEveryDays === 0 ? null : new Date(Date.now() + rotateEveryDays * MS_PER_DAY);
 
     const [updated] = await db
       .update(ghostNumbersTable)
@@ -301,11 +322,13 @@ router.post("/numbers/:id/rotate-now", async (req: Request, res: Response) => {
     const [number] = await db
       .select()
       .from(ghostNumbersTable)
-      .where(and(
-        eq(ghostNumbersTable.id, numberId),
-        eq(ghostNumbersTable.userId, alias),
-        eq(ghostNumbersTable.status, "active"),
-      ));
+      .where(
+        and(
+          eq(ghostNumbersTable.id, numberId),
+          eq(ghostNumbersTable.userId, alias),
+          eq(ghostNumbersTable.status, "active"),
+        ),
+      );
     if (!number) return res.status(404).json({ error: "Number not found" });
 
     // Atomically claim the per-user rate-limit slot.
@@ -341,10 +364,7 @@ router.post("/numbers/:id/rotate-now", async (req: Request, res: Response) => {
     try {
       await performRotation(number, { resetCountdown: true });
     } catch (rotateErr) {
-      await pool.query(
-        "DELETE FROM user_rotation_limits WHERE user_id = $1",
-        [alias],
-      );
+      await pool.query("DELETE FROM user_rotation_limits WHERE user_id = $1", [alias]);
       throw rotateErr;
     }
 
@@ -373,13 +393,15 @@ router.post("/webhooks/sms/inbound", async (req: Request, res: Response) => {
     const [number] = await db
       .select()
       .from(ghostNumbersTable)
-      .where(and(
-        eq(ghostNumbersTable.status, "active"),
-        or(
-          eq(ghostNumbersTable.msisdn, to),
-          sql`${ghostNumbersTable.archivedMsisdns} @> ${JSON.stringify([to])}::jsonb`,
+      .where(
+        and(
+          eq(ghostNumbersTable.status, "active"),
+          or(
+            eq(ghostNumbersTable.msisdn, to),
+            sql`${ghostNumbersTable.archivedMsisdns} @> ${JSON.stringify([to])}::jsonb`,
+          ),
         ),
-      ));
+      );
 
     if (number) {
       await db.insert(ghostSmsTable).values({

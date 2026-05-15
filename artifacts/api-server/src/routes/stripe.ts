@@ -63,31 +63,35 @@ router.post("/stripe/seed", async (_req, res) => {
       const prices: PriceEntry[] = [];
 
       const hasMonthly = existingPrices.data.find(
-        (p) => p.recurring?.interval === "month" && p.unit_amount === plan.monthly
+        (p) => p.recurring?.interval === "month" && p.unit_amount === plan.monthly,
       );
       const hasYearly = existingPrices.data.find(
-        (p) => p.recurring?.interval === "year" && p.unit_amount === plan.yearly
+        (p) => p.recurring?.interval === "year" && p.unit_amount === plan.yearly,
       );
 
-      const monthlyPrice = hasMonthly || await stripe.prices.create({
-        product: product.id,
-        unit_amount: plan.monthly,
-        currency: "usd",
-        recurring: { interval: "month" },
-        metadata: { ghostface: "true", tier: plan.name.toLowerCase() },
-      });
+      const monthlyPrice =
+        hasMonthly ||
+        (await stripe.prices.create({
+          product: product.id,
+          unit_amount: plan.monthly,
+          currency: "usd",
+          recurring: { interval: "month" },
+          metadata: { ghostface: "true", tier: plan.name.toLowerCase() },
+        }));
 
-      const yearlyPrice = hasYearly || await stripe.prices.create({
-        product: product.id,
-        unit_amount: plan.yearly,
-        currency: "usd",
-        recurring: { interval: "year" },
-        metadata: { ghostface: "true", tier: plan.name.toLowerCase() },
-      });
+      const yearlyPrice =
+        hasYearly ||
+        (await stripe.prices.create({
+          product: product.id,
+          unit_amount: plan.yearly,
+          currency: "usd",
+          recurring: { interval: "year" },
+          metadata: { ghostface: "true", tier: plan.name.toLowerCase() },
+        }));
 
       prices.push(
         { id: monthlyPrice.id, interval: "month", amount: plan.monthly },
-        { id: yearlyPrice.id, interval: "year", amount: plan.yearly }
+        { id: yearlyPrice.id, interval: "year", amount: plan.yearly },
       );
 
       results.push({ product: { id: product.id, name: product.name }, prices });
@@ -118,9 +122,7 @@ router.post("/stripe/checkout", async (req, res) => {
     };
 
     const domain =
-      process.env.REPLIT_DOMAINS?.split(",")[0] ||
-      process.env.REPLIT_DEV_DOMAIN ||
-      "localhost";
+      process.env.REPLIT_DOMAINS?.split(",")[0] || process.env.REPLIT_DEV_DOMAIN || "localhost";
 
     const baseUrl = `https://${domain}`;
 
@@ -142,7 +144,9 @@ router.post("/stripe/checkout", async (req, res) => {
           query: `name:"${planKey.toUpperCase()}" AND active:"true"`,
         });
         if (products.data.length === 0) {
-          return res.status(400).json({ error: `Product '${planKey}' not found. Run /api/stripe/seed first.` });
+          return res
+            .status(400)
+            .json({ error: `Product '${planKey}' not found. Run /api/stripe/seed first.` });
         }
         const product = products.data[0];
 
@@ -153,7 +157,7 @@ router.post("/stripe/checkout", async (req, res) => {
           currency: "nzd",
         });
         const nzdMonthly = existingPrices.data.find(
-          (p) => p.recurring?.interval === "month" && p.unit_amount === nzdConfig.amount
+          (p) => p.recurring?.interval === "month" && p.unit_amount === nzdConfig.amount,
         );
 
         if (nzdMonthly) {
@@ -179,16 +183,24 @@ router.post("/stripe/checkout", async (req, res) => {
           query: `name:"${planKey.toUpperCase()}" AND active:"true"`,
         });
         if (products.data.length === 0) {
-          return res.status(400).json({ error: `Product '${planKey}' not found. Run /api/stripe/seed first.` });
+          return res
+            .status(400)
+            .json({ error: `Product '${planKey}' not found. Run /api/stripe/seed first.` });
         }
         const product = products.data[0];
-        const existingPrices = await stripe.prices.list({ product: product.id, active: true, currency: "usd" });
+        const existingPrices = await stripe.prices.list({
+          product: product.id,
+          active: true,
+          currency: "usd",
+        });
         const usdMonthly = existingPrices.data.find(
-          (p) => p.recurring?.interval === "month" && p.unit_amount === usdAmount
+          (p) => p.recurring?.interval === "month" && p.unit_amount === usdAmount,
         );
         resolvedPriceId = usdMonthly?.id;
         if (!resolvedPriceId) {
-          return res.status(400).json({ error: `USD price for '${planKey}' not found. Run /api/stripe/seed first.` });
+          return res
+            .status(400)
+            .json({ error: `USD price for '${planKey}' not found. Run /api/stripe/seed first.` });
         }
       }
     }
@@ -201,7 +213,7 @@ router.post("/stripe/checkout", async (req, res) => {
       resolvedPriceId,
       `${baseUrl}/api/stripe/checkout/success`,
       `${baseUrl}/api/stripe/checkout/cancel`,
-      email
+      email,
     );
 
     return res.json({ url: session.url, sessionId: session.id });
@@ -273,9 +285,7 @@ router.post("/stripe/customer-portal", async (req, res) => {
 
     const stripe = await (await import("../stripeClient")).getUncachableStripeClient();
     const domain =
-      process.env.REPLIT_DOMAINS?.split(",")[0] ||
-      process.env.REPLIT_DEV_DOMAIN ||
-      "localhost";
+      process.env.REPLIT_DOMAINS?.split(",")[0] || process.env.REPLIT_DEV_DOMAIN || "localhost";
     const returnUrl = `https://${domain}`;
 
     // Find or create Stripe customer by email

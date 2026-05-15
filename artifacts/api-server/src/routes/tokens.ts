@@ -1,13 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, tokensTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  LAMPORTS_PER_SOL,
-  clusterApiUrl,
-} from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL, clusterApiUrl } from "@solana/web3.js";
 import {
   createMint,
   getOrCreateAssociatedTokenAccount,
@@ -40,7 +34,8 @@ async function ensureSeedTokens() {
     {
       name: "CASPER",
       symbol: "CASPER",
-      description: "The anonymous governance & utility token of the GHOSTFACE ecosystem. Used for encrypted voting, premium feature access, and ghost-node staking.",
+      description:
+        "The anonymous governance & utility token of the GHOSTFACE ecosystem. Used for encrypted voting, premium feature access, and ghost-node staking.",
       decimals: 9,
       totalSupply: 1_000_000_000,
       logoColor: "#00C8FF",
@@ -49,7 +44,8 @@ async function ensureSeedTokens() {
     {
       name: "FaceZero",
       symbol: "FZ",
-      description: "FaceZero (FZ) is the privacy-first payment rail for GHOSTFACE. Peer-to-peer transfers, paywall access, and cross-chain bridging.",
+      description:
+        "FaceZero (FZ) is the privacy-first payment rail for GHOSTFACE. Peer-to-peer transfers, paywall access, and cross-chain bridging.",
       decimals: 6,
       totalSupply: 500_000_000,
       logoColor: "#9945FF",
@@ -73,7 +69,10 @@ router.get("/tokens", async (_req: Request, res: Response) => {
 // ── GET /api/tokens/:id ───────────────────────────────────────────────────────
 router.get("/tokens/:id", async (req: Request, res: Response) => {
   try {
-    const [token] = await db.select().from(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
+    const [token] = await db
+      .select()
+      .from(tokensTable)
+      .where(eq(tokensTable.id, Number(req.params.id)));
     if (!token) return res.status(404).json({ error: "Token not found" });
     return res.json({ data: token });
   } catch (err) {
@@ -86,10 +85,18 @@ router.post("/tokens", async (req: Request, res: Response) => {
   try {
     const { name, symbol, description, decimals, totalSupply, logoColor, notes } = req.body;
     if (!name || !symbol) return res.status(400).json({ error: "name and symbol are required" });
-    const [token] = await db.insert(tokensTable).values({
-      name, symbol: symbol.toUpperCase(), description, decimals: decimals ?? 9,
-      totalSupply: totalSupply ?? 1_000_000_000, logoColor: logoColor ?? "#00C8FF", notes,
-    }).returning();
+    const [token] = await db
+      .insert(tokensTable)
+      .values({
+        name,
+        symbol: symbol.toUpperCase(),
+        description,
+        decimals: decimals ?? 9,
+        totalSupply: totalSupply ?? 1_000_000_000,
+        logoColor: logoColor ?? "#00C8FF",
+        notes,
+      })
+      .returning();
     return res.status(201).json({ data: token });
   } catch (err) {
     return res.status(500).json({ error: toErrorMessage(err) });
@@ -100,7 +107,8 @@ router.post("/tokens", async (req: Request, res: Response) => {
 router.put("/tokens/:id", async (req: Request, res: Response) => {
   try {
     const { name, symbol, description, decimals, totalSupply, logoColor, notes } = req.body;
-    const [token] = await db.update(tokensTable)
+    const [token] = await db
+      .update(tokensTable)
       .set({ name, symbol, description, decimals, totalSupply, logoColor, notes })
       .where(eq(tokensTable.id, Number(req.params.id)))
       .returning();
@@ -114,9 +122,13 @@ router.put("/tokens/:id", async (req: Request, res: Response) => {
 // ── DELETE /api/tokens/:id ────────────────────────────────────────────────────
 router.delete("/tokens/:id", async (req: Request, res: Response) => {
   try {
-    const [token] = await db.select().from(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
+    const [token] = await db
+      .select()
+      .from(tokensTable)
+      .where(eq(tokensTable.id, Number(req.params.id)));
     if (!token) return res.status(404).json({ error: "Token not found" });
-    if (token.status === "deployed") return res.status(400).json({ error: "Cannot delete a deployed token" });
+    if (token.status === "deployed")
+      return res.status(400).json({ error: "Cannot delete a deployed token" });
     await db.delete(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
     return res.json({ success: true });
   } catch (err) {
@@ -127,14 +139,21 @@ router.delete("/tokens/:id", async (req: Request, res: Response) => {
 // ── POST /api/tokens/:id/deploy — Deploy to Solana mainnet ───────────────────
 router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
   try {
-    const [token] = await db.select().from(tokensTable).where(eq(tokensTable.id, Number(req.params.id)));
+    const [token] = await db
+      .select()
+      .from(tokensTable)
+      .where(eq(tokensTable.id, Number(req.params.id)));
     if (!token) return res.status(404).json({ error: "Token not found" });
-    if (token.status === "deployed") return res.status(400).json({ error: "Token is already deployed", mintAddress: token.mintAddress });
+    if (token.status === "deployed")
+      return res
+        .status(400)
+        .json({ error: "Token is already deployed", mintAddress: token.mintAddress });
 
     const payer = getDeployerKeypair();
     if (!payer) {
       return res.status(503).json({
-        error: "Deployer not configured. Set SOLANA_DEPLOYER_KEY (JSON array of 64 bytes) and fund it with SOL.",
+        error:
+          "Deployer not configured. Set SOLANA_DEPLOYER_KEY (JSON array of 64 bytes) and fund it with SOL.",
         setup: true,
       });
     }
@@ -142,7 +161,9 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
     const mintAuthorityAddress = req.body.mintAuthority as string | undefined;
     let mintAuthorityPk: PublicKey = payer.publicKey;
     if (mintAuthorityAddress) {
-      try { mintAuthorityPk = new PublicKey(mintAuthorityAddress); } catch {
+      try {
+        mintAuthorityPk = new PublicKey(mintAuthorityAddress);
+      } catch {
         return res.status(400).json({ error: "Invalid mintAuthority address" });
       }
     }
@@ -161,7 +182,16 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
     await db.update(tokensTable).set({ status: "pending" }).where(eq(tokensTable.id, token.id));
 
     // Create mint
-    const mint = await createMint(connection, payer, mintAuthorityPk, mintAuthorityPk, token.decimals, undefined, undefined, TOKEN_PROGRAM_ID);
+    const mint = await createMint(
+      connection,
+      payer,
+      mintAuthorityPk,
+      mintAuthorityPk,
+      token.decimals,
+      undefined,
+      undefined,
+      TOKEN_PROGRAM_ID,
+    );
 
     let mintSignature: string | null = null;
     if (!mintAuthorityAddress || mintAuthorityPk.equals(payer.publicKey)) {
@@ -173,20 +203,30 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
     const mintAddress = mint.toBase58();
     const explorerUrl = `https://solscan.io/token/${mintAddress}`;
 
-    await db.update(tokensTable).set({
-      status: "deployed",
-      mintAddress,
-      deploySignature: mintSignature,
-      explorerUrl,
-      network: "mainnet-beta",
-      deployedAt: new Date(),
-    }).where(eq(tokensTable.id, token.id));
+    await db
+      .update(tokensTable)
+      .set({
+        status: "deployed",
+        mintAddress,
+        deploySignature: mintSignature,
+        explorerUrl,
+        network: "mainnet-beta",
+        deployedAt: new Date(),
+      })
+      .where(eq(tokensTable.id, token.id));
 
     const [updated] = await db.select().from(tokensTable).where(eq(tokensTable.id, token.id));
     return res.json({ success: true, data: updated });
   } catch (err) {
     // Mark as failed
-    try { await db.update(tokensTable).set({ status: "failed" }).where(eq(tokensTable.id, Number(req.params.id))); } catch { /* best-effort rollback — ignore secondary failure */ }
+    try {
+      await db
+        .update(tokensTable)
+        .set({ status: "failed" })
+        .where(eq(tokensTable.id, Number(req.params.id)));
+    } catch {
+      /* best-effort rollback — ignore secondary failure */
+    }
     logger.error({ err }, "[tokens/deploy]");
     return res.status(500).json({ error: toErrorMessage(err) });
   }

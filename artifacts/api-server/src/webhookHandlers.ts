@@ -4,7 +4,7 @@ export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
     if (!Buffer.isBuffer(payload)) {
       throw new Error(
-        "Payload must be a Buffer. Ensure webhook route is registered BEFORE app.use(express.json())."
+        "Payload must be a Buffer. Ensure webhook route is registered BEFORE app.use(express.json()).",
       );
     }
 

@@ -43,7 +43,10 @@ export class RateLimiter {
 }
 
 /** Extract a stable IP key from an Express request, honouring X-Forwarded-For behind the Replit proxy. */
-export function getIpKey(req: { ip?: string; headers: Record<string, string | string[] | undefined> }): string {
+export function getIpKey(req: {
+  ip?: string;
+  headers: Record<string, string | string[] | undefined>;
+}): string {
   const forwarded = req.headers["x-forwarded-for"];
   if (forwarded) {
     const first = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(",")[0];

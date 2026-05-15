@@ -93,7 +93,10 @@ async function requireDeviceAuth(req: Request, res: Response, next: () => void):
 router.post("/prekeys/register", async (req: Request, res: Response) => {
   try {
     // Rate-limit registrations per IP to mitigate pre-registration alias squatting
-    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "unknown";
+    const ip =
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
+      req.socket.remoteAddress ??
+      "unknown";
     if (!checkRegisterRateLimit(ip)) {
       return res.status(429).json({ error: "Too many registration attempts. Try again later." });
     }
@@ -116,10 +119,14 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "spkPublicKey must be a 64-char hex string" });
     }
     if (ikSignPublicKey !== undefined && !isValidPubKey(ikSignPublicKey)) {
-      return res.status(400).json({ error: "ikSignPublicKey must be a 64-char hex string (Ed25519 pub key)" });
+      return res
+        .status(400)
+        .json({ error: "ikSignPublicKey must be a 64-char hex string (Ed25519 pub key)" });
     }
     if (spkSignature !== undefined && !isValidSignature(spkSignature)) {
-      return res.status(400).json({ error: "spkSignature must be a 128-char hex string (Ed25519 signature)" });
+      return res
+        .status(400)
+        .json({ error: "spkSignature must be a 128-char hex string (Ed25519 signature)" });
     }
 
     // Normalize and validate alias format
@@ -153,7 +160,7 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
             ikPublicKey,
             spkPublicKey,
             ikSignPublicKey: ikSignPublicKey ?? null,
-            spkSignature:    spkSignature    ?? null,
+            spkSignature: spkSignature ?? null,
           })
           .where(eq(identityKeysTable.userId, normalizedUserId));
       });
@@ -163,11 +170,11 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
     await db.transaction(async (tx) => {
       await tx.insert(deviceTokensTable).values({ userId: normalizedUserId, tokenHash });
       await tx.insert(identityKeysTable).values({
-        userId:          normalizedUserId,
+        userId: normalizedUserId,
         ikPublicKey,
         spkPublicKey,
         ikSignPublicKey: ikSignPublicKey ?? null,
-        spkSignature:    spkSignature    ?? null,
+        spkSignature: spkSignature ?? null,
       });
     });
 
@@ -217,7 +224,7 @@ router.put(
           ikPublicKey,
           spkPublicKey,
           ikSignPublicKey: ikSignPublicKey ?? null,
-          spkSignature:    spkSignature    ?? null,
+          spkSignature: spkSignature ?? null,
         })
         .where(eq(identityKeysTable.userId, userId));
 
@@ -225,7 +232,7 @@ router.put(
     } catch (err) {
       return res.status(500).json({ error: toErrorMessage(err) });
     }
-  }
+  },
 );
 
 // ── POST /api/prekeys/:userId — upload a batch of one-time prekeys ────────────
@@ -262,7 +269,7 @@ router.post(
     } catch (err) {
       return res.status(500).json({ error: toErrorMessage(err) });
     }
-  }
+  },
 );
 
 // ── GET /api/prekeys/:userId/bundle — fetch a full prekey bundle ──────────────
@@ -302,7 +309,7 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
           FOR UPDATE SKIP LOCKED
        )
        RETURNING public_key`,
-      [userId]
+      [userId],
     );
 
     const opk = result.rowCount === 1 ? result.rows[0].public_key : null;
@@ -314,13 +321,13 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
 
     const remainingNum = Number(remaining);
     return res.json({
-      ikPublicKey:     identityKey.ikPublicKey,
-      spkPublicKey:    identityKey.spkPublicKey,
+      ikPublicKey: identityKey.ikPublicKey,
+      spkPublicKey: identityKey.spkPublicKey,
       ikSignPublicKey: identityKey.ikSignPublicKey ?? undefined,
-      spkSignature:    identityKey.spkSignature    ?? undefined,
+      spkSignature: identityKey.spkSignature ?? undefined,
       opk,
-      remaining:       remainingNum,
-      lowSupply:       remainingNum < OPK_LOW_WATERMARK,
+      remaining: remainingNum,
+      lowSupply: remainingNum < OPK_LOW_WATERMARK,
     });
   } catch (err) {
     return res.status(500).json({ error: toErrorMessage(err) });
@@ -346,7 +353,7 @@ router.get(
     } catch (err) {
       return res.status(500).json({ error: toErrorMessage(err) });
     }
-  }
+  },
 );
 
 export default router;

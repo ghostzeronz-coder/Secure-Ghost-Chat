@@ -30,7 +30,7 @@ app.use(
       includeSubDomains: true,
       preload: true,
     },
-  })
+  }),
 );
 
 // ── CORS — only allow requests from the Replit dev domain and deployed app ───
@@ -38,7 +38,9 @@ const ALLOWED_ORIGINS = [
   // Replit dev proxy (Expo WebView + browser preview)
   process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : null,
   // Expo web preview runs on *.expo.spock.replit.dev — add that variant too
-  process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN.replace("spock.replit.dev", "expo.spock.replit.dev")}` : null,
+  process.env.EXPO_PUBLIC_DOMAIN
+    ? `https://${process.env.EXPO_PUBLIC_DOMAIN.replace("spock.replit.dev", "expo.spock.replit.dev")}`
+    : null,
   // Deployed app domain (set ALLOWED_ORIGIN env var in production)
   process.env.ALLOWED_ORIGIN ?? null,
   // Local Expo dev
@@ -65,7 +67,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "stripe-signature"],
     credentials: true,
     maxAge: 600, // preflight cache 10 min
-  })
+  }),
 );
 
 // ── Request logging ───────────────────────────────────────────────────────────
@@ -80,7 +82,7 @@ app.use(
         return { statusCode: res.statusCode };
       },
     },
-  })
+  }),
 );
 
 // ── Stripe webhook MUST be registered BEFORE express.json() ──────────────────
@@ -101,7 +103,7 @@ app.post(
       logger.error({ err }, "Stripe webhook error");
       return res.status(400).json({ error: toErrorMessage(err) });
     }
-  }
+  },
 );
 
 // ── General middleware ────────────────────────────────────────────────────────
