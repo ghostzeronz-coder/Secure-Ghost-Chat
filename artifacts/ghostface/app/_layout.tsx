@@ -9,7 +9,7 @@ import {
 import {
   ShareTechMono_400Regular,
 } from "@expo-google-fonts/share-tech-mono";
-import { Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, usePathname } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -247,6 +247,8 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
     ShareTechMono_400Regular,
+    ...Ionicons.font,
+    ...Feather.font,
   });
 
   useEffect(() => {
