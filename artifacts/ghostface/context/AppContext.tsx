@@ -2137,8 +2137,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error("[X3DH] Failed to init Bob session or decrypt first message from", senderAlias, e);
       setState((prev) => {
-        const conv = prev.conversations.find((c) => c.alias === senderAlias);
-        if (!conv) return prev;
         const placeholder: Message = {
           id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
           text: "⚠ Message could not be decrypted",
@@ -2147,11 +2145,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           encrypted: true,
           sealed: false,
         };
-        const updated = prev.conversations.map((c) =>
-          c.alias === senderAlias
-            ? { ...c, messages: [...c.messages, placeholder], lastMessage: "⚠ Message could not be decrypted", timestamp: Date.now(), unread: c.unread + 1 }
-            : c
-        );
+        const existingConv = prev.conversations.find((c) => c.alias === senderAlias);
+        if (existingConv) {
+          const updated = prev.conversations.map((c) =>
+            c.alias === senderAlias
+              ? { ...c, messages: [...c.messages, placeholder], lastMessage: "⚠ Message could not be decrypted", timestamp: Date.now(), unread: c.unread + 1 }
+              : c
+          );
+          persistConversations(updated);
+          return { ...prev, conversations: updated };
+        }
+        // Unknown sender — create a minimal conversation so the failure is visible
+        const newConv: Conversation = {
+          id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+          alias: senderAlias,
+          lastMessage: "⚠ Message could not be decrypted",
+          timestamp: Date.now(),
+          unread: 1,
+          isRealContact: true,
+          messages: [placeholder],
+        };
+        const updated = [newConv, ...prev.conversations];
         persistConversations(updated);
         return { ...prev, conversations: updated };
       });
