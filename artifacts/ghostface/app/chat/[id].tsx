@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -19,6 +21,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
+import type { Attachment } from "@/context/AppContext";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { drKeyFingerprint } from "@/lib/doubleRatchet";
@@ -53,6 +56,9 @@ export default function ChatScreen() {
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<Attachment | null>(null);
+  const [attachBusy, setAttachBusy] = useState(false);
   const [, setTick] = useState(0);
   const listRef = useRef<FlatList>(null);
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -84,11 +90,102 @@ export default function ChatScreen() {
   }
 
   const handleSend = () => {
-    if (!text.trim()) return;
+    const trimmed = text.trim();
+    if (!trimmed && !pendingAttachment) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const result = sendMessage(conv.id, text.trim());
+    const result = sendMessage(conv.id, trimmed, pendingAttachment ?? undefined);
     if (result.queued) showQueuedToast();
     setText("");
+    setPendingAttachment(null);
+  };
+
+  // Build an inline data URI from a picked image so the attachment travels
+  // through the existing E2EE message channel without needing any external
+  // storage. Quality and size are capped so the encoded payload stays small.
+  const pickFromLibrary = async () => {
+    setShowAttachMenu(false);
+    if (attachBusy) return;
+    setAttachBusy(true);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert(
+          "PHOTOS ACCESS DENIED",
+          "Enable photo library access in your device settings to attach images.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.4,
+        base64: true,
+        exif: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const a = result.assets[0];
+      const mime = a.mimeType ?? "image/jpeg";
+      const uri = a.base64 ? `data:${mime};base64,${a.base64}` : a.uri;
+      setPendingAttachment({
+        kind: "image",
+        uri,
+        width: a.width,
+        height: a.height,
+        mimeType: mime,
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      console.warn("[Attach] library pick failed", e);
+      Alert.alert("ATTACH FAILED", "Could not load the selected image.");
+    } finally {
+      setAttachBusy(false);
+    }
+  };
+
+  const pickFromCamera = async () => {
+    setShowAttachMenu(false);
+    if (attachBusy) return;
+    setAttachBusy(true);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert(
+          "CAMERA ACCESS DENIED",
+          "Enable camera access in your device settings to capture photos.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.4,
+        base64: true,
+        exif: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const a = result.assets[0];
+      const mime = a.mimeType ?? "image/jpeg";
+      const uri = a.base64 ? `data:${mime};base64,${a.base64}` : a.uri;
+      setPendingAttachment({
+        kind: "image",
+        uri,
+        width: a.width,
+        height: a.height,
+        mimeType: mime,
+      });
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e) {
+      console.warn("[Attach] camera capture failed", e);
+      Alert.alert("CAPTURE FAILED", "Could not capture the photo.");
+    } finally {
+      setAttachBusy(false);
+    }
+  };
+
+  const comingSoon = (label: string) => {
+    setShowAttachMenu(false);
+    Alert.alert(
+      `${label.toUpperCase()} COMING SOON`,
+      "This message tool is on the roadmap and will arrive in a future build.",
+    );
   };
 
   const handleLongPress = (msgId: string, fromMe: boolean, plaintext: string) => {
@@ -255,6 +352,67 @@ export default function ChatScreen() {
     },
     sendBtnDisabled: { backgroundColor: colors.muted },
     callBtn: { padding: 6 },
+    attachBtn: {
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: colors.card,
+      borderWidth: 1, borderColor: colors.border,
+      alignItems: "center", justifyContent: "center",
+    },
+
+    // Image attachment in bubble
+    msgBubbleWithImage: { padding: 4, gap: 6 },
+    msgImage: {
+      width: 220, height: 220, borderRadius: 10,
+      backgroundColor: colors.muted,
+    },
+    msgTextWithImage: { paddingHorizontal: 8, paddingBottom: 4, paddingTop: 2 },
+
+    // Pending attachment chip
+    attachPreviewBar: {
+      flexDirection: "row", alignItems: "center", gap: 10,
+      paddingHorizontal: 12, paddingVertical: 8,
+      borderTopWidth: 1, borderTopColor: colors.border,
+      backgroundColor: colors.card,
+    },
+    attachPreviewImg: {
+      width: 40, height: 40, borderRadius: 6,
+      backgroundColor: colors.muted,
+    },
+    attachPreviewLabel: {
+      color: colors.foreground, fontSize: 10, fontWeight: "800", letterSpacing: 2,
+    },
+    attachPreviewSub: {
+      color: colors.mutedForeground, fontSize: 10, marginTop: 2,
+    },
+    attachPreviewClose: {
+      width: 28, height: 28, borderRadius: 14,
+      backgroundColor: colors.background,
+      borderWidth: 1, borderColor: colors.border,
+      alignItems: "center", justifyContent: "center",
+    },
+
+    // Attach sheet options
+    attachHint: {
+      color: colors.mutedForeground, fontSize: 11, lineHeight: 16,
+    },
+    attachOption: {
+      flexDirection: "row", alignItems: "center", gap: 12,
+      paddingHorizontal: 12, paddingVertical: 12,
+      borderRadius: 10,
+      borderWidth: 1, borderColor: colors.border,
+      backgroundColor: colors.background,
+    },
+    attachIconWrap: {
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: `${colors.primary}15`,
+      alignItems: "center", justifyContent: "center",
+    },
+    attachOptionTitle: {
+      color: colors.foreground, fontSize: 11, fontWeight: "800", letterSpacing: 2,
+    },
+    attachOptionSub: {
+      color: colors.mutedForeground, fontSize: 10, marginTop: 2,
+    },
 
     // Info modal
     overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" },
@@ -411,10 +569,28 @@ export default function ChatScreen() {
                 borderWidth: item.fromMe ? 0 : 1,
                 borderColor: colors.border,
               },
+              item.attachment?.kind === "image" && styles.msgBubbleWithImage,
             ]}>
-              <Text style={[styles.msgText, { color: item.fromMe ? colors.primaryForeground : colors.foreground }]}>
-                {item.text}
-              </Text>
+              {item.attachment?.kind === "image" && (
+                <Image
+                  source={{ uri: item.attachment.uri }}
+                  style={styles.msgImage}
+                  contentFit="cover"
+                  transition={120}
+                  accessibilityLabel="Encrypted photo attachment"
+                />
+              )}
+              {!!item.text && (
+                <Text
+                  style={[
+                    styles.msgText,
+                    { color: item.fromMe ? colors.primaryForeground : colors.foreground },
+                    item.attachment?.kind === "image" && styles.msgTextWithImage,
+                  ]}
+                >
+                  {item.text}
+                </Text>
+              )}
             </View>
             <View style={[styles.msgMeta, item.fromMe ? { justifyContent: "flex-end" } : {}]}>
               <Text style={[styles.msgTime, { color: colors.mutedForeground }]}>
@@ -463,8 +639,42 @@ export default function ChatScreen() {
         )}
       />
 
+      {/* Pending attachment preview chip */}
+      {pendingAttachment?.kind === "image" && (
+        <View style={styles.attachPreviewBar}>
+          <Image
+            source={{ uri: pendingAttachment.uri }}
+            style={styles.attachPreviewImg}
+            contentFit="cover"
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.attachPreviewLabel}>ENCRYPTED PHOTO</Text>
+            <Text style={styles.attachPreviewSub}>Sent end-to-end through the Double Ratchet</Text>
+          </View>
+          <Pressable
+            onPress={() => setPendingAttachment(null)}
+            style={styles.attachPreviewClose}
+            testID="attach-clear"
+            accessibilityLabel="Remove attachment"
+          >
+            <Ionicons name="close" size={14} color={colors.mutedForeground} />
+          </Pressable>
+        </View>
+      )}
+
       {/* Input bar */}
       <View style={styles.inputBar}>
+        <Pressable
+          style={styles.attachBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowAttachMenu(true);
+          }}
+          testID="attach-btn"
+          accessibilityLabel="Attach to message"
+        >
+          <Ionicons name="add" size={20} color={colors.mutedForeground} />
+        </Pressable>
         <TextInput
           style={styles.input}
           value={text}
@@ -475,14 +685,125 @@ export default function ChatScreen() {
           testID="message-input"
         />
         <Pressable
-          style={[styles.sendBtn, !text.trim() && styles.sendBtnDisabled]}
+          style={[styles.sendBtn, !text.trim() && !pendingAttachment && styles.sendBtnDisabled]}
           onPress={handleSend}
-          disabled={!text.trim()}
+          disabled={!text.trim() && !pendingAttachment}
           testID="send-btn"
         >
-          <Ionicons name="send" size={16} color={text.trim() ? colors.primaryForeground : colors.mutedForeground} />
+          <Ionicons
+            name="send"
+            size={16}
+            color={text.trim() || pendingAttachment ? colors.primaryForeground : colors.mutedForeground}
+          />
         </Pressable>
       </View>
+
+      {/* Attachment menu sheet */}
+      <Modal
+        visible={showAttachMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAttachMenu(false)}
+      >
+        <Pressable style={styles.overlay} onPress={() => setShowAttachMenu(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={styles.sheet}>
+              <View style={styles.handle} />
+              <View style={styles.sheetHead}>
+                <Text style={styles.sheetTitle}>ATTACH TO MESSAGE</Text>
+                <Pressable onPress={() => setShowAttachMenu(false)}>
+                  <Ionicons name="close" size={20} color={colors.mutedForeground} />
+                </Pressable>
+              </View>
+              <View style={styles.sheetBody}>
+                <Text style={styles.attachHint}>
+                  All attachments are encrypted with the same Double Ratchet keys as your messages.
+                </Text>
+
+                <Pressable
+                  style={styles.attachOption}
+                  onPress={pickFromLibrary}
+                  testID="attach-photo-library"
+                >
+                  <View style={styles.attachIconWrap}>
+                    <Ionicons name="images" size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.attachOptionTitle}>PHOTO LIBRARY</Text>
+                    <Text style={styles.attachOptionSub}>Pick a photo from your device</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+                </Pressable>
+
+                <Pressable
+                  style={styles.attachOption}
+                  onPress={pickFromCamera}
+                  testID="attach-camera"
+                >
+                  <View style={styles.attachIconWrap}>
+                    <Ionicons name="camera" size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.attachOptionTitle}>CAMERA</Text>
+                    <Text style={styles.attachOptionSub}>Capture a photo with the camera</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+                </Pressable>
+
+                <Pressable
+                  style={styles.attachOption}
+                  onPress={() => comingSoon("File")}
+                  testID="attach-file"
+                >
+                  <View style={styles.attachIconWrap}>
+                    <Ionicons name="document" size={18} color={colors.mutedForeground} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.attachOptionTitle, { color: colors.mutedForeground }]}>FILE</Text>
+                    <Text style={styles.attachOptionSub}>Coming soon</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+                </Pressable>
+
+                <Pressable
+                  style={styles.attachOption}
+                  onPress={() => comingSoon("Voice note")}
+                  testID="attach-voice"
+                >
+                  <View style={styles.attachIconWrap}>
+                    <Ionicons name="mic" size={18} color={colors.mutedForeground} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.attachOptionTitle, { color: colors.mutedForeground }]}>VOICE NOTE</Text>
+                    <Text style={styles.attachOptionSub}>Coming soon</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+                </Pressable>
+
+                <Pressable
+                  style={styles.attachOption}
+                  onPress={() => {
+                    setShowAttachMenu(false);
+                    setShowDisappear(true);
+                  }}
+                  testID="attach-disappear"
+                >
+                  <View style={styles.attachIconWrap}>
+                    <Ionicons name="timer-outline" size={18} color={colors.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.attachOptionTitle}>SELF-DESTRUCT TIMER</Text>
+                    <Text style={styles.attachOptionSub}>
+                      Set how long messages last in this chat
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Security info sheet */}
       <Modal visible={showInfo} transparent animationType="slide" onRequestClose={() => setShowInfo(false)}>

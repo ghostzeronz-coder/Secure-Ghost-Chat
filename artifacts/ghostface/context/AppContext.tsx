@@ -53,6 +53,14 @@ function signSPKLocal(spkPubHex: string, ikSignPrivHex: string): string {
   return toHex(sig);
 }
 
+export interface Attachment {
+  kind: "image";
+  uri: string;
+  width?: number;
+  height?: number;
+  mimeType?: string;
+}
+
 export interface Message {
   id: string;
   text: string;
@@ -65,6 +73,7 @@ export interface Message {
   expiresAt?: number;
   pending?: boolean;
   failed?: boolean;
+  attachment?: Attachment;
 }
 
 export interface OutboxItem {
@@ -72,9 +81,61 @@ export interface OutboxItem {
   conversationId: string;
   text: string;
   attempts?: number;
+  attachment?: Attachment;
 }
 
 const MAX_OUTBOX_ATTEMPTS = 3;
+
+const ATTACHMENT_ENVELOPE_VERSION = 1;
+const ATTACHMENT_ENVELOPE_PREFIX = `{"_gfa":${ATTACHMENT_ENVELOPE_VERSION}`;
+
+function wrapPayload(text: string, attachment?: Attachment): string {
+  if (!attachment) return text;
+  return JSON.stringify({ _gfa: ATTACHMENT_ENVELOPE_VERSION, t: text, a: attachment });
+}
+
+// Only allow inline base64 image data URIs as attachment payloads. This is
+// the only transport we control end-to-end through E2EE — any other URI
+// scheme (http(s), file, content) would either leak the recipient's IP via a
+// silent network fetch when rendered or reference attacker-controlled local
+// content. Reject anything else as plain text rather than render it.
+const DATA_IMAGE_URI_RE = /^data:image\/(png|jpe?g|gif|webp|heic|heif);base64,[A-Za-z0-9+/=]+$/i;
+
+function isValidAttachment(a: unknown): a is Attachment {
+  if (!a || typeof a !== "object") return false;
+  const att = a as Record<string, unknown>;
+  if (att.kind !== "image") return false;
+  if (typeof att.uri !== "string" || !DATA_IMAGE_URI_RE.test(att.uri)) return false;
+  if (att.width !== undefined && typeof att.width !== "number") return false;
+  if (att.height !== undefined && typeof att.height !== "number") return false;
+  if (att.mimeType !== undefined && typeof att.mimeType !== "string") return false;
+  return true;
+}
+
+function unwrapPayload(plaintext: string): { text: string; attachment?: Attachment } {
+  if (!plaintext.startsWith(ATTACHMENT_ENVELOPE_PREFIX)) return { text: plaintext };
+  try {
+    const parsed = JSON.parse(plaintext) as { _gfa?: unknown; t?: unknown; a?: unknown };
+    // Strict schema: any deviation falls back to plain text so legitimate
+    // user-typed JSON cannot be reinterpreted as an attachment envelope.
+    if (
+      parsed._gfa === ATTACHMENT_ENVELOPE_VERSION &&
+      typeof parsed.t === "string" &&
+      isValidAttachment(parsed.a)
+    ) {
+      return { text: parsed.t, attachment: parsed.a };
+    }
+  } catch {
+    // fall through — treat as plain text
+  }
+  return { text: plaintext };
+}
+
+function previewForMessage(text: string, attachment?: Attachment): string {
+  if (text && text.trim()) return text;
+  if (attachment?.kind === "image") return "📷 Photo";
+  return text;
+}
 
 export interface Conversation {
   id: string;
@@ -167,7 +228,7 @@ interface AppContextType extends AppState {
   setLocked: (locked: boolean) => void;
   connectVPN: (server: VPNServer) => void;
   disconnectVPN: () => void;
-  sendMessage: (conversationId: string, text: string) => { queued: boolean };
+  sendMessage: (conversationId: string, text: string, attachment?: Attachment) => { queued: boolean };
   retryMessage: (conversationId: string, messageId: string) => void;
   addConversation: (alias: string) => Promise<{ isReal: boolean }>;
   deleteMessage: (conversationId: string, messageId: string) => void;
@@ -203,7 +264,8 @@ function buildMessage(
   fromMe: boolean,
   convId: string,
   senderAlias: string,
-  disappearAfterSec?: number
+  disappearAfterSec?: number,
+  attachment?: Attachment,
 ): Message {
   const key = demoKeyForConversation(convId);
   let ciphertext: string | undefined;
@@ -211,8 +273,10 @@ function buildMessage(
   let sealed = false;
 
   try {
-    // Sealed sender: senderAlias is encrypted inside the payload, not exposed
-    const enc: SealedMessage = sealedEncryptMessage(text, senderAlias, key);
+    // Sealed sender: senderAlias is encrypted inside the payload, not exposed.
+    // When an attachment is present, the JSON envelope (text + attachment) is
+    // what gets encrypted, so the recipient recovers both atomically.
+    const enc: SealedMessage = sealedEncryptMessage(wrapPayload(text, attachment), senderAlias, key);
     ciphertext = enc.ciphertext;
     fingerprint = messageFingerprint(enc);
     sealed = true;
@@ -234,6 +298,7 @@ function buildMessage(
     ciphertext,
     fingerprint,
     expiresAt,
+    attachment,
   };
 }
 
@@ -1222,12 +1287,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [persistConversations]);
 
   const sendMessage = useCallback(
-    (conversationId: string, text: string): { queued: boolean } => {
+    (conversationId: string, text: string, attachment?: Attachment): { queued: boolean } => {
       const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
       if (!conv) return { queued: false };
+      if (!text.trim() && !attachment) return { queued: false };
 
       const myAlias = latestStateRef.current.alias ?? "GHOST_USER";
       const isRealContact = conv.isRealContact ?? false;
+      const previewText = previewForMessage(text, attachment);
 
       // For real contacts, verify the WebSocket is open BEFORE advancing the
       // ratchet. Advancing the ratchet state without delivering the message
@@ -1240,7 +1307,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // We do NOT advance the ratchet here; drainOutbox will encrypt
           // at the moment of actual delivery, preserving ratchet ordering.
           const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0 };
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment };
           const nextOutbox = [...outboxRef.current, outboxItem];
           outboxRef.current = nextOutbox;
           persistOutbox(nextOutbox);
@@ -1252,11 +1319,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             encrypted: false,
             sealed: false,
             pending: true,
+            attachment,
           };
           setState((prev) => {
             const updated = prev.conversations.map((c) =>
               c.id === conversationId
-                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
                 : c
             );
             persistConversations(updated);
@@ -1273,9 +1341,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (conv.drSession) {
         let drSession = conv.drSession;
         let attempts = 0;
+        const wireText = wrapPayload(text, attachment);
         while (attempts < 2) {
           try {
-            const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, text);
+            const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, wireText);
             if (isRealContact) {
               updatedDRSession = { ...drSession, alice: newAlice, lastAliceHeader: msg.header };
             } else {
@@ -1300,11 +1369,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             encrypted: false,
             sealed: false,
             failed: true,
+            attachment,
           };
           setState((prev) => {
             const updated = prev.conversations.map((c) =>
               c.id === conversationId
-                ? { ...c, messages: [...c.messages, failedMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                ? { ...c, messages: [...c.messages, failedMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
                 : c
             );
             persistConversations(updated);
@@ -1330,8 +1400,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ciphertext: aliceMsg.ciphertext,
             fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`,
             expiresAt,
+            attachment,
           }
-        : buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec);
+        : buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec, attachment);
 
       const headerToSend = conv.pendingX3DHHeader;
 
@@ -1358,7 +1429,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setState((prev) => {
               const updated = prev.conversations.map((c) =>
                 c.id === conversationId
-                  ? { ...c, messages: [...c.messages, wsFailedMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                  ? { ...c, messages: [...c.messages, wsFailedMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
                   : c
               );
               persistConversations(updated);
@@ -1372,7 +1443,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Queue the message so it delivers on reconnect instead of being lost.
           console.warn("[WS] Socket closed before send — queuing message for retry");
           const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0 };
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment };
           const nextOutbox = [...outboxRef.current, outboxItem];
           outboxRef.current = nextOutbox;
           persistOutbox(nextOutbox);
@@ -1384,11 +1455,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             encrypted: false,
             sealed: false,
             pending: true,
+            attachment,
           };
           setState((prev) => {
             const updated = prev.conversations.map((c) =>
               c.id === conversationId
-                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: text, timestamp: Date.now(), unread: 0 }
+                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
                 : c
             );
             persistConversations(updated);
@@ -1404,7 +1476,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ? {
                 ...c,
                 messages: [...c.messages, newMsg],
-                lastMessage: text,
+                lastMessage: previewText,
                 timestamp: Date.now(),
                 unread: 0,
                 drSession: updatedDRSession,
@@ -1830,7 +1902,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // message for this conversation in this drain; otherwise fall
           // back to the committed session.
           const aliceForEncrypt = aliceCursor.get(item.conversationId) ?? conv.drSession.alice;
-          const { state: newAlice, message: aliceMsg } = ratchetEncrypt(aliceForEncrypt, item.text);
+          const wireText = wrapPayload(item.text, item.attachment);
+          const { state: newAlice, message: aliceMsg } = ratchetEncrypt(aliceForEncrypt, wireText);
           // pendingX3DHHeader bootstraps the receiver's Bob session and is
           // only required on the very first ciphertext per conversation.
           // After that, header.dh + the ratchet step do the work and a
@@ -1893,7 +1966,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ...prev, conversations: updated };
     });
     if (!outboxRef.current.find((i) => i.id === messageId)) {
-      const next: OutboxItem[] = [...outboxRef.current, { id: messageId, conversationId, text: msg.text, attempts: 0 }];
+      const next: OutboxItem[] = [...outboxRef.current, { id: messageId, conversationId, text: msg.text, attempts: 0, attachment: msg.attachment }];
       outboxRef.current = next;
       persistOutbox(next);
     }
@@ -1948,14 +2021,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (existing && existing.drSession) {
       try {
         const { state: newAlice, plaintext } = ratchetDecrypt(existing.drSession.alice, ratchetMsg);
+        const unwrapped = unwrapPayload(plaintext);
+        const preview = previewForMessage(unwrapped.text, unwrapped.attachment);
         const newMsgObj: Message = {
           id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-          text: plaintext,
+          text: unwrapped.text,
           fromMe: false,
           timestamp: Date.now(),
           encrypted: true,
           sealed: true,
           fingerprint: `DR:${ratchetMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+          ...(unwrapped.attachment ? { attachment: unwrapped.attachment } : {}),
           ...(existing.disappearAfterSec
             ? { expiresAt: Date.now() + existing.disappearAfterSec * 1000 }
             : {}),
@@ -1966,7 +2042,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               ? {
                   ...c,
                   messages: [...c.messages, newMsgObj],
-                  lastMessage: plaintext,
+                  lastMessage: preview,
                   timestamp: Date.now(),
                   unread: c.unread + 1,
                   drSession: { ...c.drSession!, alice: newAlice },
@@ -2068,6 +2144,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       );
 
       const { state: newAlice, plaintext } = ratchetDecrypt(bobSession.alice, ratchetMsg);
+      const unwrappedFirst = unwrapPayload(plaintext);
+      const firstPreview = previewForMessage(unwrappedFirst.text, unwrappedFirst.attachment);
       const safetyNumber = generateSafetyNumber(latestStateRef.current.alias ?? "GHOST_USER", senderAlias);
 
       const initMsg: Message = {
@@ -2080,12 +2158,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       const firstMsg: Message = {
         id: `${Date.now() + 1}${Math.random().toString(36).substr(2, 9)}`,
-        text: plaintext,
+        text: unwrappedFirst.text,
         fromMe: false,
         timestamp: Date.now(),
         encrypted: true,
         sealed: true,
         fingerprint: `DR:${ratchetMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+        ...(unwrappedFirst.attachment ? { attachment: unwrappedFirst.attachment } : {}),
       };
 
       setState((prev) => {
@@ -2105,7 +2184,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   ...c,
                   drSession: { ...bobSession, alice: newAlice },
                   messages: [...c.messages, firstMsgWithExpiry],
-                  lastMessage: plaintext,
+                  lastMessage: firstPreview,
                   timestamp: Date.now(),
                   unread: c.unread + 1,
                   safetyNumber,
@@ -2120,7 +2199,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const newConv: Conversation = {
           id,
           alias: senderAlias,
-          lastMessage: plaintext,
+          lastMessage: firstPreview,
           timestamp: Date.now(),
           unread: 1,
           safetyNumber,
