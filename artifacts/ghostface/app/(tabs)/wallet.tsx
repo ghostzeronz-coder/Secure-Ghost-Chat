@@ -787,7 +787,7 @@ export default function WalletScreen() {
         onRequestClose={() => setShowConnect(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowConnect(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>LINK WALLET</Text>
               <Text style={styles.modalSubtitle}>
@@ -824,7 +824,7 @@ export default function WalletScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -836,7 +836,7 @@ export default function WalletScreen() {
         onRequestClose={() => setShowSend(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowSend(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               {sent ? (
                 <>
@@ -877,7 +877,7 @@ export default function WalletScreen() {
                 </>
               )}
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -889,7 +889,7 @@ export default function WalletScreen() {
         onRequestClose={() => setShowReceive(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowReceive(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>RECEIVE {activeToken}</Text>
               <View style={styles.qrPlaceholder}>
@@ -909,7 +909,7 @@ export default function WalletScreen() {
                 <Text style={styles.cancelText}>CLOSE</Text>
               </Pressable>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 

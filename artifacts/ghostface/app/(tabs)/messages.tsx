@@ -503,7 +503,7 @@ export default function MessagesScreen() {
         onRequestClose={() => setShowNew(false)}
       >
         <Pressable style={styles.overlay} onPress={() => setShowNew(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.sheet}>
               <Text style={styles.sheetTitle}>NEW SECURE CHANNEL</Text>
               <Text style={styles.sheetSub}>Scan their QR code or enter alias manually</Text>
@@ -547,7 +547,7 @@ export default function MessagesScreen() {
                 <Text style={styles.cancelTxt}>CANCEL</Text>
               </Pressable>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
     </View>

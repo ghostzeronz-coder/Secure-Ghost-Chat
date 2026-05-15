@@ -851,7 +851,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setShowGracePeriod(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowGracePeriod(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>DURESS GRACE PERIOD</Text>
               {GRACE_OPTIONS.map((opt) => (
@@ -877,7 +877,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -888,7 +888,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setShowAutoLock(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowAutoLock(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>AUTO-LOCK TIMEOUT</Text>
               {AUTO_LOCK_OPTIONS.map((opt) => (
@@ -914,7 +914,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -940,7 +940,7 @@ export default function SettingsScreen() {
             setPinSimilar(false);
           }}
         >
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               {pinSaved ? (
                 <Text style={styles.successText}>PIN UPDATED</Text>
@@ -1011,7 +1011,7 @@ export default function SettingsScreen() {
                 </>
               )}
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -1023,7 +1023,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setShowDuressPin(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowDuressPin(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               {duressPinSaved ? (
                 <Text style={styles.successText}>DURESS PIN SAVED</Text>
@@ -1096,7 +1096,7 @@ export default function SettingsScreen() {
                 </>
               )}
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -1108,7 +1108,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setShowLanguage(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowLanguage(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>LANGUAGE</Text>
               {LANGUAGE_OPTIONS.map((opt) => (
@@ -1132,7 +1132,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -1144,7 +1144,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setShowBilling(false)}
       >
         <Pressable style={styles.modalOverlay} onPress={() => setShowBilling(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.modalContent}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
                 <Ionicons name="card" size={20} color={colors.primary} />
@@ -1189,7 +1189,7 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
     </View>

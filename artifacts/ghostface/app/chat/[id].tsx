@@ -1104,7 +1104,7 @@ export default function ChatScreen() {
         onRequestClose={() => setShowAttachMenu(false)}
       >
         <Pressable style={styles.overlay} onPress={() => setShowAttachMenu(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.sheet}>
               <View style={styles.handle} />
               <View style={styles.sheetHead}>
@@ -1199,7 +1199,7 @@ export default function ChatScreen() {
                 </Pressable>
               </View>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
@@ -1249,7 +1249,7 @@ export default function ChatScreen() {
       {/* Security info sheet */}
       <Modal visible={showInfo} transparent animationType="slide" onRequestClose={() => setShowInfo(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowInfo(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.sheet}>
               <View style={styles.handle} />
               <View style={styles.sheetHead}>
@@ -1397,14 +1397,14 @@ export default function ChatScreen() {
                 </Pressable>
               </View>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
       {/* Disappearing messages sheet */}
       <Modal visible={showDisappear} transparent animationType="slide" onRequestClose={() => setShowDisappear(false)}>
         <Pressable style={styles.overlay} onPress={() => setShowDisappear(false)}>
-          <Pressable onPress={(e) => e.stopPropagation()}>
+          <View onStartShouldSetResponder={() => true}>
             <View style={styles.sheet}>
               <View style={styles.handle} />
               <View style={styles.sheetHead}>
@@ -1445,7 +1445,7 @@ export default function ChatScreen() {
                 </View>
               </View>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
       {/* Queued message toast — shown briefly when a message is held for delivery */}
