@@ -92,10 +92,7 @@ router.get("/invites/:code", async (req: Request, res: Response) => {
   }
 
   try {
-    const [invite] = await db
-      .select()
-      .from(invitesTable)
-      .where(eq(invitesTable.code, raw));
+    const [invite] = await db.select().from(invitesTable).where(eq(invitesTable.code, raw));
 
     if (!invite) {
       return res.status(404).json({ error: "Code not found" });
@@ -110,10 +107,7 @@ router.get("/invites/:code", async (req: Request, res: Response) => {
     }
 
     // Mark redeemed
-    await db
-      .update(invitesTable)
-      .set({ redeemed: true })
-      .where(eq(invitesTable.code, raw));
+    await db.update(invitesTable).set({ redeemed: true }).where(eq(invitesTable.code, raw));
 
     logger.info({ code: raw, ownerAlias: invite.ownerAlias }, "Invite redeemed");
     return res.json({ ownerAlias: invite.ownerAlias });
