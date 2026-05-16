@@ -469,14 +469,19 @@ export default function MessagesScreen() {
                     </View>
                   )}
                 </View>
-                <View style={styles.itemBody}>
+                <View style={[styles.itemBody, item.destroyedAt && { opacity: 0.55 }]}>
                   <View style={styles.itemTop}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flex: 1 }}>
                       <Text style={styles.alias}>{item.alias}</Text>
-                      {item.verified && (
+                      {item.verified && !item.destroyedAt && (
                         <Ionicons name="shield-checkmark" size={13} color={colors.primary} />
                       )}
-                      {item.isRealContact && (
+                      {item.destroyedAt ? (
+                        <View style={{ backgroundColor: colors.destructive + "22", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1, flexDirection: "row", alignItems: "center", gap: 3 }}>
+                          <Ionicons name="skull-outline" size={9} color={colors.destructive} />
+                          <Text style={{ color: colors.destructive, fontSize: 8, fontWeight: "800", letterSpacing: 1.5 }}>SELF-DESTRUCTED</Text>
+                        </View>
+                      ) : item.isRealContact && (
                         <View style={{ backgroundColor: colors.success + "22", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
                           <Text style={{ color: colors.success, fontSize: 8, fontWeight: "800", letterSpacing: 1.5 }}>LIVE</Text>
                         </View>
@@ -486,7 +491,7 @@ export default function MessagesScreen() {
                   </View>
                   <Text style={styles.preview} numberOfLines={1}>{item.lastMessage}</Text>
                 </View>
-                <StatusDot active size={5} pulse={false} />
+                <StatusDot active={!item.destroyedAt} size={5} pulse={false} />
               </Pressable>
               {index < sorted.length - 1 && <View style={styles.itemDivider} />}
             </View>

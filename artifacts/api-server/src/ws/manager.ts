@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { IncomingMessage } from "http";
-import { db, messagesTable, deviceTokensTable } from "@workspace/db";
+import { db, messagesTable, deviceTokensTable, departuresTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
 import { logger } from "../lib/logger";
@@ -20,10 +20,12 @@ export interface WireMessage {
     | "call-offer"
     | "call-answer"
     | "call-ice"
-    | "sms_inbound";
+    | "sms_inbound"
+    | "departed";
   token?: string;
   alias?: string;
   to?: string;
+  toAliases?: string[];
   from?: string;
   msgId?: number;
   payload?: string;
@@ -101,6 +103,35 @@ async function deliverPending(alias: string, ws: WebSocket): Promise<void> {
   }
 }
 
+/**
+ * Push any queued self-destruct notices addressed to this alias. Each row
+ * is sent as a `{ type:"departed", from }` event, then flipped to delivered
+ * so we don't replay it on subsequent reconnects.
+ */
+async function deliverPendingDepartures(alias: string, ws: WebSocket): Promise<void> {
+  try {
+    const pending = await db
+      .select()
+      .from(departuresTable)
+      .where(and(eq(departuresTable.toAlias, alias), eq(departuresTable.delivered, false)));
+
+    for (const row of pending) {
+      ws.send(JSON.stringify({ type: "departed", from: row.fromAlias }));
+    }
+
+    if (pending.length > 0) {
+      await Promise.all(
+        pending.map((row) =>
+          db.update(departuresTable).set({ delivered: true }).where(eq(departuresTable.id, row.id)),
+        ),
+      );
+      logger.info({ alias, count: pending.length }, "Delivered pending departures");
+    }
+  } catch (err) {
+    logger.error({ err, alias }, "Failed to deliver pending departures");
+  }
+}
+
 export function createWsServer(wss: WebSocketServer): void {
   // ── Protocol-level heartbeat ─────────────────────────────────────────────
   // Every 30 s the server sends a native WebSocket ping frame to every client.
@@ -174,6 +205,7 @@ export function createWsServer(wss: WebSocketServer): void {
         logger.info({ alias: authedAlias }, "WS client authenticated");
 
         await deliverPending(authedAlias, ws);
+        await deliverPendingDepartures(authedAlias, ws);
         return;
       }
 
@@ -245,6 +277,42 @@ export function createWsServer(wss: WebSocketServer): void {
         }
 
         ws.send(JSON.stringify({ type: "ack", msgId: stored.id }));
+        return;
+      }
+
+      // ── Self-destruct departure notice ────────────────────────────────────
+      // Broadcast a one-shot "I've wiped" event to a list of known contacts.
+      // No payload, no keys — just the fact that this alias is gone. Persist
+      // for offline recipients so they learn on next connect.
+      if (msg.type === "departed") {
+        const targets = Array.isArray(msg.toAliases) ? msg.toAliases : [];
+        const unique = Array.from(
+          new Set(
+            targets
+              .filter((a): a is string => typeof a === "string" && a.trim().length > 0)
+              .map((a) => normalizeAlias(a)),
+          ),
+        ).filter((a) => a !== authedAlias);
+
+        for (const toAlias of unique) {
+          try {
+            const [stored] = await db
+              .insert(departuresTable)
+              .values({ fromAlias: authedAlias, toAlias, delivered: false })
+              .returning();
+            const recipient = connectedClients.get(toAlias);
+            if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
+              recipient.ws.send(JSON.stringify({ type: "departed", from: authedAlias }));
+              await db
+                .update(departuresTable)
+                .set({ delivered: true })
+                .where(eq(departuresTable.id, stored.id));
+            }
+          } catch (err) {
+            logger.warn({ err, from: authedAlias, to: toAlias }, "Failed to record departure");
+          }
+        }
+        logger.info({ from: authedAlias, count: unique.length }, "Departure broadcast");
         return;
       }
 

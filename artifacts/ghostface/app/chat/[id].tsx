@@ -112,6 +112,7 @@ export default function ChatScreen() {
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed && !pendingAttachment) return;
+    if (conv.destroyedAt) return; // Composer is hidden, but belt-and-braces.
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const result = sendMessage(conv.id, trimmed, pendingAttachment ?? undefined);
     if (result.queued) showQueuedToast();
@@ -1060,41 +1061,67 @@ export default function ChatScreen() {
         </View>
       )}
 
-      {/* Input bar */}
-      <View style={styles.inputBar}>
-        <Pressable
-          style={styles.attachBtn}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setShowAttachMenu(true);
+      {/* Input bar — replaced with a sealed banner when the peer has self-destructed */}
+      {conv.destroyedAt ? (
+        <View
+          style={{
+            paddingHorizontal: 18,
+            paddingTop: 14,
+            paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 14),
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+            backgroundColor: `${colors.destructive}10`,
+            alignItems: "center",
+            gap: 4,
           }}
-          testID="attach-btn"
-          accessibilityLabel="Attach to message"
+          testID="conv-sealed-banner"
         >
-          <Ionicons name="add" size={20} color={colors.mutedForeground} />
-        </Pressable>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={setText}
-          placeholder="Encrypted message..."
-          placeholderTextColor={colors.mutedForeground}
-          multiline
-          testID="message-input"
-        />
-        <Pressable
-          style={[styles.sendBtn, !text.trim() && !pendingAttachment && styles.sendBtnDisabled]}
-          onPress={handleSend}
-          disabled={!text.trim() && !pendingAttachment}
-          testID="send-btn"
-        >
-          <Ionicons
-            name="send"
-            size={16}
-            color={text.trim() || pendingAttachment ? colors.primaryForeground : colors.mutedForeground}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <Ionicons name="skull-outline" size={14} color={colors.destructive} />
+            <Text style={{ color: colors.destructive, fontSize: 11, fontWeight: "800", letterSpacing: 3 }}>
+              CONTACT SELF-DESTRUCTED
+            </Text>
+          </View>
+          <Text style={{ color: colors.mutedForeground, fontSize: 11, textAlign: "center" }}>
+            This contact has wiped their device. The conversation is sealed.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.inputBar}>
+          <Pressable
+            style={styles.attachBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setShowAttachMenu(true);
+            }}
+            testID="attach-btn"
+            accessibilityLabel="Attach to message"
+          >
+            <Ionicons name="add" size={20} color={colors.mutedForeground} />
+          </Pressable>
+          <TextInput
+            style={styles.input}
+            value={text}
+            onChangeText={setText}
+            placeholder="Encrypted message..."
+            placeholderTextColor={colors.mutedForeground}
+            multiline
+            testID="message-input"
           />
-        </Pressable>
-      </View>
+          <Pressable
+            style={[styles.sendBtn, !text.trim() && !pendingAttachment && styles.sendBtnDisabled]}
+            onPress={handleSend}
+            disabled={!text.trim() && !pendingAttachment}
+            testID="send-btn"
+          >
+            <Ionicons
+              name="send"
+              size={16}
+              color={text.trim() || pendingAttachment ? colors.primaryForeground : colors.mutedForeground}
+            />
+          </Pressable>
+        </View>
+      )}
 
       {/* Attachment menu sheet */}
       <Modal

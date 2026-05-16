@@ -192,6 +192,13 @@ export interface Conversation {
   pendingX3DHHeader?: string;
   isRealContact?: boolean;
   verified?: boolean;
+  /**
+   * Set when the peer self-destructed (broadcast a "departed" notice via the
+   * server before wiping locally) or their invite/key material has expired
+   * with no successful exchange. UI shows a "SELF-DESTRUCTED" badge,
+   * disables the composer, and renders a system message in chat.
+   */
+  destroyedAt?: number;
 }
 
 export interface Transaction {
@@ -1818,6 +1825,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Audio playback, or any other perceptible feedback here — including in
   // future changes. The duress countdown in lock.tsx relies on this guarantee.
   const panicWipe = useCallback(async () => {
+    // Best-effort: notify known real contacts that we are gone, so their
+    // app can flag this conversation as self-destructed. Must happen BEFORE
+    // we clear local state (which closes the WS) and must NEVER produce
+    // perceptible feedback — the silence contract still applies.
+    try {
+      const ws = wsRef.current;
+      const realAliases = latestStateRef.current.conversations
+        .filter((c) => c.isRealContact && !c.destroyedAt)
+        .map((c) => c.alias)
+        .filter((a): a is string => typeof a === "string" && a.length > 0);
+      if (ws && ws.readyState === 1 && realAliases.length > 0) {
+        ws.send(JSON.stringify({ type: "departed", toAliases: realAliases }));
+      }
+    } catch (err) {
+      console.warn("[AppContext] Failed to broadcast departure:", err);
+    }
+
     try {
       await Promise.all([
         ...APP_STORAGE_KEYS.map((k) => AsyncStorage.removeItem(k)),
@@ -2023,6 +2047,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       wsEverConnectedRef.current = true;
       setWsConnected(true);
       drainOutbox().catch(console.error);
+      return;
+    }
+
+    // ── Self-destruct notice from a peer ───────────────────────────────────
+    // Mark the matching conversation as destroyed so the UI can show a
+    // "SELF-DESTRUCTED" badge, disable the composer, and render a system
+    // message in chat. Notice is one-shot — ignore if already flagged.
+    if (wsMsg.type === "departed" && wsMsg.from) {
+      const departedAlias = wsMsg.from.toUpperCase();
+      setState((prev) => {
+        const existing = prev.conversations.find((c) => c.alias === departedAlias);
+        if (!existing || existing.destroyedAt) return prev;
+        const stamp = Date.now();
+        const updated = prev.conversations.map((c) =>
+          c.id === existing.id
+            ? {
+                ...c,
+                destroyedAt: stamp,
+                lastMessage: "SELF-DESTRUCTED",
+                timestamp: stamp,
+              }
+            : c
+        );
+        persistConversations(updated);
+        return { ...prev, conversations: updated };
+      });
       return;
     }
 

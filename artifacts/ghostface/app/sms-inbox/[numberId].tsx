@@ -40,7 +40,7 @@ function formatTime(ts: string): string {
 export default function SmsInboxScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alias, deviceToken } = useApp();
+  const { alias, deviceToken, loaded } = useApp();
   const { numberId, phoneNumber, currentMsisdn } = useLocalSearchParams<{
     numberId: string;
     phoneNumber: string;
@@ -53,6 +53,9 @@ export default function SmsInboxScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchMessages = useCallback(async (): Promise<boolean> => {
+    // Same hydration race as ghostnumber.tsx: bail without flagging the
+    // request as failed when state hasn't loaded yet — the parent screen's
+    // `loaded`-gated effect will retry once AsyncStorage has rehydrated.
     if (!alias || !deviceToken || !numberId) return false;
     try {
       const res = await fetch(
@@ -89,14 +92,21 @@ export default function SmsInboxScreen() {
   }, [fetchMessages]);
 
   useEffect(() => {
+    // Wait for AsyncStorage hydration before firing the first fetch.
+    // Without this, Android cold-start reads alias/deviceToken as undefined
+    // for one render, fetchMessages short-circuits, and the screen sticks
+    // on a permanent "LOAD FAILED" or empty state.
+    if (!loaded) return;
     load();
-  }, [load]);
+  }, [load, loaded]);
 
-  // Re-fetch when screen regains focus (e.g. navigating back).
+  // Re-fetch when screen regains focus (e.g. navigating back). Skip until
+  // state has rehydrated so we don't fire a doomed request first.
   useFocusEffect(
     useCallback(() => {
+      if (!loaded) return;
       void fetchMessages();
-    }, [fetchMessages])
+    }, [fetchMessages, loaded])
   );
 
   // Determine whether a toNumber is the current MSISDN or an archived one.
@@ -296,7 +306,7 @@ export default function SmsInboxScreen() {
       </View>
       <View style={styles.divider} />
 
-      {loading ? (
+      {!loaded || loading ? (
         <View style={styles.centerWrap}>
           <ActivityIndicator color={colors.primary} />
         </View>

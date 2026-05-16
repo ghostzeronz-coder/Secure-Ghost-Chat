@@ -67,7 +67,7 @@ function formatTime(ts: string): string {
 export default function GhostNumberScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { alias, deviceToken } = useApp();
+  const { alias, deviceToken, loaded } = useApp();
 
   const { scrollRef, onScroll } = useScrollPersist<ScrollView>();
 
@@ -120,8 +120,13 @@ export default function GhostNumberScreen() {
   }, [fetchNumbers]);
 
   useEffect(() => {
+    // Wait for AsyncStorage hydration before firing the first fetch.
+    // Without this, on Android cold-start the screen can read alias/deviceToken
+    // as undefined for one render and short-circuit fetchNumbers to false,
+    // leaving the user stuck on "NOT READY".
+    if (!loaded) return;
     load();
-  }, [load]);
+  }, [load, loaded]);
 
   // Recompute countdown every time this tab comes back into focus.
   useFocusEffect(
@@ -539,7 +544,7 @@ export default function GhostNumberScreen() {
       </View>
       <View style={styles.divider} />
 
-      {loading ? (
+      {!loaded || loading ? (
         <View style={styles.emptyWrap}>
           <ActivityIndicator color={colors.primary} />
         </View>
