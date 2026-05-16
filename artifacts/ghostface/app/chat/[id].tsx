@@ -844,6 +844,38 @@ export default function ChatScreen() {
         showsVerticalScrollIndicator={false}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (
+          item.system ? (
+            <View
+              style={{
+                alignSelf: "center",
+                maxWidth: "85%",
+                marginVertical: 10,
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: `${colors.destructive}10`,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+              }}
+              testID={`system-msg-${item.id}`}
+            >
+              <Ionicons name="skull-outline" size={14} color={colors.destructive} />
+              <Text
+                style={{
+                  color: colors.mutedForeground,
+                  fontSize: 11,
+                  fontStyle: "italic",
+                  flex: 1,
+                  textAlign: "center",
+                }}
+              >
+                {item.text}
+              </Text>
+            </View>
+          ) : (
           <Pressable
             style={[styles.msgRow, item.fromMe ? { alignSelf: "flex-end" } : { alignSelf: "flex-start" }]}
             onLongPress={() => handleLongPress(item.id, item.fromMe, item.text)}
@@ -1016,6 +1048,7 @@ export default function ChatScreen() {
               )}
             </View>
           </Pressable>
+          )
         )}
       />
 

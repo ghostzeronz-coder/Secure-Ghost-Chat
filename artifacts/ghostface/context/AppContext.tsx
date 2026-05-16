@@ -88,6 +88,12 @@ export interface Message {
   pending?: boolean;
   failed?: boolean;
   attachment?: Attachment;
+  /**
+   * Non-user system event injected into the timeline (e.g. peer self-
+   * destructed, invite/key material expired). Rendered as a centered,
+   * muted notice — never long-pressable, never editable, never re-sent.
+   */
+  system?: boolean;
 }
 
 export interface OutboxItem {
@@ -1907,7 +1913,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const msgs = c.messages.map((m) =>
           m.id === messageId ? { ...m, pending: false, failed: true } : m
         );
-        return { ...c, messages: msgs };
+        let next = { ...c, messages: msgs };
+        // ── Invite/key-expired destruct path ──────────────────────────────
+        // If this is a real contact and the X3DH handshake never completed
+        // (we still have a pendingX3DHHeader because the peer never replied),
+        // the most likely cause after exhausting all delivery attempts is
+        // that the peer's one-time pre-key has expired or the peer never
+        // came back online. Mark the conversation destroyed and inject a
+        // system notice so the user sees a clear reason in the timeline.
+        if (
+          !next.destroyedAt &&
+          next.isRealContact &&
+          next.pendingX3DHHeader &&
+          !next.drSession?.bob
+        ) {
+          const stamp = Date.now();
+          const systemMsg: Message = {
+            id: `sys-expired-${stamp}`,
+            text: "This contact's invite or keys have expired before a secure session could be established. The conversation is sealed.",
+            fromMe: false,
+            timestamp: stamp,
+            encrypted: false,
+            sealed: true,
+            system: true,
+          };
+          next = {
+            ...next,
+            destroyedAt: stamp,
+            lastMessage: "SELF-DESTRUCTED",
+            timestamp: stamp,
+            messages: [...next.messages, systemMsg],
+          };
+        }
+        return next;
       });
       persistConversations(updated);
       return { ...prev, conversations: updated };
@@ -2060,6 +2098,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const existing = prev.conversations.find((c) => c.alias === departedAlias);
         if (!existing || existing.destroyedAt) return prev;
         const stamp = Date.now();
+        const systemMsg: Message = {
+          id: `sys-departed-${stamp}`,
+          text: "This contact has self-destructed. The conversation is sealed.",
+          fromMe: false,
+          timestamp: stamp,
+          encrypted: false,
+          sealed: true,
+          system: true,
+        };
         const updated = prev.conversations.map((c) =>
           c.id === existing.id
             ? {
@@ -2067,6 +2114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 destroyedAt: stamp,
                 lastMessage: "SELF-DESTRUCTED",
                 timestamp: stamp,
+                messages: [...c.messages, systemMsg],
               }
             : c
         );
