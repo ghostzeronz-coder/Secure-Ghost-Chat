@@ -519,6 +519,13 @@ export default function LockScreen() {
       letterSpacing: 2,
       fontWeight: "700" as const,
     },
+    fallbackCarrierNote: {
+      color: colors.mutedForeground,
+      fontSize: 8,
+      letterSpacing: 1.5,
+      marginTop: 2,
+      opacity: 0.7,
+    },
   });
 
   return (
@@ -633,6 +640,16 @@ export default function LockScreen() {
         <View style={styles.fallbackBadge} testID="fallback-armed-badge">
           <Text style={styles.fallbackBadgeText}>
             {fallbackCount} SMS FALLBACK ARMED
+          </Text>
+          {/*
+           * Carrier-exposure reminder (Task #113). The duress flow can hand
+           * a one-line SMS to the OS composer if the server can't be
+           * reached, and SMS — unlike the encrypted in-app channel — is
+           * visible to both carriers. Keep this text generic; never expose
+           * the recipient numbers or message body on the lock screen.
+           */}
+          <Text style={styles.fallbackCarrierNote}>
+            SMS IS UNENCRYPTED · CARRIERS CAN SEE IT
           </Text>
         </View>
       )}

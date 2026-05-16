@@ -45,6 +45,9 @@ export interface WireMessage {
   callId?: string;
   callMode?: string;
   text?: string;
+  // Task #113: client-generated id echoed back as `departed_ack.requestId`
+  // so the panic-wipe flow can race the ack against a timeout.
+  requestId?: string;
 }
 
 // Extend WebSocket with an aliveness flag used by the protocol-level heartbeat.
@@ -380,6 +383,19 @@ export function createWsServer(wss: WebSocketServer): void {
           }
         }
         logger.info({ from: authedAlias, count: unique.length }, "Departure broadcast");
+        // Task #113: the client uses this ack to decide whether to fall
+        // through to the SMS satellite fallback. We emit the ack only
+        // AFTER the broadcast loop completes, so an ack guarantees the
+        // server has at minimum persisted the departure for every
+        // unique recipient (live push attempted, queued for offline).
+        // Always echo the requestId verbatim — the client matches on it.
+        if (typeof msg.requestId === "string" && msg.requestId.length > 0) {
+          try {
+            ws.send(JSON.stringify({ type: "departed_ack", requestId: msg.requestId }));
+          } catch (err) {
+            logger.warn({ err, from: authedAlias }, "Failed to ack departure");
+          }
+        }
         return;
       }
 

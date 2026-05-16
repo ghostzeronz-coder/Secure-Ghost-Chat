@@ -2218,7 +2218,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // app can flag this conversation as self-destructed. Must happen BEFORE
     // we clear local state (which closes the WS) and must NEVER produce
     // perceptible feedback — the silence contract still applies.
-    let wsBroadcastSent = false;
+    //
+    // Task #113: we wait for an explicit server `departed_ack` keyed by
+    // requestId before deciding NOT to fire the SMS fallback. A bare
+    // ws.send() with readyState===1 is not enough — a half-open socket,
+    // server overload, or crash between send and process would silently
+    // skip the fallback. If no ack lands within DEPARTED_ACK_TIMEOUT_MS,
+    // we fall through to SMS.
+    const DEPARTED_ACK_TIMEOUT_MS = 1500;
+    let serverAckReceived = false;
     try {
       const ws = wsRef.current;
       const realAliases = latestStateRef.current.conversations
@@ -2226,36 +2234,67 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .map((c) => c.alias)
         .filter((a): a is string => typeof a === "string" && a.length > 0);
       if (ws && ws.readyState === 1 && realAliases.length > 0) {
-        ws.send(JSON.stringify({ type: "departed", toAliases: realAliases }));
-        wsBroadcastSent = true;
+        const requestId = `dep-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+        // Attach a one-shot ack listener BEFORE sending. We listen
+        // directly on the WS (not through handleIncomingWsMessage) so
+        // the panic path stays self-contained and the central handler
+        // doesn't need a new branch. The listener resolves the wait
+        // promise on a matching requestId and detaches itself.
+        const ackPromise = new Promise<boolean>((resolve) => {
+          let settled = false;
+          const onMessage = (event: { data: unknown }) => {
+            if (settled) return;
+            const data = typeof event?.data === "string" ? event.data : null;
+            if (!data) return;
+            try {
+              const parsed = JSON.parse(data);
+              if (
+                parsed &&
+                parsed.type === "departed_ack" &&
+                parsed.requestId === requestId
+              ) {
+                settled = true;
+                ws.removeEventListener?.("message", onMessage as never);
+                resolve(true);
+              }
+            } catch {
+              /* ignore non-JSON frames */
+            }
+          };
+          ws.addEventListener?.("message", onMessage as never);
+          setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            ws.removeEventListener?.("message", onMessage as never);
+            resolve(false);
+          }, DEPARTED_ACK_TIMEOUT_MS);
+        });
+        ws.send(
+          JSON.stringify({
+            type: "departed",
+            toAliases: realAliases,
+            requestId,
+          }),
+        );
+        serverAckReceived = await ackPromise;
       }
     } catch (err) {
       console.warn("[AppContext] Failed to broadcast departure:", err);
     }
 
-    // SMS satellite fallback (Task #113). We treat "WS open at broadcast
-    // time" as a proxy for the server-side ACK — without a per-message
-    // ack envelope from the server (out of scope for this task) it's the
-    // only honest signal we have. If the WS was not open (no internet,
-    // server unreachable, etc.) we hand the prebuilt distress ping to
-    // the OS SMS composer for each saved number. The OS — including
-    // direct-to-cell satellite — handles delivery. We give the broadcast
-    // a brief settle window before falling through so a flaky-but-open
-    // socket has a chance to flush.
+    // SMS satellite fallback (Task #113). Fires when the server didn't
+    // ack the departed broadcast within the timeout — covering offline,
+    // half-open sockets, and server-side failures. The OS SMS composer
+    // (including direct-to-cell satellite on iOS 18+) carries the ping.
     //
     // SILENCE CONTRACT: handoffSmsFallback() must not invoke Haptics,
     // Audio, Toast, or Alert. See scripts/check-panic-wipe-silence.js.
-    if (!wsBroadcastSent && snapshotNumbers.length > 0) {
+    if (!serverAckReceived && snapshotNumbers.length > 0) {
       try {
         await handoffSmsFallback(snapshotNumbers, snapshotMessage);
       } catch (err) {
         console.warn("[AppContext] SMS fallback handoff failed:", err);
       }
-    } else if (wsBroadcastSent) {
-      // Brief flush window so the TCP write above can leave the socket
-      // before we tear the WS down with the state clear. 200ms is below
-      // human perception and well under any realistic round-trip.
-      await new Promise((r) => setTimeout(r, 200));
     }
 
     try {
