@@ -334,6 +334,45 @@ if (appCtxSrc) {
   }
 }
 
+// 10. Low-bandwidth mode (Task #111) MUST NOT gate panicWipe or the duress
+//     interval. A user on a constrained satellite link is exactly the user
+//     who needs panic/duress to fire without precondition. We guard
+//     against an accidental `if (lowBandwidthActive) return;` (or any
+//     reference to the LBW flag) inside either body.
+// Only flag CONDITIONAL gating on the LBW flag — `if (lowBandwidthActive) return;`
+// or `lowBandwidthActive &&` style guards. The panic-wipe path legitimately
+// RESETS these fields in its state-clear object literal, which we must allow.
+const LBW_FORBIDDEN = /\bif\s*\([^)]*\b(lowBandwidthActive|lowBandwidthMode|linkQuality)\b|\b(lowBandwidthActive|lowBandwidthMode|linkQuality)\s*(?:&&|\?|\|\|)/;
+
+const LBW_CHECKS = [
+  {
+    label: "panicWipe() must not gate on low-bandwidth mode",
+    file: APP_CONTEXT,
+    startMarker: "const panicWipe = useCallback(async () => {",
+  },
+  {
+    label: "duress setInterval callback must not gate on low-bandwidth mode",
+    file: LOCK_SCREEN,
+    startMarker: "duressIntervalRef.current = setInterval(() => {",
+  },
+];
+
+for (const check of LBW_CHECKS) {
+  const src = readOrBail(check.file);
+  if (src == null) continue;
+  const body = extractBracedBody(src, check.startMarker);
+  if (!body) {
+    fail(check.label, `Could not locate "${check.startMarker}" in ${check.file}.`);
+    continue;
+  }
+  const violations = findViolations(body, src, LBW_FORBIDDEN);
+  if (violations.length === 0) {
+    pass(check.label);
+  } else {
+    fail(check.label, violations.map((v) => `line ${v.lineNo}: ${v.text}`).join("\n       "));
+  }
+}
+
 // ── summary ────────────────────────────────────────────────────────────────────
 
 if (exitCode === 0) {

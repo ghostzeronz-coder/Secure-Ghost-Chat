@@ -94,6 +94,10 @@ export default function SettingsScreen() {
     autoLockTimeout,
     duressGracePeriod,
     language,
+    lowBandwidthMode,
+    lowBandwidthActive,
+    linkQuality,
+    setLowBandwidthMode,
     setBiometricEnabled,
     setPin,
     checkPin,
@@ -681,6 +685,67 @@ export default function SettingsScreen() {
               ios_backgroundColor={colors.border}
               testID="biometric-switch"
             />
+          </View>
+          <View style={styles.settingDivider} />
+          {/* ── Low-bandwidth mode (Task #111) ────────────────────────── */}
+          <View style={[styles.settingRow, { flexDirection: "column", alignItems: "stretch", gap: 10, paddingVertical: 14 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="cellular-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.settingLabel}>LOW-BANDWIDTH MODE</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
+                  {lowBandwidthActive ? "ACTIVE" : "INACTIVE"} · LINK {linkQuality.toUpperCase()}
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {(
+                [
+                  { value: "auto", label: "AUTO" },
+                  { value: "forceOn", label: "ON" },
+                  { value: "forceOff", label: "OFF" },
+                ] as const
+              ).map((opt) => {
+                const selected = lowBandwidthMode === opt.value;
+                return (
+                  <Pressable
+                    key={opt.value}
+                    onPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      setLowBandwidthMode(opt.value).catch((e) =>
+                        console.warn("[Settings] Failed to set LBW mode:", e),
+                      );
+                    }}
+                    style={{
+                      flex: 1,
+                      borderRadius: 8,
+                      paddingVertical: 8,
+                      borderWidth: 1,
+                      borderColor: selected ? colors.primary : colors.border,
+                      backgroundColor: selected ? `${colors.primary}18` : "transparent",
+                      alignItems: "center",
+                    }}
+                    testID={`low-bw-${opt.value}`}
+                  >
+                    <Text
+                      style={{
+                        color: selected ? colors.primary : colors.mutedForeground,
+                        fontSize: 11,
+                        fontWeight: "800",
+                        letterSpacing: 2,
+                      }}
+                    >
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 1.5, lineHeight: 14 }}>
+              FOR SATELLITE LINKS. BLOCKS ATTACHMENT SENDS, DEFERS INCOMING MEDIA, STRETCHES KEEPALIVES.
+            </Text>
           </View>
           <View style={styles.settingDivider} />
           <Pressable

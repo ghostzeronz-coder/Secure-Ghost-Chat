@@ -86,11 +86,18 @@ function EncryptedImageView({
       : cached ?? attachment.uri;
   const [uri, setUri] = useState<string | undefined>(initialUri);
   const [failed, setFailed] = useState(false);
+  // Low-bandwidth mode: defer the auto-download so encrypted blobs aren't
+  // pulled over a satellite link unless the user taps to fetch.
+  const { lowBandwidthActive } = useApp();
+  const [manualFetch, setManualFetch] = useState(0);
   const colors = useColors();
 
   useEffect(() => {
     if (attachment.kind !== "image-ref") return;
     if (readBlobUri(attachment.blobId)) return; // already decrypted in this session
+    // In low-bandwidth mode, only fetch when the user explicitly taps.
+    // `manualFetch` is bumped on tap to re-run this effect.
+    if (lowBandwidthActive && manualFetch === 0) return;
     let cancelled = false;
     (async () => {
       try {
@@ -112,7 +119,32 @@ function EncryptedImageView({
     return () => {
       cancelled = true;
     };
-  }, [attachment]);
+  }, [attachment, lowBandwidthActive, manualFetch]);
+
+  // Low-bandwidth placeholder: photo not auto-downloaded. Tap to fetch.
+  if (
+    lowBandwidthActive &&
+    attachment.kind === "image-ref" &&
+    !uri &&
+    !readBlobUri(attachment.blobId)
+  ) {
+    return (
+      <Pressable
+        style={[style, { alignItems: "center", justifyContent: "center", backgroundColor: colors.muted, gap: 4 }]}
+        onPress={() => setManualFetch((n) => n + 1)}
+        accessibilityLabel="Tap to fetch encrypted photo"
+        testID="lbw-image-deferred"
+      >
+        <Ionicons name="cloud-download-outline" size={22} color={colors.mutedForeground} />
+        <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, fontWeight: "800" }}>
+          TAP TO FETCH
+        </Text>
+        <Text style={{ color: colors.mutedForeground, fontSize: 8, letterSpacing: 1 }}>
+          LO-BW
+        </Text>
+      </Pressable>
+    );
+  }
 
   const handleImageError = () => {
     // The local picker URI we're displaying is no longer readable (e.g.
@@ -180,7 +212,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation, deleteConversation } = useApp();
+  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation, deleteConversation, lowBandwidthActive } = useApp();
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
@@ -251,6 +283,13 @@ export default function ChatScreen() {
   const pickFromLibrary = async () => {
     setShowAttachMenu(false);
     if (attachBusy) return;
+    // Low-bandwidth mode: refuse BEFORE running the picker so we don't read
+    // a multi-MB photo into memory and upload its encrypted blob over a
+    // satellite link, only to have sendMessage reject afterwards.
+    if (lowBandwidthActive) {
+      Alert.alert("Low-bandwidth mode", "Attachments are blocked to save satellite data. Toggle off in Settings to send.");
+      return;
+    }
     setAttachBusy(true);
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -300,6 +339,10 @@ export default function ChatScreen() {
   const pickFromCamera = async () => {
     setShowAttachMenu(false);
     if (attachBusy) return;
+    if (lowBandwidthActive) {
+      Alert.alert("Low-bandwidth mode", "Attachments are blocked to save satellite data. Toggle off in Settings to send.");
+      return;
+    }
     setAttachBusy(true);
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -355,6 +398,10 @@ export default function ChatScreen() {
   const pickFile = async () => {
     setShowAttachMenu(false);
     if (attachBusy) return;
+    if (lowBandwidthActive) {
+      Alert.alert("Low-bandwidth mode", "Attachments are blocked to save satellite data. Toggle off in Settings to send.");
+      return;
+    }
     setAttachBusy(true);
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -405,6 +452,10 @@ export default function ChatScreen() {
   const openRecorder = async () => {
     setShowAttachMenu(false);
     if (attachBusy) return;
+    if (lowBandwidthActive) {
+      Alert.alert("Low-bandwidth mode", "Voice notes are blocked to save satellite data. Toggle off in Settings to record.");
+      return;
+    }
     try {
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) {
@@ -915,6 +966,25 @@ export default function ChatScreen() {
                 <Ionicons name="timer-outline" size={8} color={colors.destructive} />
                 <Text style={styles.headerTimerTxt}>
                   {currentDisappear.label}
+                </Text>
+              </View>
+            )}
+            {lowBandwidthActive && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 2,
+                  backgroundColor: `${colors.primary}20`,
+                  borderRadius: 4,
+                  paddingHorizontal: 5,
+                  paddingVertical: 1,
+                }}
+                testID="lbw-header-badge"
+              >
+                <Ionicons name="cellular-outline" size={8} color={colors.primary} />
+                <Text style={{ fontSize: 8, fontWeight: "800", letterSpacing: 1, color: colors.primary }}>
+                  LO-BW
                 </Text>
               </View>
             )}

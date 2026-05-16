@@ -1,4 +1,14 @@
 import { evaluateExpiredHandshake } from "@/lib/expiry";
+import {
+  classifyLinkQuality,
+  isLowBandwidthActive,
+  wsPingIntervalMs,
+  wsReconnectDelayMs,
+  LBW_ATTACHMENT_REFUSAL_REASON,
+  type LinkQuality,
+  type LinkStats,
+  type LowBandwidthMode,
+} from "@/lib/lowBandwidth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Alert, Platform } from "react-native";
@@ -318,6 +328,13 @@ interface AppState {
   duressGracePeriod: number;
   language: string;
   incomingCall: IncomingCall | null;
+  // Satellite low-bandwidth mode (Task #111). `linkQuality` is the
+  // heuristically classified link state, `lowBandwidthMode` is the user
+  // override (auto/forceOn/forceOff), and `lowBandwidthActive` is the
+  // derived boolean that the rest of the app reads.
+  linkQuality: LinkQuality;
+  lowBandwidthMode: LowBandwidthMode;
+  lowBandwidthActive: boolean;
 }
 
 interface AppContextType extends AppState {
@@ -353,6 +370,7 @@ interface AppContextType extends AppState {
   setAutoLockTimeout: (ms: number | null) => Promise<void>;
   setDuressGracePeriod: (seconds: number) => Promise<void>;
   setLanguage: (code: string) => Promise<void>;
+  setLowBandwidthMode: (mode: LowBandwidthMode) => Promise<void>;
   sendCallSignal: (msg: object) => void;
   registerCallListener: (fn: ((s: CallSignal) => void) | null) => void;
   dismissIncomingCall: () => void;
@@ -452,6 +470,7 @@ const AUTO_LOCK_TIMEOUT_KEY = "ghostface_auto_lock_timeout";
 const DURESS_GRACE_KEY = "ghostface_duress_grace_period";
 const LANGUAGE_KEY = "ghostface_language";
 const LAST_VPN_SERVER_KEY = "ghostface_last_vpn_server_id";
+const LOW_BW_MODE_KEY = "ghostface_low_bandwidth_mode";
 const MY_IK_PRIV_KEY = "ghostface_my_ik_priv";
 const MY_IK_PUB_KEY = "ghostface_my_ik_pub";
 const MY_SPK_PRIV_KEY = "ghostface_my_spk_priv";
@@ -470,6 +489,7 @@ const APP_STORAGE_KEYS = [
   DURESS_GRACE_KEY,
   LANGUAGE_KEY,
   LAST_VPN_SERVER_KEY,
+  LOW_BW_MODE_KEY,
 ] as const;
 
 function getApiBase(): string {
@@ -927,12 +947,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     autoLockTimeout: 5 * 60 * 1000,
     duressGracePeriod: 3,
     language: "en",
+    linkQuality: "unknown",
+    lowBandwidthMode: "auto",
+    lowBandwidthActive: false,
   });
 
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw, lowBwRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
@@ -947,6 +970,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(DURESS_GRACE_KEY),
           AsyncStorage.getItem(LANGUAGE_KEY),
           AsyncStorage.getItem(OUTBOX_KEY),
+          AsyncStorage.getItem(LOW_BW_MODE_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -1005,6 +1029,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const VALID_LANGUAGES = ["en","es","fr","de","ja","zh","ar","pt","ru","ko","hi","it"];
         const language = (languageRaw && VALID_LANGUAGES.includes(languageRaw)) ? languageRaw : "en";
 
+        const VALID_LBW_MODES: LowBandwidthMode[] = ["auto", "forceOn", "forceOff"];
+        const lowBandwidthMode: LowBandwidthMode =
+          lowBwRaw && (VALID_LBW_MODES as string[]).includes(lowBwRaw)
+            ? (lowBwRaw as LowBandwidthMode)
+            : "auto";
+        // `forceOn` is honoured immediately; otherwise we wait for the
+        // classifier to observe link quality before activating.
+        const lowBandwidthActive = lowBandwidthMode === "forceOn";
+
         // Fetch Stripe publishable key in the background (non-blocking)
         const apiBase = getApiBase();
         let stripePublishableKey: string | null = null;
@@ -1045,6 +1078,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           vpnServer: restoredVpnServer,
           // Start disconnected; if a server was saved, show reconnecting for 1.5 s then connect
           vpnConnected: false,
+          lowBandwidthMode,
+          lowBandwidthActive,
         }));
 
         if (restoredVpnServer) {
@@ -1338,6 +1373,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ── Satellite low-bandwidth mode (Task #111) ────────────────────────────
+  // We don't have NetInfo wired up (no native module installed). Instead we
+  // observe what we already control — WebSocket reconnect churn, outbox
+  // failures, and the gap since the last successful auth ack — and feed
+  // those into a pure classifier (lib/lowBandwidth.ts).
+  const linkStatsRef = React.useRef<LinkStats>({
+    recentReconnects: 0,
+    recentSendFailures: 0,
+    lastAuthAckAt: 0,
+    reconnectingSince: 0,
+  });
+  // Ref mirror of `state.lowBandwidthActive` so the WS effect can pick the
+  // right ping cadence / reconnect delay without re-running on every flip.
+  const lbwActiveRef = React.useRef(false);
+
+  // Keep `lbwActiveRef` in lockstep with state regardless of which path
+  // mutated it (persisted load on cold start, panicWipe reset, classifier
+  // recompute). The local setters update the ref themselves, but this
+  // belt-and-suspenders effect guarantees the WS ping/reconnect cadence
+  // is always reading the authoritative value.
+  useEffect(() => {
+    lbwActiveRef.current = state.lowBandwidthActive;
+  }, [state.lowBandwidthActive]);
+
+  const recomputeLinkQuality = useCallback(() => {
+    const lq = classifyLinkQuality(linkStatsRef.current);
+    setState((prev) => {
+      const active = isLowBandwidthActive(lq, prev.lowBandwidthMode);
+      if (prev.linkQuality === lq && prev.lowBandwidthActive === active) {
+        lbwActiveRef.current = active;
+        return prev;
+      }
+      lbwActiveRef.current = active;
+      return { ...prev, linkQuality: lq, lowBandwidthActive: active };
+    });
+  }, []);
+
+  const setLowBandwidthMode = useCallback(async (mode: LowBandwidthMode) => {
+    try {
+      await AsyncStorage.setItem(LOW_BW_MODE_KEY, mode);
+      setState((prev) => {
+        const active = isLowBandwidthActive(prev.linkQuality, mode);
+        lbwActiveRef.current = active;
+        return { ...prev, lowBandwidthMode: mode, lowBandwidthActive: active };
+      });
+    } catch (err) {
+      console.error("[AppContext] Failed to save low-bandwidth mode:", err);
+      throw err;
+    }
+  }, []);
+
+  // Decay the churn counters once a minute so a brief satellite hiccup
+  // doesn't keep low-bandwidth mode latched on forever after the link
+  // recovers. Also re-classifies in case nothing else triggered a recompute.
+  useEffect(() => {
+    const t = setInterval(() => {
+      const s = linkStatsRef.current;
+      s.recentReconnects = Math.max(0, s.recentReconnects - 1);
+      s.recentSendFailures = Math.max(0, s.recentSendFailures - 1);
+      recomputeLinkQuality();
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [recomputeLinkQuality]);
+
   const setLocked = useCallback((locked: boolean) => {
     setState((prev) => ({ ...prev, isLocked: locked }));
   }, []);
@@ -1432,6 +1531,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
       if (!conv) return { queued: false };
       if (!text.trim() && !attachment) return { queued: false };
+
+      // Low-bandwidth refusal — defensive guard. The chat composer also
+      // gates attachment pickers up-front, but if anything slips through
+      // (programmatic call, race after toggle, retry of a queued send)
+      // we refuse here too rather than burn satellite data on a photo.
+      if (attachment && latestStateRef.current.lowBandwidthActive) {
+        Alert.alert("Low-bandwidth mode", LBW_ATTACHMENT_REFUSAL_REASON);
+        return { queued: false };
+      }
 
       const myAlias = latestStateRef.current.alias ?? "GHOST_USER";
       const isRealContact = conv.isRealContact ?? false;
@@ -1979,6 +2087,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       duressGracePeriod: 3,
       language: "en",
       incomingCall: null,
+      linkQuality: "unknown",
+      lowBandwidthMode: "auto",
+      lowBandwidthActive: false,
     });
   }, []);
 
@@ -2112,6 +2223,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.log("[Outbox] Drained queued message:", item.id);
         } catch (e) {
           console.error("[Outbox] Failed to drain item:", item.id, e);
+          // Feed the low-bandwidth classifier so repeated drain failures
+          // can downgrade us into LBW mode.
+          linkStatsRef.current.recentSendFailures += 1;
+          recomputeLinkQuality();
           break; // Stop on error — ratchet ordering requires sequential delivery
         }
       }
@@ -2158,6 +2273,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (wsMsg.type === "ack" && !wsMsg.from) {
       wsEverConnectedRef.current = true;
       setWsConnected(true);
+      // Link is healthy enough to authenticate — reset the "stuck" timer
+      // and let the classifier promote us back to "good".
+      linkStatsRef.current.lastAuthAckAt = Date.now();
+      linkStatsRef.current.reconnectingSince = 0;
+      recomputeLinkQuality();
       drainOutbox().catch(console.error);
       return;
     }
@@ -2489,9 +2609,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
+        // Client-side ping. The server runs its own protocol-level ping
+        // every 30 s, but on satellite links we want the *client* to also
+        // keep the connection nailed up — and to stretch its cadence when
+        // low-bandwidth mode is active. We use a self-rescheduling
+        // setTimeout so the interval can adapt to runtime LBW toggles
+        // without tearing down and recreating the WS.
+        let pingTimer: ReturnType<typeof setTimeout> | null = null;
+        const schedulePing = () => {
+          pingTimer = setTimeout(() => {
+            if (ws.readyState === 1) {
+              try { ws.send(JSON.stringify({ type: "ping" })); } catch { /* ignore */ }
+              schedulePing();
+            }
+          }, wsPingIntervalMs(lbwActiveRef.current));
+        };
+
         ws.onopen = () => {
           ws.send(JSON.stringify({ type: "auth", alias, token: deviceToken }));
           console.log("[WS] Connection opened, authenticating as", alias);
+          schedulePing();
         };
 
         // Auth-error flag: set by onmessage when server sends { type:"error", message:"auth failed" }.
@@ -2519,6 +2656,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ws.onclose = (event) => {
           console.log("[WS] Connection closed", event.code);
           setWsConnected(false);
+          if (pingTimer) { clearTimeout(pingTimer); pingTimer = null; }
+          // Feed the LBW classifier: count this disconnect, and start the
+          // "stuck reconnecting" stopwatch if it isn't already running.
+          linkStatsRef.current.recentReconnects += 1;
+          if (linkStatsRef.current.reconnectingSince === 0) {
+            linkStatsRef.current.reconnectingSince = Date.now();
+          }
+          recomputeLinkQuality();
           if (!mounted) return;
 
           if (event.code === 4001 || authRejected) {
@@ -2566,7 +2711,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          reconnectTimer = setTimeout(connect, 5000);
+          // Reconnect delay is stretched when LBW is active so a brief
+          // satellite sliver isn't immediately re-burned by reconnect churn.
+          reconnectTimer = setTimeout(connect, wsReconnectDelayMs(lbwActiveRef.current));
         };
       } catch (e) {
         console.warn("[WS] Failed to connect:", e);
@@ -2628,6 +2775,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setAutoLockTimeout,
         setDuressGracePeriod,
         setLanguage,
+        setLowBandwidthMode,
         wsConnected,
         loaded,
         vpnAutoReconnecting,
