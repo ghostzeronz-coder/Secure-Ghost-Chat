@@ -2161,7 +2161,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       incomingCall: null,
       linkQuality: "unknown",
       lowBandwidthMode: "auto",
-      lowBandwidthActive: false,
+      // Same derivation as createInitialState — AUTO+UNKNOWN must start
+      // active per task spec so the user doesn't briefly burn satellite
+      // bytes between panicWipe reset and the first classifier tick.
+      lowBandwidthActive: isLowBandwidthActive("unknown", "auto"),
     });
   }, []);
 

@@ -3,9 +3,20 @@ import { IncomingMessage } from "http";
 import { db, messagesTable, deviceTokensTable, departuresTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
-import { inflateSync } from "fflate";
+import { inflateSync } from "zlib";
 import { logger } from "../lib/logger";
 import { normalizeAlias } from "../utils/alias";
+
+// ── msg-z (compressed frame) safety limits ──────────────────────────────
+// Compressed frames are an untrusted, attacker-controllable input even
+// after auth. We bound both the compressed size (avoid huge base64 blobs
+// before we even try to inflate) and the decompressed size (zip-bomb
+// defense — node's zlib honors maxOutputLength and throws before
+// allocating past it). The numbers are generously above any legitimate
+// `msg` envelope (high-entropy ciphertext + X3DH header tops out a few
+// KB) while small enough to keep WS workers bounded.
+const MSG_Z_MAX_COMPRESSED_BYTES = 32 * 1024; // ~32 KB base64 input
+const MSG_Z_MAX_INFLATED_BYTES = 128 * 1024; // ~128 KB after inflate
 
 export interface WireMessage {
   type:
@@ -183,28 +194,6 @@ export function createWsServer(wss: WebSocketServer): void {
         return;
       }
 
-      // ── Low-bandwidth compressed frame unwrap (Task #111) ──────────────
-      // The client wraps outgoing JSON in `msg-z` when low-bandwidth mode
-      // is active to save satellite bytes. We inflate transparently here
-      // and continue processing as if the original `msg` frame arrived.
-      // Server→client traffic is NOT compressed at this layer; receivers
-      // get the normal `msg` envelope back unchanged.
-      if ((msg as { type?: string }).type === "msg-z") {
-        const data = (msg as { data?: unknown }).data;
-        if (typeof data !== "string") {
-          ws.send(JSON.stringify({ type: "error", message: "msg-z requires data" }));
-          return;
-        }
-        try {
-          const inflated = Buffer.from(inflateSync(Buffer.from(data, "base64"))).toString("utf8");
-          msg = JSON.parse(inflated) as WireMessage;
-        } catch (e) {
-          logger.warn({ err: e }, "Failed to inflate msg-z frame");
-          ws.send(JSON.stringify({ type: "error", message: "Invalid compressed frame" }));
-          return;
-        }
-      }
-
       if (msg.type === "ping") {
         ws.send(JSON.stringify({ type: "pong" }));
         return;
@@ -235,6 +224,57 @@ export function createWsServer(wss: WebSocketServer): void {
       if (!authedAlias) {
         ws.send(JSON.stringify({ type: "error", message: "not authenticated" }));
         return;
+      }
+
+      // ── Low-bandwidth compressed frame unwrap (Task #111) ──────────────
+      // The client wraps outgoing JSON in `msg-z` when low-bandwidth mode
+      // is active to save satellite bytes. We inflate transparently here
+      // and continue processing as if the original `msg` frame arrived.
+      //
+      // Security: this branch sits BELOW the auth gate so unauthenticated
+      // attackers can't burn server CPU/memory inflating crafted payloads.
+      // We additionally bound both the compressed input size and the
+      // inflated output size (zip-bomb defense — node's zlib throws when
+      // `maxOutputLength` is exceeded). Server→client traffic is NOT
+      // compressed at this layer; receivers get the normal `msg` envelope
+      // back unchanged.
+      if ((msg as { type?: string }).type === "msg-z") {
+        const data = (msg as { data?: unknown }).data;
+        if (typeof data !== "string") {
+          ws.send(JSON.stringify({ type: "error", message: "msg-z requires data" }));
+          return;
+        }
+        if (data.length > MSG_Z_MAX_COMPRESSED_BYTES) {
+          logger.warn(
+            { alias: authedAlias, bytes: data.length },
+            "Rejected oversized msg-z frame (compressed)",
+          );
+          ws.send(JSON.stringify({ type: "error", message: "Compressed frame too large" }));
+          return;
+        }
+        let inflated: string;
+        try {
+          const buf = inflateSync(Buffer.from(data, "base64"), {
+            maxOutputLength: MSG_Z_MAX_INFLATED_BYTES,
+          });
+          inflated = buf.toString("utf8");
+        } catch (e) {
+          logger.warn({ err: e, alias: authedAlias }, "Failed to inflate msg-z frame");
+          ws.send(JSON.stringify({ type: "error", message: "Invalid compressed frame" }));
+          return;
+        }
+        try {
+          msg = JSON.parse(inflated) as WireMessage;
+        } catch (e) {
+          logger.warn({ err: e, alias: authedAlias }, "Inflated msg-z frame is not valid JSON");
+          ws.send(JSON.stringify({ type: "error", message: "Invalid compressed frame" }));
+          return;
+        }
+        // Disallow nested compression to keep the decode bounded.
+        if ((msg as { type?: string }).type === "msg-z") {
+          ws.send(JSON.stringify({ type: "error", message: "Nested msg-z not allowed" }));
+          return;
+        }
       }
 
       // ── Call signalling — ephemeral relay, never persisted ────────────────
