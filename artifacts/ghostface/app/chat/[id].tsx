@@ -28,6 +28,107 @@ import type { Attachment } from "@/context/AppContext";
 import { MAX_ATTACHMENT_B64_CHARS, useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { drKeyFingerprint } from "@/lib/doubleRatchet";
+import {
+  base64ToBytes,
+  bytesToDataUri,
+  downloadAndDecryptBlob,
+  uploadEncryptedBlob,
+} from "@/lib/blobStore";
+
+// Allow photos up to ~25 MiB raw. Base64 inflates ~4/3 so the picker
+// returns up to ~34 MB of base64; the encrypted upload itself stays well
+// under the server's 32 MiB ciphertext cap.
+const MAX_PHOTO_BYTES = 25 * 1024 * 1024;
+const MAX_PHOTO_B64_CHARS = Math.ceil((MAX_PHOTO_BYTES * 4) / 3) + 16;
+const PHOTO_QUALITY = 0.85;
+
+// Module-level LRU cache so a single decrypted image is reused across renders
+// (FlatList recycles cells and we don't want to re-download on every scroll).
+// Bounded so long scrollback never grows memory without limit — old entries
+// are evicted FIFO once the cap is reached.
+const BLOB_CACHE_MAX_ENTRIES = 24;
+const blobUriCache = new Map<string, string>();
+function cacheBlobUri(blobId: string, uri: string): void {
+  if (blobUriCache.has(blobId)) blobUriCache.delete(blobId);
+  blobUriCache.set(blobId, uri);
+  while (blobUriCache.size > BLOB_CACHE_MAX_ENTRIES) {
+    const oldest = blobUriCache.keys().next().value;
+    if (oldest === undefined) break;
+    blobUriCache.delete(oldest);
+  }
+}
+function readBlobUri(blobId: string): string | undefined {
+  const v = blobUriCache.get(blobId);
+  if (v !== undefined) {
+    // Touch — move to most-recent end so it isn't evicted on next insert.
+    blobUriCache.delete(blobId);
+    blobUriCache.set(blobId, v);
+  }
+  return v;
+}
+
+function EncryptedImageView({
+  attachment,
+  style,
+}: {
+  attachment: Extract<Attachment, { kind: "image" | "image-ref" }>;
+  style: import("react-native").ImageStyle;
+}): React.ReactElement {
+  const [uri, setUri] = useState<string | undefined>(
+    attachment.kind === "image" ? attachment.uri : attachment.uri ?? readBlobUri(attachment.blobId),
+  );
+  const [failed, setFailed] = useState(false);
+  const colors = useColors();
+
+  useEffect(() => {
+    if (attachment.kind !== "image-ref") return;
+    if (uri) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const bytes = await downloadAndDecryptBlob(attachment.blobId, attachment.key);
+        const mime = attachment.mimeType ?? "image/jpeg";
+        const dataUri = bytesToDataUri(bytes, mime);
+        if (cancelled) return;
+        cacheBlobUri(attachment.blobId, dataUri);
+        setUri(dataUri);
+      } catch (e) {
+        console.warn("[Attach] blob fetch/decrypt failed", e);
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment, uri]);
+
+  if (failed) {
+    return (
+      <View style={[style, { alignItems: "center", justifyContent: "center", backgroundColor: colors.muted }]}>
+        <Ionicons name="image-outline" size={24} color={colors.mutedForeground} />
+        <Text style={{ color: colors.mutedForeground, fontSize: 10, marginTop: 4, letterSpacing: 1 }}>
+          UNAVAILABLE
+        </Text>
+      </View>
+    );
+  }
+  if (!uri) {
+    return (
+      <View style={[style, { alignItems: "center", justifyContent: "center", backgroundColor: colors.muted }]}>
+        <Ionicons name="lock-closed" size={20} color={colors.mutedForeground} />
+      </View>
+    );
+  }
+  return (
+    <Image
+      source={{ uri }}
+      style={style}
+      contentFit="cover"
+      transition={120}
+      accessibilityLabel="Encrypted photo attachment"
+    />
+  );
+}
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -138,24 +239,27 @@ export default function ChatScreen() {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.4,
+        quality: PHOTO_QUALITY,
         base64: true,
         exif: false,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const a = result.assets[0];
       const mime = a.mimeType ?? "image/jpeg";
-      if (!a.base64 || a.base64.length > MAX_ATTACHMENT_B64_CHARS) {
+      if (!a.base64 || a.base64.length > MAX_PHOTO_B64_CHARS) {
         Alert.alert(
           "IMAGE TOO LARGE",
-          "Photos up to 5 MB can be sent end-to-end encrypted in this build. Try a smaller image.",
+          "Photos up to 25 MB can be sent encrypted. Try a smaller image.",
         );
         return;
       }
-      const uri = `data:${mime};base64,${a.base64}`;
+      const bytes = base64ToBytes(a.base64);
+      const { blobId, key } = await uploadEncryptedBlob(bytes);
       setPendingAttachment({
-        kind: "image",
-        uri,
+        kind: "image-ref",
+        blobId,
+        key,
+        uri: a.uri,
         width: a.width,
         height: a.height,
         mimeType: mime,
@@ -163,7 +267,7 @@ export default function ChatScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (e) {
       console.warn("[Attach] library pick failed", e);
-      Alert.alert("ATTACH FAILED", "Could not load the selected image.");
+      Alert.alert("ATTACH FAILED", "Could not upload the selected image.");
     } finally {
       setAttachBusy(false);
     }
@@ -184,24 +288,27 @@ export default function ChatScreen() {
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.4,
+        quality: PHOTO_QUALITY,
         base64: true,
         exif: false,
       });
       if (result.canceled || !result.assets?.[0]) return;
       const a = result.assets[0];
       const mime = a.mimeType ?? "image/jpeg";
-      if (!a.base64 || a.base64.length > MAX_ATTACHMENT_B64_CHARS) {
+      if (!a.base64 || a.base64.length > MAX_PHOTO_B64_CHARS) {
         Alert.alert(
           "PHOTO TOO LARGE",
-          "Photos up to 5 MB can be sent end-to-end encrypted in this build.",
+          "Photos up to 25 MB can be sent encrypted.",
         );
         return;
       }
-      const uri = `data:${mime};base64,${a.base64}`;
+      const bytes = base64ToBytes(a.base64);
+      const { blobId, key } = await uploadEncryptedBlob(bytes);
       setPendingAttachment({
-        kind: "image",
-        uri,
+        kind: "image-ref",
+        blobId,
+        key,
+        uri: a.uri,
         width: a.width,
         height: a.height,
         mimeType: mime,
@@ -209,7 +316,7 @@ export default function ChatScreen() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch (e) {
       console.warn("[Attach] camera capture failed", e);
-      Alert.alert("CAPTURE FAILED", "Could not capture the photo.");
+      Alert.alert("CAPTURE FAILED", "Could not upload the captured photo.");
     } finally {
       setAttachBusy(false);
     }
@@ -888,16 +995,11 @@ export default function ChatScreen() {
                 borderWidth: item.fromMe ? 0 : 1,
                 borderColor: colors.border,
               },
-              item.attachment?.kind === "image" && styles.msgBubbleWithImage,
+              (item.attachment?.kind === "image" || item.attachment?.kind === "image-ref") &&
+                styles.msgBubbleWithImage,
             ]}>
-              {item.attachment?.kind === "image" && (
-                <Image
-                  source={{ uri: item.attachment.uri }}
-                  style={styles.msgImage}
-                  contentFit="cover"
-                  transition={120}
-                  accessibilityLabel="Encrypted photo attachment"
-                />
+              {(item.attachment?.kind === "image" || item.attachment?.kind === "image-ref") && (
+                <EncryptedImageView attachment={item.attachment} style={styles.msgImage} />
               )}
               {item.attachment?.kind === "audio" && (
                 <Pressable

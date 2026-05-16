@@ -9,6 +9,7 @@ import messagesRouter from "./messages";
 import numbersRouter from "./numbers";
 import invitesRouter from "./invites";
 import iceConfigRouter from "./iceConfig";
+import blobsRouter from "./blobs";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(messagesRouter);
 router.use(numbersRouter);
 router.use(invitesRouter);
 router.use(iceConfigRouter);
+router.use(blobsRouter);
 
 export default router;

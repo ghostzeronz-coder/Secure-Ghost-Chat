@@ -62,6 +62,20 @@ export type Attachment =
       mimeType?: string;
     }
   | {
+      // Photo stored as an encrypted blob on the server. The wire envelope
+      // carries only `blobId` + per-blob symmetric `key`; the receiver
+      // fetches and decrypts the bytes locally before rendering. `uri` is
+      // local-only (sender's preview before send, or receiver's decrypted
+      // cache) and is stripped by `wrapPayload`.
+      kind: "image-ref";
+      blobId: string;
+      key: string;
+      mimeType?: string;
+      width?: number;
+      height?: number;
+      uri?: string;
+    }
+  | {
       kind: "file";
       uri: string;
       name: string;
@@ -111,7 +125,15 @@ const ATTACHMENT_ENVELOPE_PREFIX = `{"_gfa":${ATTACHMENT_ENVELOPE_VERSION}`;
 
 function wrapPayload(text: string, attachment?: Attachment): string {
   if (!attachment) return text;
-  return JSON.stringify({ _gfa: ATTACHMENT_ENVELOPE_VERSION, t: text, a: attachment });
+  // image-ref carries a local-only `uri` for the sender's own preview that
+  // must NOT be sent over the wire — strip it so the recipient only ever
+  // sees the blob reference + key.
+  let wireAttachment: Attachment = attachment;
+  if (attachment.kind === "image-ref") {
+    const { kind, blobId, key, mimeType, width, height } = attachment;
+    wireAttachment = { kind, blobId, key, mimeType, width, height };
+  }
+  return JSON.stringify({ _gfa: ATTACHMENT_ENVELOPE_VERSION, t: text, a: wireAttachment });
 }
 
 // Only allow inline base64 data URIs as attachment payloads. This is the
@@ -130,9 +152,29 @@ const MAX_ATTACHMENT_NAME_LEN = 200;
 // force the client to decode an arbitrarily large blob.
 export const MAX_ATTACHMENT_B64_CHARS = 7 * 1024 * 1024 + 512 * 1024;
 
+// Validates a blob reference for the image-ref attachment kind.
+const BLOB_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const BLOB_KEY_RE = /^[0-9a-f]{64}$/i;
+const IMAGE_MIME_RE = /^image\/(png|jpe?g|gif|webp|heic|heif)$/i;
+
 function isValidAttachment(a: unknown): a is Attachment {
   if (!a || typeof a !== "object") return false;
   const att = a as Record<string, unknown>;
+
+  // image-ref carries blob references instead of an inline data URI.
+  if (att.kind === "image-ref") {
+    if (typeof att.blobId !== "string" || !BLOB_ID_RE.test(att.blobId)) return false;
+    if (typeof att.key !== "string" || !BLOB_KEY_RE.test(att.key)) return false;
+    if (att.mimeType !== undefined) {
+      if (typeof att.mimeType !== "string" || !IMAGE_MIME_RE.test(att.mimeType)) return false;
+    }
+    if (att.width !== undefined && typeof att.width !== "number") return false;
+    if (att.height !== undefined && typeof att.height !== "number") return false;
+    // `uri` is local-only and optional; we never validate or trust it from
+    // the wire because `wrapPayload` strips it before sending.
+    return true;
+  }
+
   if (typeof att.uri !== "string") return false;
   if (att.uri.length > MAX_ATTACHMENT_B64_CHARS) return false;
   if (att.mimeType !== undefined && typeof att.mimeType !== "string") return false;
@@ -179,7 +221,7 @@ function unwrapPayload(plaintext: string): { text: string; attachment?: Attachme
 function previewForMessage(text: string, attachment?: Attachment): string {
   if (text && text.trim()) return text;
   if (!attachment) return text;
-  if (attachment.kind === "image") return "📷 Photo";
+  if (attachment.kind === "image" || attachment.kind === "image-ref") return "📷 Photo";
   if (attachment.kind === "audio") return "🎙 Voice note";
   if (attachment.kind === "file") return `📎 ${attachment.name}`;
   return text;
