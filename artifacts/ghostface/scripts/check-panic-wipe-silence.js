@@ -267,20 +267,36 @@ if (appCtxSrc) {
 // 8. evaluateExpiredHandshake() must enforce ALL four guard conditions in
 //    AppContext.tsx so a healthy conversation is never sealed by accident.
 //    Task #102 regression guard.
-if (appCtxSrc) {
-  // Anchor past the return-type object literal so extractBracedBody picks
-  // up the function body, not the return-type braces.
-  const helperAnchor = appCtxSrc.indexOf("export function evaluateExpiredHandshake(");
-  const helperBody =
-    helperAnchor === -1
-      ? null
-      : extractBracedBody(appCtxSrc.slice(helperAnchor), "} | null {");
-  if (!helperBody) {
+// The helper itself lives in lib/expiry.ts (extracted so it can be unit-tested
+// without React Native in scope). AppContext only re-exports it. Static checks
+// here therefore read the helper from its source module.
+const EXPIRY_HELPER = path.join(ROOT, "lib", "expiry.ts");
+const expirySrc = readOrBail(EXPIRY_HELPER);
+const appCtxImportsHelper = appCtxSrc &&
+  /import\s*\{\s*evaluateExpiredHandshake\s*\}\s*from\s*["']@\/lib\/expiry["']/.test(appCtxSrc);
+if (!appCtxImportsHelper) {
+  fail(
+    "AppContext.tsx does not import evaluateExpiredHandshake from @/lib/expiry",
+    "The seal predicate must come from the shared lib/expiry module so the outbox-failure path and the background sweep share the same logic.",
+  );
+}
+
+if (expirySrc) {
+  const helperBody = extractBracedBody(
+    expirySrc,
+    "export function evaluateExpiredHandshake(",
+  );
+  // The signature has a return-type object literal that the brace counter
+  // would latch onto. Re-anchor past it.
+  const reAnchored = extractBracedBody(expirySrc, "ExpiryResult | null {");
+  const body = reAnchored || helperBody;
+  if (!body) {
     fail(
-      "evaluateExpiredHandshake() helper is missing in AppContext.tsx",
-      "Expected an exported function that returns null unless ALL four expiry conditions hold.",
+      "evaluateExpiredHandshake() helper is missing in lib/expiry.ts",
+      "Expected an exported function that returns null unless ALL expiry conditions hold.",
     );
   } else {
+    const helperBody = body;
     const checks = [
       { re: /c\.destroyedAt/, name: "destroyedAt guard" },
       { re: /c\.isRealContact/, name: "isRealContact guard" },
@@ -299,12 +315,12 @@ if (appCtxSrc) {
     }
   }
 
-  // 9. A background sweep must invoke evaluateExpiredHandshake on a timer
-  //    so stalled handshakes are detected without user action.
-  // The sweep is implemented as a named closure that calls the helper and
-  // is then handed to setInterval; the two references can be 400+ chars
-  // apart, so widen the window. We require BOTH references to appear
-  // within the same useEffect-style block.
+}
+
+// 9. A background sweep in AppContext.tsx must invoke
+//    evaluateExpiredHandshake on a timer so stalled handshakes are
+//    detected without user action.
+if (appCtxSrc) {
   const sweepRe =
     /setInterval\([\s\S]{0,1500}?evaluateExpiredHandshake|evaluateExpiredHandshake[\s\S]{0,1500}?setInterval/;
   if (sweepRe.test(appCtxSrc)) {

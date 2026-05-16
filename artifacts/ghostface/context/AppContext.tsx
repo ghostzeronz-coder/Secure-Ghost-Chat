@@ -1,3 +1,4 @@
+import { evaluateExpiredHandshake } from "@/lib/expiry";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Alert, Platform } from "react-native";
@@ -255,58 +256,10 @@ export interface Conversation {
   destroyedAt?: number;
 }
 
-/**
- * Detect a conversation whose X3DH handshake has expired before completing:
- * the redeemer queued the bootstrap header, the peer never came online,
- * and enough time has passed that we should seal the conversation rather
- * than let it dangle forever. Pure helper — no React, no side effects, so
- * the same predicate can be used by the outbox-failure path and the
- * background sweep without diverging.
- *
- * All conditions must hold:
- *   - real contact (sketch contacts are mocked, never expire)
- *   - bootstrap X3DH header is still queued (the peer has never received
- *     our first ciphertext — no session exists on their side)
- *   - the peer has never sent us a non-system message
- *   - the conversation is older than 24 hours
- */
-export function evaluateExpiredHandshake(
-  c: Conversation,
-  now: number = Date.now()
-): { destroyedAt: number; systemMsg: Message; lastMessage: string; timestamp: number } | null {
-  if (c.destroyedAt) return null;
-  // Idempotence: if an expiry system message already exists (e.g. a prior
-  // sweep already sealed this conversation in a partial-write state), do
-  // not append another one.
-  if (c.messages.some((m) => m.id.startsWith("sys-expired-"))) return null;
-  if (!c.isRealContact) return null;
-  if (!c.pendingX3DHHeader) return null;
-  const peerEverReplied = c.messages.some((m) => !m.fromMe && !m.system);
-  if (peerEverReplied) return null;
-  // Anchor the 24h window to the EARLIEST message (or the conversation
-  // creation time if no messages yet). c.timestamp is mutated on every
-  // outgoing send, so using it would let a user with a flaky session
-  // indefinitely defer the seal by retrying — exactly the opposite of
-  // what we want.
-  const handshakeStart = c.messages.length > 0
-    ? Math.min(...c.messages.map((m) => m.timestamp))
-    : c.timestamp;
-  if (now - handshakeStart <= 24 * 60 * 60 * 1000) return null;
-  return {
-    destroyedAt: now,
-    lastMessage: "SELF-DESTRUCTED",
-    timestamp: now,
-    systemMsg: {
-      id: `sys-expired-${now}`,
-      text: "This contact's invite or keys have expired before a secure session could be established. The conversation is sealed.",
-      fromMe: false,
-      timestamp: now,
-      encrypted: false,
-      sealed: true,
-      system: true,
-    },
-  };
-}
+// Pure expiry predicate lives in lib/expiry.ts so it can be unit-tested
+// without React Native or AsyncStorage in scope. Re-exported here to keep
+// AppContext as the canonical import surface for consumers.
+export { evaluateExpiredHandshake };
 
 export interface Transaction {
   id: string;
