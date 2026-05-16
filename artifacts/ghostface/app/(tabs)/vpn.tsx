@@ -21,7 +21,7 @@ import { useScrollPersist } from "@/hooks/useScrollPersist";
 function LatencyBar({ latency }: { latency: number }) {
   const colors = useColors();
   const color =
-    latency < 30 ? colors.success : latency < 70 ? colors.warning : colors.destructive;
+    latency < 30 ? colors.foreground : latency < 70 ? colors.warning : colors.destructive;
   const bars = latency < 30 ? 3 : latency < 70 ? 2 : 1;
   return (
     <View style={{ flexDirection: "row", gap: 2, alignItems: "flex-end" }}>
@@ -269,7 +269,7 @@ export default function VPNScreen() {
         <View style={{ alignItems: "flex-end", gap: 2 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <StatusDot active={vpnConnected || vpnAutoReconnecting} size={6} />
-            <Text style={{ color: vpnAutoReconnecting ? colors.primary : vpnConnected ? colors.success : colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
+            <Text style={{ color: vpnAutoReconnecting ? colors.primary : vpnConnected ? colors.foreground : colors.destructive, fontSize: 11, letterSpacing: 2, fontWeight: "700" as const }}>
               {vpnAutoReconnecting ? "RECONNECTING…" : vpnConnected ? "CONNECTED" : "DISCONNECTED"}
             </Text>
           </View>
@@ -297,11 +297,11 @@ export default function VPNScreen() {
                   styles.toggleBtn,
                   {
                     backgroundColor: vpnConnected
-                      ? `${colors.success}15`
+                      ? `${colors.foreground}15`
                       : colors.card,
                     borderWidth: 2,
                     borderColor: vpnConnected
-                      ? colors.success
+                      ? colors.foreground
                       : connecting
                       ? colors.primary
                       : colors.border,
@@ -317,7 +317,7 @@ export default function VPNScreen() {
                     size={48}
                     color={
                       vpnConnected
-                        ? colors.success
+                        ? colors.foreground
                         : (connecting || vpnAutoReconnecting)
                         ? colors.primary
                         : colors.mutedForeground
@@ -330,7 +330,7 @@ export default function VPNScreen() {
                   styles.statusLabel,
                   {
                     color: vpnConnected
-                      ? colors.success
+                      ? colors.foreground
                       : (connecting || vpnAutoReconnecting)
                       ? colors.primary
                       : colors.mutedForeground,
@@ -354,9 +354,9 @@ export default function VPNScreen() {
               {/* Current IP row */}
               <View style={{
                 marginTop: 18,
-                backgroundColor: vpnConnected ? `${colors.success}12` : `${colors.destructive}12`,
+                backgroundColor: vpnConnected ? `${colors.foreground}12` : `${colors.destructive}12`,
                 borderWidth: 1,
-                borderColor: vpnConnected ? `${colors.success}40` : `${colors.destructive}40`,
+                borderColor: vpnConnected ? `${colors.foreground}40` : `${colors.destructive}40`,
                 borderRadius: 8,
                 paddingHorizontal: 18,
                 paddingVertical: 10,
@@ -373,7 +373,7 @@ export default function VPNScreen() {
                   {vpnConnected ? "IP ADDRESS" : "YOUR EXPOSED IP"}
                 </Text>
                 {vpnConnected ? (
-                  <Text style={{ color: colors.success, fontSize: 15, fontWeight: "800", letterSpacing: 3, fontVariant: ["tabular-nums"] }}>
+                  <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "800", letterSpacing: 3, fontVariant: ["tabular-nums"] }}>
                     ●●●.●●●.●●●.●●●
                   </Text>
                 ) : ipLoading ? (
@@ -440,7 +440,7 @@ export default function VPNScreen() {
                           : "0%",
                         backgroundColor:
                           vpnServer && vpnServer.latency < 30
-                            ? colors.success
+                            ? colors.foreground
                             : vpnServer && vpnServer.latency < 70
                             ? colors.warning
                             : colors.destructive,
@@ -461,7 +461,7 @@ export default function VPNScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.serverItem,
-                  isActive && { backgroundColor: `${colors.success}10` },
+                  isActive && { backgroundColor: `${colors.foreground}10` },
                   pressed && { opacity: 0.7 },
                 ]}
                 onPress={() => handleSelectServer(item)}
@@ -472,7 +472,7 @@ export default function VPNScreen() {
                     style={[
                       styles.serverName,
                       {
-                        color: isActive ? colors.success : colors.foreground,
+                        color: isActive ? colors.foreground : colors.foreground,
                       },
                     ]}
                   >
@@ -489,7 +489,7 @@ export default function VPNScreen() {
                       {
                         color:
                           item.latency < 30
-                            ? colors.success
+                            ? colors.foreground
                             : item.latency < 70
                             ? colors.warning
                             : colors.destructive,
@@ -503,7 +503,7 @@ export default function VPNScreen() {
                   <Ionicons
                     name="checkmark-circle"
                     size={18}
-                    color={colors.success}
+                    color={colors.foreground}
                     style={{ marginLeft: 8 }}
                   />
                 )}
