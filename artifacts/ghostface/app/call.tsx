@@ -49,27 +49,62 @@ const VOICE_PRESETS: VoicePreset[] = [
   { id: "high",     label: "HIGH",      icon: "arrow-up-outline",       description: "High pitched" },
 ];
 
-const ICE_CONFIG = {
+type IceServer = { urls: string | string[]; username?: string; credential?: string };
+type IceConfig = { iceServers: IceServer[] };
+
+// STUN-only fallback used if the server is unreachable. STUN alone won't traverse
+// symmetric NAT or strict firewalls, but it's better than failing outright.
+const STUN_FALLBACK: IceConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-    {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turn:openrelay.metered.ca:443",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
-    {
-      urls: "turns:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject",
-    },
   ],
 };
+
+// Cache the ICE config for the lifetime of the JS context. The server returns
+// short-lived TURN credentials, so refetching on every call is fine — but
+// within a single call we want one stable config.
+//
+// We refresh once we're inside REFRESH_SKEW_MS of the absolute expiry. Same
+// math as the server, so the two caches stay in step.
+const REFRESH_SKEW_MS = 60_000;
+const STUN_FALLBACK_TTL_SECONDS = 300;
+let cachedIceConfig: IceConfig | null = null;
+let cachedIceExpiresAt = 0;
+
+function cacheFor(config: IceConfig, ttlSeconds: number): IceConfig {
+  cachedIceConfig = config;
+  cachedIceExpiresAt = Date.now() + ttlSeconds * 1000;
+  return config;
+}
+
+async function fetchIceConfig(): Promise<IceConfig> {
+  const now = Date.now();
+  if (cachedIceConfig && now < cachedIceExpiresAt - REFRESH_SKEW_MS) {
+    return cachedIceConfig;
+  }
+
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (!domain) {
+    console.warn("[WebRTC] EXPO_PUBLIC_DOMAIN not set; using STUN-only fallback");
+    return cacheFor(STUN_FALLBACK, STUN_FALLBACK_TTL_SECONDS);
+  }
+
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(`https://${domain}/api/ice-config`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) throw new Error(`status ${res.status}`);
+    const data = (await res.json()) as { iceServers?: IceServer[]; ttl?: number };
+    if (!data.iceServers || data.iceServers.length === 0) throw new Error("empty iceServers");
+    const ttlSeconds = Math.max(120, Number(data.ttl ?? 600) || 600);
+    return cacheFor({ iceServers: data.iceServers }, ttlSeconds);
+  } catch (e) {
+    console.warn("[WebRTC] /api/ice-config fetch failed, using STUN-only fallback:", e);
+    return cacheFor(STUN_FALLBACK, STUN_FALLBACK_TTL_SECONDS);
+  }
+}
 
 type CallState = "ringing" | "connecting" | "active" | "ended" | "no_answer";
 
@@ -139,14 +174,15 @@ export default function CallScreen() {
   }, []);
 
   // ── WebRTC helpers ────────────────────────────────────────────────────────
-  const makePC = useCallback(() => {
+  const makePC = useCallback(async () => {
     // Pick the right RTCPeerConnection for the platform
     const RTC = Platform.OS === "web"
       ? (window as any).RTCPeerConnection
       : NativeRTCPeerConnection;
     if (!RTC) return null;
 
-    const pc = new RTC(ICE_CONFIG);
+    const iceConfig = await fetchIceConfig();
+    const pc = new RTC(iceConfig);
 
     pc.ontrack = (ev: any) => {
       if (Platform.OS === "web") {
@@ -238,7 +274,7 @@ export default function CallScreen() {
       // ── call-accept (caller receives) ─────────────────────────────────────
       if (signal.type === "call-accept" && isCaller) {
         setCallState("connecting");
-        const pc = makePC();
+        const pc = await makePC();
         if (!pc) { setCallState("active"); return; }
         pcRef.current = pc;
         await getMedia(pc);
@@ -250,7 +286,7 @@ export default function CallScreen() {
 
       // ── call-offer (callee receives) ──────────────────────────────────────
       if (signal.type === "call-offer" && !isCaller && signal.payload) {
-        const pc = makePC();
+        const pc = await makePC();
         if (!pc) { setCallState("active"); return; }
         pcRef.current = pc;
         await getMedia(pc);

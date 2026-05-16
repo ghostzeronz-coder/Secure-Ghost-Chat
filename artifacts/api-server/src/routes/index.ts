@@ -8,6 +8,7 @@ import prekeysRouter from "./prekeys";
 import messagesRouter from "./messages";
 import numbersRouter from "./numbers";
 import invitesRouter from "./invites";
+import iceConfigRouter from "./iceConfig";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(prekeysRouter);
 router.use(messagesRouter);
 router.use(numbersRouter);
 router.use(invitesRouter);
+router.use(iceConfigRouter);
 
 export default router;
