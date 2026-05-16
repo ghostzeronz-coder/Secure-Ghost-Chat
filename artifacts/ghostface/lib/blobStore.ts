@@ -17,6 +17,12 @@ import { chacha20poly1305 } from "@noble/ciphers/chacha.js";
 import { managedNonce } from "@noble/ciphers/utils.js";
 import { randomBytes } from "@noble/hashes/utils.js";
 
+// btoa/atob are provided by Hermes (React Native) and the browser, but
+// aren't declared in the Expo TS lib set. Declare them locally so we get
+// real types instead of `any` casts.
+declare function btoa(input: string): string;
+declare function atob(input: string): string;
+
 export const BLOB_KEY_LEN = 32;
 export const BLOB_KEY_HEX_LEN = BLOB_KEY_LEN * 2;
 const BLOB_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -113,16 +119,12 @@ export function bytesToDataUri(bytes: Uint8Array, mimeType: string): string {
       Array.from(bytes.subarray(i, Math.min(i + chunk, bytes.length))),
     );
   }
-  // btoa is available in Hermes/Expo; ditto on web.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const b64 = (globalThis as any).btoa(binary);
-  return `data:${mimeType};base64,${b64}`;
+  return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
 /** Convert a base64 string (no data: prefix) to bytes. */
 export function base64ToBytes(b64: string): Uint8Array {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const binary = (globalThis as any).atob(b64);
+  const binary = atob(b64);
   const out = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
   return out;

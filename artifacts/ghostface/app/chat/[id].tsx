@@ -74,15 +74,23 @@ function EncryptedImageView({
   attachment: Extract<Attachment, { kind: "image" | "image-ref" }>;
   style: import("react-native").ImageStyle;
 }): React.ReactElement {
-  const [uri, setUri] = useState<string | undefined>(
-    attachment.kind === "image" ? attachment.uri : attachment.uri ?? readBlobUri(attachment.blobId),
-  );
+  // For image-ref: prefer the previously decrypted bytes from the module
+  // cache; otherwise fall back to the sender's local picker URI as an
+  // immediate placeholder. Either way, we ALWAYS attempt the blob fetch
+  // (unless already cached) so a stale/inaccessible local URI on the
+  // sender's device can self-heal by re-downloading and decrypting.
+  const cached = attachment.kind === "image-ref" ? readBlobUri(attachment.blobId) : undefined;
+  const initialUri =
+    attachment.kind === "image"
+      ? attachment.uri
+      : cached ?? attachment.uri;
+  const [uri, setUri] = useState<string | undefined>(initialUri);
   const [failed, setFailed] = useState(false);
   const colors = useColors();
 
   useEffect(() => {
     if (attachment.kind !== "image-ref") return;
-    if (uri) return;
+    if (readBlobUri(attachment.blobId)) return; // already decrypted in this session
     let cancelled = false;
     (async () => {
       try {
@@ -93,14 +101,29 @@ function EncryptedImageView({
         cacheBlobUri(attachment.blobId, dataUri);
         setUri(dataUri);
       } catch (e) {
+        if (cancelled) return;
         console.warn("[Attach] blob fetch/decrypt failed", e);
-        if (!cancelled) setFailed(true);
+        // Only mark as failed if we don't have any local URI to fall back
+        // on — the sender's freshly-picked photo still renders even when
+        // the server is briefly unreachable.
+        if (!attachment.uri) setFailed(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [attachment, uri]);
+  }, [attachment]);
+
+  const handleImageError = () => {
+    // The local picker URI we're displaying is no longer readable (e.g.
+    // app re-installed, cache cleared). Drop it and let the next render
+    // show the lock placeholder while the effect retries the fetch.
+    if (attachment.kind === "image-ref" && !readBlobUri(attachment.blobId)) {
+      setUri(undefined);
+    } else {
+      setFailed(true);
+    }
+  };
 
   if (failed) {
     return (
@@ -125,6 +148,7 @@ function EncryptedImageView({
       style={style}
       contentFit="cover"
       transition={120}
+      onError={handleImageError}
       accessibilityLabel="Encrypted photo attachment"
     />
   );
@@ -1163,6 +1187,12 @@ export default function ChatScreen() {
               style={styles.attachPreviewImg}
               contentFit="cover"
             />
+          ) : pendingAttachment.kind === "image-ref" && pendingAttachment.uri ? (
+            <Image
+              source={{ uri: pendingAttachment.uri }}
+              style={styles.attachPreviewImg}
+              contentFit="cover"
+            />
           ) : (
             <View style={[styles.attachPreviewImg, styles.attachPreviewIconBox]}>
               <Ionicons
@@ -1174,13 +1204,18 @@ export default function ChatScreen() {
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.attachPreviewLabel}>
-              {pendingAttachment.kind === "image" && "ENCRYPTED PHOTO"}
+              {(pendingAttachment.kind === "image" || pendingAttachment.kind === "image-ref") &&
+                "ENCRYPTED PHOTO"}
               {pendingAttachment.kind === "audio" && "ENCRYPTED VOICE NOTE"}
               {pendingAttachment.kind === "file" && "ENCRYPTED FILE"}
             </Text>
             <Text style={styles.attachPreviewSub} numberOfLines={1}>
-              {pendingAttachment.kind === "image" && "Sent end-to-end through the Double Ratchet"}
-              {pendingAttachment.kind === "audio" && `${formatDuration(pendingAttachment.durationMs)} · Double Ratchet`}
+              {pendingAttachment.kind === "image" &&
+                "Sent end-to-end through the Double Ratchet"}
+              {pendingAttachment.kind === "image-ref" &&
+                "Encrypted blob · key carried inside the ratchet"}
+              {pendingAttachment.kind === "audio" &&
+                `${formatDuration(pendingAttachment.durationMs)} · Double Ratchet`}
               {pendingAttachment.kind === "file" &&
                 `${pendingAttachment.name}${pendingAttachment.size ? ` · ${formatBytes(pendingAttachment.size)}` : ""}`}
             </Text>
