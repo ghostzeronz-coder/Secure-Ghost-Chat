@@ -11,9 +11,14 @@ import {
   type LinkStats,
   type LowBandwidthMode,
 } from "@/lib/lowBandwidth";
+import {
+  backoffDelayMs,
+  earliestDeferredAt,
+  sortByCompose,
+} from "@/lib/outbox";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import { Alert, Platform } from "react-native";
+import { Alert, AppState as RNAppState, Platform } from "react-native";
 import React, {
   createContext,
   useCallback,
@@ -129,9 +134,22 @@ export interface OutboxItem {
   text: string;
   attempts?: number;
   attachment?: Attachment;
+  /**
+   * Original compose timestamp (ms since epoch). Drives the ordering
+   * invariant — drainOutbox always processes oldest-composed first,
+   * regardless of how many times any individual item has been retried.
+   * Set when the item is first pushed onto the outbox; never mutated.
+   */
+  createdAt: number;
+  /**
+   * Earliest moment (ms since epoch) at which this item should next be
+   * attempted. Set after a delivery failure to the exponential-backoff
+   * computed time. The drain loop skips items whose nextAttemptAt is in
+   * the future and reschedules the timer accordingly. Absent → "drain
+   * immediately when the loop reaches this item."
+   */
+  nextAttemptAt?: number;
 }
-
-const MAX_OUTBOX_ATTEMPTS = 3;
 
 const ATTACHMENT_ENVELOPE_VERSION = 1;
 const ATTACHMENT_ENVELOPE_PREFIX = `{"_gfa":${ATTACHMENT_ENVELOPE_VERSION}`;
@@ -1060,11 +1078,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             .catch(() => {});
         }
 
-        // Restore the outbox (queued messages pending WS delivery)
+        // Restore the outbox (queued messages pending WS delivery).
+        // Items written by older builds may be missing `createdAt`; fall
+        // back to 0 so they sort to the front and drain first. Always
+        // re-sort on read so the on-disk order is irrelevant.
         if (outboxRaw) {
           try {
             const parsed = JSON.parse(outboxRaw);
-            if (Array.isArray(parsed)) outboxRef.current = parsed;
+            if (Array.isArray(parsed)) {
+              const normalized: OutboxItem[] = parsed.map((item) => ({
+                ...item,
+                createdAt:
+                  typeof item?.createdAt === "number" ? item.createdAt : 0,
+              }));
+              outboxRef.current = sortByCompose(normalized);
+            }
           } catch { outboxRef.current = []; }
         }
 
@@ -1200,6 +1228,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const prevMainPinRef = React.useRef<string | null>(null);
   const outboxRef = React.useRef<OutboxItem[]>([]);
   const outboxDrainingRef = React.useRef(false);
+  // setTimeout handle for the "wake up and try again" retry scheduler.
+  // Cleared and replaced whenever the soonest-due item changes, e.g.
+  // after a fresh failure bumps the backoff window or a successful
+  // drain empties the queue.
+  const outboxRetryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { latestStateRef.current = state; }, [state]);
 
   // Seal conversations whose X3DH handshake has expired before completing.
@@ -1590,16 +1623,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // WS is down — queue plaintext for delivery on reconnect.
           // We do NOT advance the ratchet here; drainOutbox will encrypt
           // at the moment of actual delivery, preserving ratchet ordering.
-          const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment };
-          const nextOutbox = [...outboxRef.current, outboxItem];
+          const now = Date.now();
+          const pendingId = `pending-${now}${Math.random().toString(36).substr(2, 9)}`;
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment, createdAt: now };
+          const nextOutbox = sortByCompose([...outboxRef.current, outboxItem]);
           outboxRef.current = nextOutbox;
           persistOutbox(nextOutbox);
           const pendingMsg: Message = {
             id: pendingId,
             text,
             fromMe: true,
-            timestamp: Date.now(),
+            timestamp: now,
             encrypted: false,
             sealed: false,
             pending: true,
@@ -1608,7 +1642,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setState((prev) => {
             const updated = prev.conversations.map((c) =>
               c.id === conversationId
-                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
+                ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: previewText, timestamp: now, unread: 0 }
                 : c
             );
             persistConversations(updated);
@@ -1702,16 +1736,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // We DO NOT advance the ratchet here in that path — drainOutbox
       // encrypts at delivery time so ordering still matches the receiver.
       if (isRealContact && aliceMsg && latestStateRef.current.lowBandwidthActive) {
-        const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-        const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment };
-        const nextOutbox = [...outboxRef.current, outboxItem];
+        const now = Date.now();
+        const pendingId = `pending-${now}${Math.random().toString(36).substr(2, 9)}`;
+        const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment, createdAt: now };
+        const nextOutbox = sortByCompose([...outboxRef.current, outboxItem]);
         outboxRef.current = nextOutbox;
         persistOutbox(nextOutbox);
         const pendingMsg: Message = {
           id: pendingId,
           text,
           fromMe: true,
-          timestamp: Date.now(),
+          timestamp: now,
           encrypted: false,
           sealed: false,
           pending: true,
@@ -1763,9 +1798,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // WS became unavailable between the guard check and here (race).
           // Queue the message so it delivers on reconnect instead of being lost.
           console.warn("[WS] Socket closed before send — queuing message for retry");
-          const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
-          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment };
-          const nextOutbox = [...outboxRef.current, outboxItem];
+          const now = Date.now();
+          const pendingId = `pending-${now}${Math.random().toString(36).substr(2, 9)}`;
+          const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment, createdAt: now };
+          const nextOutbox = sortByCompose([...outboxRef.current, outboxItem]);
           outboxRef.current = nextOutbox;
           persistOutbox(nextOutbox);
           const pendingMsg: Message = {
@@ -2133,6 +2169,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error("[AppContext] Panic wipe storage error:", err);
     }
+    // Clear in-memory outbox state too — the AsyncStorage key was
+    // removed above, but stale queued items and their pending retry
+    // timers would otherwise survive in the running provider until a
+    // remount. Silence contract: pure state mutation, no haptics/audio.
+    outboxRef.current = [];
+    if (outboxRetryTimerRef.current) {
+      clearTimeout(outboxRetryTimerRef.current);
+      outboxRetryTimerRef.current = null;
+    }
+    if (outboxDrainTimerRef.current) {
+      clearTimeout(outboxDrainTimerRef.current);
+      outboxDrainTimerRef.current = null;
+    }
     setHasPin(false);
     setHasDuressPin(false);
     setState({
@@ -2183,6 +2232,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState((prev) => ({ ...prev, incomingCall: null }));
   }, []);
 
+  // Arm the retry-timer to fire `drainOutbox` once the soonest deferred
+  // item in the outbox becomes due. Idempotent — clears any prior
+  // pending timer before installing the new one. Called after every
+  // drain so the timer always reflects the current schedule. If nothing
+  // is deferred (queue empty, or all items immediately ready) the prior
+  // timer is just cancelled.
+  const armOutboxRetryTimer = useCallback(() => {
+    if (outboxRetryTimerRef.current) {
+      clearTimeout(outboxRetryTimerRef.current);
+      outboxRetryTimerRef.current = null;
+    }
+    const now = Date.now();
+    const earliest = earliestDeferredAt(outboxRef.current, now);
+    if (earliest === null) return;
+    // Clamp the delay so we don't sit forever — at most a single
+    // backoff cap (15 min). Math.max guards against any tiny negative
+    // skew between this read and the one inside earliestDeferredAt.
+    const delay = Math.max(0, earliest - now);
+    outboxRetryTimerRef.current = setTimeout(() => {
+      outboxRetryTimerRef.current = null;
+      drainOutboxRef.current?.().catch((e) =>
+        console.error("[Outbox] retry-timer drain failed:", e),
+      );
+    }, delay);
+  }, []);
+
   const markMessageFailed = useCallback((conversationId: string, messageId: string) => {
     setState((prev) => {
       const updated = prev.conversations.map((c) => {
@@ -2210,7 +2285,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistConversations(updated);
       return { ...prev, conversations: updated };
     });
-    console.warn("[Outbox] Marked failed after", MAX_OUTBOX_ATTEMPTS, "attempts:", messageId);
+    console.warn("[Outbox] Marked failed (sealed conversation):", messageId);
   }, [persistConversations]);
 
   const drainOutbox = useCallback(async () => {
@@ -2228,13 +2303,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const aliceCursor = new Map<string, ReturnType<typeof ratchetEncrypt>["state"]>();
       const headerSent = new Set<string>();
 
-      // Iterate over a snapshot. We bump `attempts` only for items the loop
-      // actually reaches (i.e. real delivery attempts) — never for items that
-      // sit untouched because the WS died mid-drain. This prevents premature
-      // failure when many messages are queued behind a single failing one.
-      for (const item of [...outboxRef.current]) {
+      // Iterate oldest-composed first so the wire order matches the
+      // user's compose order — the ratchet receiver tolerates nothing
+      // else. We bump `attempts` only for items the loop actually
+      // reaches; items deferred by backoff or sitting behind a still-
+      // failing first item keep their existing counter.
+      const now = Date.now();
+      const snapshot = sortByCompose(outboxRef.current);
+      for (const item of snapshot) {
         const ws = wsRef.current;
         if (!ws || ws.readyState !== 1) break;
+        // Backoff gate: if this item was rescheduled to a future time
+        // and we haven't reached it yet, stop draining. Because the
+        // snapshot is in compose order, anything behind a deferred
+        // item must also wait — the ratchet won't accept reordering.
+        if (typeof item.nextAttemptAt === "number" && item.nextAttemptAt > now) break;
         const conv = latestStateRef.current.conversations.find((c) => c.id === item.conversationId);
         if (!conv?.drSession) {
           // No session to encrypt with — drop this item silently
@@ -2242,16 +2325,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           persistOutbox(outboxRef.current);
           continue;
         }
-        const nextAttempts = (item.attempts ?? 0) + 1;
-        if (nextAttempts > MAX_OUTBOX_ATTEMPTS) {
-          // Exhausted — flip Message.failed and remove from outbox.
+        // The handshake-expiry sweep (task #102) may have sealed the
+        // conversation while this item sat in the outbox waiting for a
+        // satellite window. There's no surviving session to retry on,
+        // so flip the message to failed and drop it. This is the only
+        // outbox→failed transition now that the hard attempt cap is
+        // gone (task #112).
+        if (conv.destroyedAt) {
           outboxRef.current = outboxRef.current.filter((i) => i.id !== item.id);
           persistOutbox(outboxRef.current);
           markMessageFailed(item.conversationId, item.id);
           continue;
         }
-        // Persist the attempt before we try to send. If send throws and we
-        // break, the next reconnect will see the bumped count.
+        const nextAttempts = (item.attempts ?? 0) + 1;
+        // Persist the attempt counter before we try to send. If send
+        // throws and we break, the next drain sees the bumped count
+        // and computes a larger backoff.
         outboxRef.current = outboxRef.current.map((i) =>
           i.id === item.id ? { ...i, attempts: nextAttempts } : i
         );
@@ -2311,19 +2400,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // can downgrade us into LBW mode.
           linkStatsRef.current.recentSendFailures += 1;
           recomputeLinkQuality();
+          // Apply exponential-with-jitter backoff to this item so we
+          // don't hammer the link the instant it comes back. No hard
+          // attempt cap (task #112) — satellite gaps can run for hours
+          // and we want the message to land whenever the link returns.
+          // The handshake-expiry sweep is the only mechanism that will
+          // ever drop a still-unsent message (sealed-conversation drop
+          // above), matching the spec's exit conditions.
+          const delay = backoffDelayMs(nextAttempts);
+          const nextAt = Date.now() + delay;
+          outboxRef.current = outboxRef.current.map((i) =>
+            i.id === item.id ? { ...i, nextAttemptAt: nextAt } : i,
+          );
+          persistOutbox(outboxRef.current);
           break; // Stop on error — ratchet ordering requires sequential delivery
         }
       }
     } finally {
       outboxDrainingRef.current = false;
+      // Always reflect the current schedule in the retry timer, even
+      // on the happy path — if the queue is now empty, this cancels
+      // any stale timer; otherwise it arms for the soonest due item.
+      armOutboxRetryTimer();
     }
-  }, [persistConversations, persistOutbox, markMessageFailed]);
+  }, [persistConversations, persistOutbox, markMessageFailed, armOutboxRetryTimer]);
 
   // Wire the scheduler's ref to the live drainOutbox each render so the
   // debounced fire() always invokes the freshest closure.
   useEffect(() => {
     drainOutboxRef.current = drainOutbox;
   }, [drainOutbox]);
+
+  // Foreground-triggered drain. When the app returns from background
+  // (e.g. the user has been off the satellite link for a while and just
+  // unlocked the phone) we kick a drain immediately so any messages
+  // sitting in their backoff window get a fresh shot before their
+  // scheduled retry. Backoff guards inside drainOutbox still gate
+  // anything not yet due — this just removes the dead time between
+  // "link returned" and "next setTimeout fired".
+  useEffect(() => {
+    const sub = RNAppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      drainOutboxRef.current?.().catch((e) =>
+        console.error("[Outbox] foreground drain failed:", e),
+      );
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Cleanup: clear both outbox timers on unmount so we don't leak stray
+  // setTimeouts into the next session (e.g. after a panic wipe re-mounts
+  // the provider tree). The retry-timer fires drainOutbox once a
+  // deferred item becomes due; the drain-debounce timer batches LBW
+  // sends. Both hold closures over the (about-to-be-stale) drainOutbox.
+  useEffect(() => {
+    return () => {
+      if (outboxRetryTimerRef.current) {
+        clearTimeout(outboxRetryTimerRef.current);
+        outboxRetryTimerRef.current = null;
+      }
+      if (outboxDrainTimerRef.current) {
+        clearTimeout(outboxDrainTimerRef.current);
+        outboxDrainTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const retryMessage = useCallback((conversationId: string, messageId: string) => {
     const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
@@ -2344,9 +2485,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ...prev, conversations: updated };
     });
     if (!outboxRef.current.find((i) => i.id === messageId)) {
-      const next: OutboxItem[] = [...outboxRef.current, { id: messageId, conversationId, text: msg.text, attempts: 0, attachment: msg.attachment }];
+      // Preserve the original compose timestamp from the surfaced
+      // message so retried items stay in their compose-order slot in
+      // the queue, never jumping ahead of items composed earlier.
+      const next: OutboxItem[] = sortByCompose([
+        ...outboxRef.current,
+        {
+          id: messageId,
+          conversationId,
+          text: msg.text,
+          attempts: 0,
+          attachment: msg.attachment,
+          createdAt: msg.timestamp ?? Date.now(),
+        },
+      ]);
       outboxRef.current = next;
       persistOutbox(next);
+    } else {
+      // Already in the outbox (e.g. backoff-deferred). Clear the
+      // deferral so the user-initiated retry fires immediately.
+      outboxRef.current = outboxRef.current.map((i) =>
+        i.id === messageId ? { ...i, nextAttemptAt: undefined, attempts: 0 } : i,
+      );
+      persistOutbox(outboxRef.current);
     }
     drainOutbox().catch(console.error);
   }, [persistConversations, persistOutbox, drainOutbox]);

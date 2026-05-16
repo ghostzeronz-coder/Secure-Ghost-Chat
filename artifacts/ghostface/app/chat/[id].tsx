@@ -212,7 +212,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation, deleteConversation, lowBandwidthActive } = useApp();
+  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation, deleteConversation, lowBandwidthActive, wsConnected } = useApp();
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
@@ -1214,15 +1214,26 @@ export default function ChatScreen() {
                   testID={`retry-msg-${item.id}`}
                 >
                   <Ionicons name="alert-circle-outline" size={8} color={colors.destructive} />
-                  <Text style={[styles.sealedTxt, { color: colors.destructive }]}>FAILED</Text>
-                  <Ionicons name="refresh" size={8} color={colors.destructive} />
-                  <Text style={[styles.sealedTxt, { color: colors.destructive }]}>RETRY</Text>
+                  <Text style={[styles.sealedTxt, { color: colors.destructive }]}>FAILED · TAP TO RETRY</Text>
                 </Pressable>
               ) : item.pending ? (
-                <View style={[styles.sealedBadge, { backgroundColor: `${colors.mutedForeground}22` }]}>
-                  <Ionicons name="time-outline" size={7} color={colors.mutedForeground} />
-                  <Text style={[styles.sealedTxt, { color: colors.mutedForeground }]}>QUEUED</Text>
-                </View>
+                // Three-state pending badge (task #112):
+                //   wsConnected  → "SENDING"          (drain attempt in flight)
+                //   !wsConnected → "WAITING FOR SIGNAL" (queued, link down)
+                // The hard attempt-cap is gone, so a pending message keeps
+                // this badge across satellite gaps until it lands or the
+                // conversation seals via the handshake-expiry sweep.
+                wsConnected ? (
+                  <View style={[styles.sealedBadge, { backgroundColor: `${colors.mutedForeground}22` }]} testID={`sending-msg-${item.id}`}>
+                    <Ionicons name="paper-plane-outline" size={7} color={colors.mutedForeground} />
+                    <Text style={[styles.sealedTxt, { color: colors.mutedForeground }]}>SENDING</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.sealedBadge, { backgroundColor: `${colors.mutedForeground}22` }]} testID={`waiting-msg-${item.id}`}>
+                    <Ionicons name="cloud-offline-outline" size={7} color={colors.mutedForeground} />
+                    <Text style={[styles.sealedTxt, { color: colors.mutedForeground }]}>WAITING FOR SIGNAL</Text>
+                  </View>
+                )
               ) : (
                 <>
                   {item.encrypted && (
