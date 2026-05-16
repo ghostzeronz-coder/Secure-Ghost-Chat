@@ -6,9 +6,13 @@
  *
  *  ── SILENCE CONTRACT ─────────────────────────────────────────────────────
  *  1. The `panicWipe` useCallback body in AppContext.tsx must not contain
- *     any Haptics.* or Audio.* call.
+ *     any Haptics.* / Audio.* / Toast.* / Alert.* call.
  *  2. The duress setInterval callback in lock.tsx must not contain
- *     any Haptics.* or Audio.* call.
+ *     any Haptics.* / Audio.* / Toast.* / Alert.* call.
+ *  2a. The `handoffSmsFallback` function body in lib/smsFallback.ts must
+ *      not contain any Haptics.* / Audio.* / Toast.* / Alert.* call
+ *      (Task #113 — the SMS handoff path is reached from inside panicWipe
+ *      so the silence guarantee must extend to it).
  *
  *  ── DEPARTURE CONTRACT ───────────────────────────────────────────────────
  *  3. `panicWipe` must broadcast `{ type: "departed", toAliases }` BEFORE it
@@ -82,6 +86,7 @@ const APP_CONTEXT = path.join(ROOT, "context", "AppContext.tsx");
 const LOCK_SCREEN = path.join(ROOT, "app", "lock.tsx");
 const MESSAGES_LIST = path.join(ROOT, "app", "(tabs)", "messages.tsx");
 const CHAT_SCREEN = path.join(ROOT, "app", "chat", "[id].tsx");
+const SMS_FALLBACK = path.join(ROOT, "lib", "smsFallback.ts");
 
 function readOrBail(file) {
   try {
@@ -105,9 +110,18 @@ const SILENCE_CHECKS = [
     file: LOCK_SCREEN,
     startMarker: "duressIntervalRef.current = setInterval(() => {",
   },
+  {
+    label: "handoffSmsFallback() in lib/smsFallback.ts",
+    file: SMS_FALLBACK,
+    startMarker: "export async function handoffSmsFallback(",
+  },
 ];
 
-const FORBIDDEN = /\b(Haptics|Audio)\s*\.\s*\w+\s*\(/;
+// Bystander-perceptible feedback channels. Haptics + Audio cover device
+// vibration and sound; Toast + Alert cover any visible popup that would
+// betray the panic-wipe path to a shoulder-surfer. The SMS handoff in
+// lib/smsFallback.ts must also pass this check (Task #113).
+const FORBIDDEN = /\b(Haptics|Audio|Toast|Alert)\s*\.\s*\w+\s*\(/;
 
 let exitCode = 0;
 

@@ -16,6 +16,14 @@ import {
   earliestDeferredAt,
   sortByCompose,
 } from "@/lib/outbox";
+import {
+  DEFAULT_SMS_FALLBACK_MESSAGE,
+  MAX_SMS_FALLBACK_NUMBERS,
+  handoffSmsFallback,
+  normalizeE164,
+  parseStoredNumbers,
+  sanitizeFallbackMessage,
+} from "@/lib/smsFallback";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Alert, AppState as RNAppState, Platform } from "react-native";
@@ -355,6 +363,18 @@ interface AppState {
   linkQuality: LinkQuality;
   lowBandwidthMode: LowBandwidthMode;
   lowBandwidthActive: boolean;
+  /**
+   * Trusted E.164 phone numbers that receive a one-line distress SMS when
+   * panicWipe/duress fires AND the WS broadcast can't be confirmed (Task
+   * #113). Capped at MAX_SMS_FALLBACK_NUMBERS. Never sent over the wire;
+   * persisted in SecureStore only.
+   */
+  smsFallbackNumbers: string[];
+  /**
+   * User-editable body of the SMS fallback ping. Deliberately
+   * information-poor — see lib/smsFallback.ts. Persisted in SecureStore.
+   */
+  smsFallbackMessage: string;
 }
 
 interface AppContextType extends AppState {
@@ -391,6 +411,8 @@ interface AppContextType extends AppState {
   setDuressGracePeriod: (seconds: number) => Promise<void>;
   setLanguage: (code: string) => Promise<void>;
   setLowBandwidthMode: (mode: LowBandwidthMode) => Promise<void>;
+  setSmsFallbackNumbers: (numbers: string[]) => Promise<void>;
+  setSmsFallbackMessage: (message: string) => Promise<void>;
   sendCallSignal: (msg: object) => void;
   registerCallListener: (fn: ((s: CallSignal) => void) | null) => void;
   dismissIncomingCall: () => void;
@@ -491,6 +513,8 @@ const DURESS_GRACE_KEY = "ghostface_duress_grace_period";
 const LANGUAGE_KEY = "ghostface_language";
 const LAST_VPN_SERVER_KEY = "ghostface_last_vpn_server_id";
 const LOW_BW_MODE_KEY = "ghostface_low_bandwidth_mode";
+const SMS_FALLBACK_NUMBERS_KEY = "ghostface_sms_fallback_numbers";
+const SMS_FALLBACK_MESSAGE_KEY = "ghostface_sms_fallback_message";
 const MY_IK_PRIV_KEY = "ghostface_my_ik_priv";
 const MY_IK_PUB_KEY = "ghostface_my_ik_pub";
 const MY_SPK_PRIV_KEY = "ghostface_my_spk_priv";
@@ -974,12 +998,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // automatically"). Hardcoding `false` here would mean cold start and
     // panic-wipe reset both show INACTIVE until the classifier fires.
     lowBandwidthActive: isLowBandwidthActive("unknown", "auto"),
+    smsFallbackNumbers: [],
+    smsFallbackMessage: DEFAULT_SMS_FALLBACK_MESSAGE,
   });
 
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw, lowBwRaw] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw, lowBwRaw, smsNumbersRaw, smsMessageRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
@@ -995,6 +1021,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(LANGUAGE_KEY),
           AsyncStorage.getItem(OUTBOX_KEY),
           AsyncStorage.getItem(LOW_BW_MODE_KEY),
+          secureGet(SMS_FALLBACK_NUMBERS_KEY),
+          secureGet(SMS_FALLBACK_MESSAGE_KEY),
         ]);
 
         const hasPinValue = !!pinValue;
@@ -1096,6 +1124,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           } catch { outboxRef.current = []; }
         }
 
+        const smsFallbackNumbers = parseStoredNumbers(smsNumbersRaw);
+        const smsFallbackMessage = sanitizeFallbackMessage(
+          smsMessageRaw ?? DEFAULT_SMS_FALLBACK_MESSAGE,
+        );
+
         setHasPin(hasPinValue);
         setState((prev) => ({
           ...prev,
@@ -1116,6 +1149,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           vpnConnected: false,
           lowBandwidthMode,
           lowBandwidthActive,
+          smsFallbackNumbers,
+          smsFallbackMessage,
         }));
 
         if (restoredVpnServer) {
@@ -1515,6 +1550,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((prev) => ({ ...prev, autoLockTimeout: ms }));
     } catch (err) {
       console.error("[AppContext] Failed to save autoLockTimeout:", err);
+      throw err;
+    }
+  }, []);
+
+  const setSmsFallbackNumbers = useCallback(async (raw: string[]) => {
+    // Normalize + validate + cap. Anything that doesn't pass E.164 is
+    // silently dropped — the settings UI surfaces the validation error
+    // before calling this, so a malformed entry reaching here is a bug,
+    // not a user mistake we need to escalate.
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const entry of raw) {
+      const n = normalizeE164(entry);
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      normalized.push(n);
+      if (normalized.length >= MAX_SMS_FALLBACK_NUMBERS) break;
+    }
+    try {
+      await secureSet(SMS_FALLBACK_NUMBERS_KEY, JSON.stringify(normalized));
+      setState((prev) => ({ ...prev, smsFallbackNumbers: normalized }));
+    } catch (err) {
+      console.error("[AppContext] Failed to save SMS fallback numbers:", err);
+      throw err;
+    }
+  }, []);
+
+  const setSmsFallbackMessage = useCallback(async (message: string) => {
+    const cleaned = sanitizeFallbackMessage(message);
+    try {
+      await secureSet(SMS_FALLBACK_MESSAGE_KEY, cleaned);
+      setState((prev) => ({ ...prev, smsFallbackMessage: cleaned }));
+    } catch (err) {
+      console.error("[AppContext] Failed to save SMS fallback message:", err);
       throw err;
     }
   }, []);
@@ -2138,10 +2207,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Audio playback, or any other perceptible feedback here — including in
   // future changes. The duress countdown in lock.tsx relies on this guarantee.
   const panicWipe = useCallback(async () => {
+    // Capture the SMS fallback recipients + message BEFORE we touch
+    // anything else. The wipe below clears `state.smsFallbackNumbers`
+    // and deletes the SecureStore copies; without this snapshot the
+    // SMS handoff would always run against an empty list (Task #113).
+    const snapshotNumbers = latestStateRef.current.smsFallbackNumbers;
+    const snapshotMessage = latestStateRef.current.smsFallbackMessage;
+
     // Best-effort: notify known real contacts that we are gone, so their
     // app can flag this conversation as self-destructed. Must happen BEFORE
     // we clear local state (which closes the WS) and must NEVER produce
     // perceptible feedback — the silence contract still applies.
+    let wsBroadcastSent = false;
     try {
       const ws = wsRef.current;
       const realAliases = latestStateRef.current.conversations
@@ -2150,9 +2227,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .filter((a): a is string => typeof a === "string" && a.length > 0);
       if (ws && ws.readyState === 1 && realAliases.length > 0) {
         ws.send(JSON.stringify({ type: "departed", toAliases: realAliases }));
+        wsBroadcastSent = true;
       }
     } catch (err) {
       console.warn("[AppContext] Failed to broadcast departure:", err);
+    }
+
+    // SMS satellite fallback (Task #113). We treat "WS open at broadcast
+    // time" as a proxy for the server-side ACK — without a per-message
+    // ack envelope from the server (out of scope for this task) it's the
+    // only honest signal we have. If the WS was not open (no internet,
+    // server unreachable, etc.) we hand the prebuilt distress ping to
+    // the OS SMS composer for each saved number. The OS — including
+    // direct-to-cell satellite — handles delivery. We give the broadcast
+    // a brief settle window before falling through so a flaky-but-open
+    // socket has a chance to flush.
+    //
+    // SILENCE CONTRACT: handoffSmsFallback() must not invoke Haptics,
+    // Audio, Toast, or Alert. See scripts/check-panic-wipe-silence.js.
+    if (!wsBroadcastSent && snapshotNumbers.length > 0) {
+      try {
+        await handoffSmsFallback(snapshotNumbers, snapshotMessage);
+      } catch (err) {
+        console.warn("[AppContext] SMS fallback handoff failed:", err);
+      }
+    } else if (wsBroadcastSent) {
+      // Brief flush window so the TCP write above can leave the socket
+      // before we tear the WS down with the state clear. 200ms is below
+      // human perception and well under any realistic round-trip.
+      await new Promise((r) => setTimeout(r, 200));
     }
 
     try {
@@ -2165,6 +2268,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         secureDelete(MY_IK_PUB_KEY),
         secureDelete(MY_SPK_PRIV_KEY),
         secureDelete(MY_SPK_PUB_KEY),
+        secureDelete(SMS_FALLBACK_NUMBERS_KEY),
+        secureDelete(SMS_FALLBACK_MESSAGE_KEY),
       ]);
     } catch (err) {
       console.error("[AppContext] Panic wipe storage error:", err);
@@ -2214,6 +2319,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // active per task spec so the user doesn't briefly burn satellite
       // bytes between panicWipe reset and the first classifier tick.
       lowBandwidthActive: isLowBandwidthActive("unknown", "auto"),
+      smsFallbackNumbers: [],
+      smsFallbackMessage: DEFAULT_SMS_FALLBACK_MESSAGE,
     });
   }, []);
 
@@ -3027,6 +3134,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setDuressGracePeriod,
         setLanguage,
         setLowBandwidthMode,
+        setSmsFallbackNumbers,
+        setSmsFallbackMessage,
         wsConnected,
         loaded,
         vpnAutoReconnecting,

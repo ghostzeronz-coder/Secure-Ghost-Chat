@@ -28,6 +28,12 @@ import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 import { useScrollPersist } from "@/hooks/useScrollPersist";
+import {
+  DEFAULT_SMS_FALLBACK_MESSAGE,
+  MAX_SMS_FALLBACK_MESSAGE_LEN,
+  MAX_SMS_FALLBACK_NUMBERS,
+  normalizeE164,
+} from "@/lib/smsFallback";
 
 function getPinStrength(pin: string): { level: 0 | 1 | 2; label: string } | null {
   if (pin.length === 0) return null;
@@ -98,6 +104,10 @@ export default function SettingsScreen() {
     lowBandwidthActive,
     linkQuality,
     setLowBandwidthMode,
+    smsFallbackNumbers,
+    smsFallbackMessage,
+    setSmsFallbackNumbers,
+    setSmsFallbackMessage,
     setBiometricEnabled,
     setPin,
     checkPin,
@@ -254,6 +264,67 @@ export default function SettingsScreen() {
   const [duressPinConfirm, setDuressPinConfirm] = useState("");
   const [duressPinError, setDuressPinError] = useState("");
   const [duressPinSaved, setDuressPinSaved] = useState(false);
+
+  // ── Satellite SMS fallback (Task #113) ───────────────────────────────────
+  const [showSmsFallback, setShowSmsFallback] = useState(false);
+  const [newFallbackNumber, setNewFallbackNumber] = useState("");
+  const [fallbackError, setFallbackError] = useState("");
+  const [draftFallbackMessage, setDraftFallbackMessage] = useState(smsFallbackMessage);
+
+  const handleOpenSmsFallback = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setNewFallbackNumber("");
+    setFallbackError("");
+    setDraftFallbackMessage(smsFallbackMessage);
+    setShowSmsFallback(true);
+  };
+
+  const handleAddFallbackNumber = async () => {
+    const normalized = normalizeE164(newFallbackNumber);
+    if (!normalized) {
+      setFallbackError("ENTER E.164 FORMAT, E.G. +14155551234");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
+    if (smsFallbackNumbers.includes(normalized)) {
+      setFallbackError("NUMBER ALREADY ADDED");
+      return;
+    }
+    if (smsFallbackNumbers.length >= MAX_SMS_FALLBACK_NUMBERS) {
+      setFallbackError(`MAXIMUM ${MAX_SMS_FALLBACK_NUMBERS} NUMBERS`);
+      return;
+    }
+    try {
+      await setSmsFallbackNumbers([...smsFallbackNumbers, normalized]);
+      setNewFallbackNumber("");
+      setFallbackError("");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      setFallbackError("COULD NOT SAVE");
+    }
+  };
+
+  const handleRemoveFallbackNumber = async (target: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    try {
+      await setSmsFallbackNumbers(smsFallbackNumbers.filter((n) => n !== target));
+    } catch {
+      setFallbackError("COULD NOT SAVE");
+    }
+  };
+
+  const handleSaveFallbackMessage = async () => {
+    try {
+      await setSmsFallbackMessage(draftFallbackMessage);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      setFallbackError("COULD NOT SAVE MESSAGE");
+    }
+  };
+
+  const handleResetFallbackMessage = () => {
+    setDraftFallbackMessage(DEFAULT_SMS_FALLBACK_MESSAGE);
+  };
 
   const [showBilling, setShowBilling] = useState(false);
   const [billingEmail, setBillingEmail] = useState("");
@@ -748,6 +819,32 @@ export default function SettingsScreen() {
             </Text>
           </View>
           <View style={styles.settingDivider} />
+          {/* ── Satellite SMS fallback (Task #113) ─────────────────────── */}
+          <Pressable
+            style={styles.settingRow}
+            onPress={handleOpenSmsFallback}
+            testID="sms-fallback-row"
+          >
+            <View style={styles.settingIcon}>
+              <Ionicons name="paper-plane-outline" size={18} color={colors.destructive} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.settingLabel, { color: colors.destructive }]}>SATELLITE FALLBACK</Text>
+              <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
+                {smsFallbackNumbers.length > 0
+                  ? `${smsFallbackNumbers.length} / ${MAX_SMS_FALLBACK_NUMBERS} RECIPIENTS ARMED`
+                  : "NO RECIPIENTS"}
+              </Text>
+            </View>
+            {smsFallbackNumbers.length > 0 ? (
+              <View style={{ backgroundColor: colors.destructive, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 2 }}>ARMED</Text>
+              </View>
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+            )}
+          </Pressable>
+          <View style={styles.settingDivider} />
           <Pressable
             style={styles.settingRow}
             onPress={() => {
@@ -1190,6 +1287,132 @@ export default function SettingsScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
+        </View>
+      </Modal>
+
+      {/* Satellite SMS fallback modal (Task #113) */}
+      <Modal
+        visible={showSmsFallback}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSmsFallback(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSmsFallback(false)} />
+          <View style={styles.modalContent}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
+              <Ionicons name="paper-plane" size={20} color={colors.destructive} />
+              <Text style={styles.modalTitle}>SATELLITE FALLBACK</Text>
+            </View>
+            <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 1.5, marginBottom: 14, textAlign: "center", lineHeight: 16 }}>
+              IF PANIC FIRES AND NETWORK IS DOWN, A ONE-LINE SMS IS HANDED TO YOUR OS (INCLUDING DIRECT-TO-CELL SATELLITE) FOR EACH NUMBER BELOW.
+            </Text>
+
+            <Text style={{ color: colors.foreground, fontSize: 10, letterSpacing: 2, marginBottom: 8 }}>
+              RECIPIENTS ({smsFallbackNumbers.length} / {MAX_SMS_FALLBACK_NUMBERS})
+            </Text>
+            {smsFallbackNumbers.length === 0 ? (
+              <Text style={{ color: colors.mutedForeground, fontSize: 11, letterSpacing: 1.5, marginBottom: 12, fontStyle: "italic" }}>
+                NONE CONFIGURED
+              </Text>
+            ) : (
+              <View style={{ marginBottom: 12, gap: 6 }}>
+                {smsFallbackNumbers.map((num) => (
+                  <View
+                    key={num}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      paddingHorizontal: 10,
+                      paddingVertical: 8,
+                      borderWidth: 1,
+                      borderColor: `${colors.mutedForeground}40`,
+                      borderRadius: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.foreground, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 13 }}>
+                      {num}
+                    </Text>
+                    <Pressable
+                      onPress={() => handleRemoveFallbackNumber(num)}
+                      testID={`fallback-remove-${num}`}
+                      hitSlop={10}
+                    >
+                      <Ionicons name="close-circle" size={20} color={colors.destructive} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {smsFallbackNumbers.length < MAX_SMS_FALLBACK_NUMBERS && (
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                <TextInput
+                  style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                  value={newFallbackNumber}
+                  onChangeText={(t) => { setNewFallbackNumber(t); setFallbackError(""); }}
+                  placeholder="+14155551234"
+                  placeholderTextColor={colors.mutedForeground}
+                  keyboardType="phone-pad"
+                  autoCorrect={false}
+                  testID="fallback-number-input"
+                />
+                <Pressable
+                  style={[styles.modalBtn, { marginBottom: 0, paddingHorizontal: 18, alignSelf: "stretch", justifyContent: "center" }]}
+                  onPress={handleAddFallbackNumber}
+                  testID="fallback-add-btn"
+                >
+                  <Text style={styles.modalBtnText}>ADD</Text>
+                </Pressable>
+              </View>
+            )}
+            {fallbackError ? (
+              <Text style={styles.errorText}>{fallbackError}</Text>
+            ) : null}
+
+            <Text style={{ color: colors.foreground, fontSize: 10, letterSpacing: 2, marginTop: 8, marginBottom: 6 }}>
+              MESSAGE BODY
+            </Text>
+            <TextInput
+              style={[styles.input, { minHeight: 60, textAlignVertical: "top" }]}
+              value={draftFallbackMessage}
+              onChangeText={setDraftFallbackMessage}
+              maxLength={MAX_SMS_FALLBACK_MESSAGE_LEN}
+              multiline
+              placeholder={DEFAULT_SMS_FALLBACK_MESSAGE}
+              placeholderTextColor={colors.mutedForeground}
+              testID="fallback-message-input"
+            />
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 10 }}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 1.5 }}>
+                {draftFallbackMessage.length} / {MAX_SMS_FALLBACK_MESSAGE_LEN}
+              </Text>
+              <Pressable onPress={handleResetFallbackMessage} hitSlop={8}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 1.5, textDecorationLine: "underline" }}>
+                  RESET TO DEFAULT
+                </Text>
+              </Pressable>
+            </View>
+            <Pressable
+              style={[styles.modalBtn, draftFallbackMessage === smsFallbackMessage && { opacity: 0.5 }]}
+              onPress={handleSaveFallbackMessage}
+              disabled={draftFallbackMessage === smsFallbackMessage}
+              testID="fallback-save-msg-btn"
+            >
+              <Text style={styles.modalBtnText}>SAVE MESSAGE</Text>
+            </Pressable>
+
+            <View style={{ marginTop: 8, padding: 10, borderWidth: 1, borderColor: `${colors.destructive}60`, borderRadius: 6 }}>
+              <Text style={{ color: colors.destructive, fontSize: 9, letterSpacing: 1.5, lineHeight: 14 }}>
+                WARNING: SMS IS UNENCRYPTED. YOUR CARRIER AND THE RECIPIENT'S CARRIER WILL SEE YOUR NUMBER, THEIR NUMBER, AND THE MESSAGE BODY. USE ONLY FOR SIGNALING — NEVER FOR CONTENT.
+              </Text>
+            </View>
+
+            <Pressable style={styles.cancelBtn} onPress={() => setShowSmsFallback(false)}>
+              <Text style={styles.cancelText}>CLOSE</Text>
+            </Pressable>
+          </View>
         </View>
       </Modal>
 

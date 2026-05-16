@@ -82,7 +82,13 @@ function shuffleDigits(): string[] {
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { hasPin, biometricEnabled, duressGracePeriod, checkPinWithDuress, setLocked, panicWipe } = useApp();
+  const { hasPin, biometricEnabled, duressGracePeriod, smsFallbackNumbers, checkPinWithDuress, setLocked, panicWipe } = useApp();
+  // Count of armed fallback recipients (Task #113). Shown next to the
+  // duress countdown bar so the user can confirm at-a-glance whether
+  // their out-of-band channel is configured. We deliberately never show
+  // the numbers themselves or the message body — a shoulder-surfer
+  // glancing at the lock screen must not learn who would be contacted.
+  const fallbackCount = smsFallbackNumbers.length;
 
   const [entered, setEntered] = useState("");
   const [error, setError] = useState(false);
@@ -496,6 +502,23 @@ export default function LockScreen() {
       fontSize: 11,
       fontVariant: ["tabular-nums"],
     },
+    fallbackBadge: {
+      position: "absolute",
+      bottom: insets.bottom + (Platform.OS === "web" ? 34 : 16) + 38,
+      right: 24,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 4,
+      backgroundColor: `${colors.background}cc`,
+      borderWidth: 1,
+      borderColor: `${colors.mutedForeground}30`,
+    },
+    fallbackBadgeText: {
+      color: colors.mutedForeground,
+      fontSize: 9,
+      letterSpacing: 2,
+      fontWeight: "700" as const,
+    },
   });
 
   return (
@@ -604,6 +627,14 @@ export default function LockScreen() {
           <Ionicons name="finger-print" size={22} color={colors.primary} />
           <Text style={styles.biometricText}>USE BIOMETRIC</Text>
         </Pressable>
+      )}
+
+      {duressCountdown !== null && fallbackCount > 0 && (
+        <View style={styles.fallbackBadge} testID="fallback-armed-badge">
+          <Text style={styles.fallbackBadgeText}>
+            {fallbackCount} SMS FALLBACK ARMED
+          </Text>
+        </View>
       )}
 
       {duressCountdown !== null && (
