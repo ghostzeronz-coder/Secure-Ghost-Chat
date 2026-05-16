@@ -221,6 +221,49 @@ if (chatSrc) {
   }
 }
 
+// 7. image-ref attachment validation must REJECT any incoming `uri` field.
+//    Wire payloads carrying a uri on image-ref would let a malicious peer
+//    inject an arbitrary URL into the receiver's <Image>, causing the
+//    client to fetch attacker-controlled URLs (IP/metadata leak). Task
+//    #101 regression guard.
+if (appCtxSrc) {
+  // Match the image-ref branch in isValidAttachment and check that it
+  // rejects any `uri` field. Brace-counted extraction so reordering
+  // sibling checks doesn't break the test.
+  const branchStart = appCtxSrc.indexOf('att.kind === "image-ref"');
+  let imageRefBlock = "";
+  if (branchStart !== -1) {
+    const blockOpen = appCtxSrc.indexOf("{", branchStart);
+    if (blockOpen !== -1) {
+      let depth = 0;
+      for (let i = blockOpen; i < appCtxSrc.length; i++) {
+        const c = appCtxSrc[i];
+        if (c === "{") depth++;
+        else if (c === "}") {
+          depth--;
+          if (depth === 0) {
+            imageRefBlock = appCtxSrc.slice(blockOpen, i + 1);
+            break;
+          }
+        }
+      }
+    }
+  }
+  const rejectsUri = /att\.uri\s*!==\s*undefined[\s\S]{0,80}?return\s+false/.test(
+    imageRefBlock,
+  );
+  if (rejectsUri) {
+    pass("isValidAttachment rejects incoming image-ref payloads that carry a uri field");
+  } else {
+    fail(
+      "isValidAttachment does not reject image-ref payloads with a `uri` field",
+      "image-ref's `uri` is local-only. Accepting it from the wire would let a peer\n" +
+        "force the receiver's <Image> to fetch an attacker-controlled URL.\n" +
+        "Expected something like: if (att.uri !== undefined) return false;",
+    );
+  }
+}
+
 // ── summary ────────────────────────────────────────────────────────────────────
 
 if (exitCode === 0) {

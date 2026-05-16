@@ -170,8 +170,14 @@ function isValidAttachment(a: unknown): a is Attachment {
     }
     if (att.width !== undefined && typeof att.width !== "number") return false;
     if (att.height !== undefined && typeof att.height !== "number") return false;
-    // `uri` is local-only and optional; we never validate or trust it from
-    // the wire because `wrapPayload` strips it before sending.
+    // `uri` is local-only for the sender's preview. A wire payload that
+    // contains it is malformed — and if we silently accepted it, a peer
+    // could inject any URL (e.g. https://attacker.example/track.png) and
+    // force <Image> to fetch it on the receiver, leaking IP/metadata. So
+    // any incoming `uri` field is a hard reject; the sender's own copy
+    // already passed through `wrapPayload`, which strips it on its way
+    // out and never re-runs validation.
+    if (att.uri !== undefined) return false;
     return true;
   }
 
