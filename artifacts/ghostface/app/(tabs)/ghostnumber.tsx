@@ -498,11 +498,14 @@ export default function GhostNumberScreen() {
     },
     footer: {
       position: "absolute",
-      bottom: 0,
+      bottom:
+        Platform.OS === "web"
+          ? 84
+          : (Platform.OS === "ios" ? 49 : 56) + insets.bottom,
       left: 0,
       right: 0,
       padding: 20,
-      paddingBottom: insets.bottom + 20,
+      paddingBottom: 20,
       backgroundColor: colors.background,
       borderTopWidth: 1,
       borderTopColor: colors.border,
