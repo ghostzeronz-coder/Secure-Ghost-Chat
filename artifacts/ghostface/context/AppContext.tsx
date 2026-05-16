@@ -1915,17 +1915,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
         let next = { ...c, messages: msgs };
         // ── Invite/key-expired destruct path ──────────────────────────────
-        // If this is a real contact and the X3DH handshake never completed
-        // (we still have a pendingX3DHHeader because the peer never replied),
-        // the most likely cause after exhausting all delivery attempts is
-        // that the peer's one-time pre-key has expired or the peer never
-        // came back online. Mark the conversation destroyed and inject a
-        // system notice so the user sees a clear reason in the timeline.
+        // If this is a real contact and the peer has never sent us a single
+        // message back (no inbound non-system message in the timeline), the
+        // most likely cause after exhausting all delivery attempts is that
+        // their one-time pre-key has expired or they never came back online
+        // to bootstrap the X3DH handshake. Mark the conversation destroyed
+        // and inject a system notice so the user sees a clear reason in
+        // the timeline.
+        const peerEverReplied = next.messages.some((m) => !m.fromMe && !m.system);
         if (
           !next.destroyedAt &&
           next.isRealContact &&
-          next.pendingX3DHHeader &&
-          !next.drSession?.bob
+          !peerEverReplied
         ) {
           const stamp = Date.now();
           const systemMsg: Message = {
