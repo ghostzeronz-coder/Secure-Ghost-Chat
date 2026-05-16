@@ -1181,6 +1181,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // evaluateExpiredHandshake — see its docstring for the conditions.
   useEffect(() => {
     const sweep = () => {
+      // Compute the next conversations array first (the setState updater
+      // stays pure — no I/O inside it), then persist outside. This keeps
+      // React's update semantics clean and avoids running AsyncStorage in
+      // the unlikely event setState gets replayed in StrictMode.
+      let toPersist: Conversation[] | null = null;
       setState((prev) => {
         let changed = false;
         const conversations = prev.conversations.map((c) => {
@@ -1196,11 +1201,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           };
         });
         if (!changed) return prev;
-        AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations)).catch((err) =>
-          console.warn("[AppContext] Failed to persist expired-handshake seal:", err)
-        );
+        toPersist = conversations;
         return { ...prev, conversations };
       });
+      if (toPersist) {
+        AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(toPersist)).catch((err) =>
+          console.warn("[AppContext] Failed to persist expired-handshake seal:", err)
+        );
+      }
     };
     sweep();
     const interval = setInterval(sweep, 5 * 60_000);

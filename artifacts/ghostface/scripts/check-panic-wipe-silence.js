@@ -264,6 +264,60 @@ if (appCtxSrc) {
   }
 }
 
+// 8. evaluateExpiredHandshake() must enforce ALL four guard conditions in
+//    AppContext.tsx so a healthy conversation is never sealed by accident.
+//    Task #102 regression guard.
+if (appCtxSrc) {
+  // Anchor past the return-type object literal so extractBracedBody picks
+  // up the function body, not the return-type braces.
+  const helperAnchor = appCtxSrc.indexOf("export function evaluateExpiredHandshake(");
+  const helperBody =
+    helperAnchor === -1
+      ? null
+      : extractBracedBody(appCtxSrc.slice(helperAnchor), "} | null {");
+  if (!helperBody) {
+    fail(
+      "evaluateExpiredHandshake() helper is missing in AppContext.tsx",
+      "Expected an exported function that returns null unless ALL four expiry conditions hold.",
+    );
+  } else {
+    const checks = [
+      { re: /c\.destroyedAt/, name: "destroyedAt guard" },
+      { re: /c\.isRealContact/, name: "isRealContact guard" },
+      { re: /c\.pendingX3DHHeader/, name: "pendingX3DHHeader guard" },
+      { re: /!m\.fromMe\s*&&\s*!m\.system/, name: "peer-reply guard" },
+      { re: /24\s*\*\s*60\s*\*\s*60\s*\*\s*1000/, name: "24-hour age guard" },
+    ];
+    const missing = checks.filter((c) => !c.re.test(helperBody)).map((c) => c.name);
+    if (missing.length === 0) {
+      pass("evaluateExpiredHandshake enforces all four handshake-expiry guards");
+    } else {
+      fail(
+        "evaluateExpiredHandshake is missing required guard(s)",
+        `Missing: ${missing.join(", ")}. Without these the helper can seal a healthy conversation.`,
+      );
+    }
+  }
+
+  // 9. A background sweep must invoke evaluateExpiredHandshake on a timer
+  //    so stalled handshakes are detected without user action.
+  // The sweep is implemented as a named closure that calls the helper and
+  // is then handed to setInterval; the two references can be 400+ chars
+  // apart, so widen the window. We require BOTH references to appear
+  // within the same useEffect-style block.
+  const sweepRe =
+    /setInterval\([\s\S]{0,1500}?evaluateExpiredHandshake|evaluateExpiredHandshake[\s\S]{0,1500}?setInterval/;
+  if (sweepRe.test(appCtxSrc)) {
+    pass("background sweep wires evaluateExpiredHandshake to setInterval");
+  } else {
+    fail(
+      "no background sweep calls evaluateExpiredHandshake",
+      "Expected a setInterval that runs evaluateExpiredHandshake over conversations so stalled\n" +
+        "handshakes seal without requiring the user to open the chat or send a message.",
+    );
+  }
+}
+
 // ── summary ────────────────────────────────────────────────────────────────────
 
 if (exitCode === 0) {
