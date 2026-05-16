@@ -2,16 +2,32 @@
 /**
  * check-panic-wipe-silence.js
  *
- * Static-analysis guard for the panicWipe silence contract.
+ * Static-analysis guards for two privacy-critical contracts:
  *
- * Rules:
+ *  ── SILENCE CONTRACT ─────────────────────────────────────────────────────
  *  1. The `panicWipe` useCallback body in AppContext.tsx must not contain
  *     any Haptics.* or Audio.* call.
  *  2. The duress setInterval callback in lock.tsx must not contain
  *     any Haptics.* or Audio.* call.
  *
- * Exit 0 → contract intact.
- * Exit 1 → violation found (or file could not be parsed).
+ *  ── DEPARTURE CONTRACT ───────────────────────────────────────────────────
+ *  3. `panicWipe` must broadcast `{ type: "departed", toAliases }` BEFORE it
+ *     clears local state (otherwise the WS is already gone by the time we
+ *     try to notify peers).
+ *  4. The incoming-message handler in AppContext.tsx must contain a branch
+ *     that flips `destroyedAt` when it receives `type === "departed"`.
+ *  5. The messages list (`app/(tabs)/messages.tsx`) must render a
+ *     SELF-DESTRUCTED badge gated on `destroyedAt`.
+ *  6. The chat screen (`app/chat/[id].tsx`) must render a sealed banner
+ *     gated on `conv.destroyedAt`.
+ *
+ * Exit 0 → all contracts intact.
+ * Exit 1 → at least one violation found.
+ *
+ * This script is the regression guard for Task #104 (end-to-end coverage of
+ * the self-destruct flow). It is intentionally static analysis because the
+ * `ghostface` artifact has no JS test runner; the server side is covered by
+ * `src/__tests__/departures.test.ts`.
  */
 
 "use strict";
@@ -21,15 +37,14 @@ const path = require("path");
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-/** Extract the body of the first function that starts after `startMarker`
- *  in `src`, using brace counting.  Returns null if not found.
+/** Extract the body of the first function/object expression that starts at or
+ *  after `startMarker` in `src`, using brace counting. Returns null if not found.
  */
-function extractFunctionBody(src, startMarker) {
+function extractBracedBody(src, startMarker) {
   const markerIdx = src.indexOf(startMarker);
   if (markerIdx === -1) return null;
 
-  // Find the opening '{' at or after the marker
-  let braceStart = src.indexOf("{", markerIdx);
+  const braceStart = src.indexOf("{", markerIdx);
   if (braceStart === -1) return null;
 
   let depth = 0;
@@ -44,16 +59,13 @@ function extractFunctionBody(src, startMarker) {
     }
     i++;
   }
-  return null; // unmatched braces
+  return null;
 }
 
-/** Return every line that matches the forbidden pattern, with 1-based line numbers
- *  relative to the full source file, given a body extracted from `fullSrc`.
- */
 function findViolations(body, fullSrc, forbiddenRe) {
   const bodyStart = fullSrc.indexOf(body);
   const prefix = fullSrc.slice(0, bodyStart);
-  const lineOffset = (prefix.match(/\n/g) || []).length; // 0-based line index of body start
+  const lineOffset = (prefix.match(/\n/g) || []).length;
 
   const violations = [];
   const lines = body.split("\n");
@@ -65,52 +77,55 @@ function findViolations(body, fullSrc, forbiddenRe) {
   return violations;
 }
 
-// ── configuration ──────────────────────────────────────────────────────────────
-
 const ROOT = path.resolve(__dirname, "..");
+const APP_CONTEXT = path.join(ROOT, "context", "AppContext.tsx");
+const LOCK_SCREEN = path.join(ROOT, "app", "lock.tsx");
+const MESSAGES_LIST = path.join(ROOT, "app", "(tabs)", "messages.tsx");
+const CHAT_SCREEN = path.join(ROOT, "app", "chat", "[id].tsx");
 
-const CHECKS = [
+function readOrBail(file) {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch (err) {
+    console.error(`[FAIL] Cannot read ${file}: ${err.message}`);
+    return null;
+  }
+}
+
+// ── silence-contract checks (legacy) ──────────────────────────────────────────
+
+const SILENCE_CHECKS = [
   {
     label: "panicWipe() in AppContext.tsx",
-    file: path.join(ROOT, "context", "AppContext.tsx"),
-    // The useCallback that defines panicWipe
+    file: APP_CONTEXT,
     startMarker: "const panicWipe = useCallback(async () => {",
   },
   {
     label: "duress setInterval callback in lock.tsx",
-    file: path.join(ROOT, "app", "lock.tsx"),
-    // The setInterval that fires panicWipe after the grace period
+    file: LOCK_SCREEN,
     startMarker: "duressIntervalRef.current = setInterval(() => {",
   },
 ];
 
-// Any Haptics.xxx(...) or Audio.xxx(...) call
 const FORBIDDEN = /\b(Haptics|Audio)\s*\.\s*\w+\s*\(/;
-
-// ── main ───────────────────────────────────────────────────────────────────────
 
 let exitCode = 0;
 
-for (const check of CHECKS) {
-  let src;
-  try {
-    src = fs.readFileSync(check.file, "utf8");
-  } catch (err) {
-    console.error(`[FAIL] Cannot read ${check.file}: ${err.message}`);
+for (const check of SILENCE_CHECKS) {
+  const src = readOrBail(check.file);
+  if (src == null) {
     exitCode = 1;
     continue;
   }
-
-  const body = extractFunctionBody(src, check.startMarker);
+  const body = extractBracedBody(src, check.startMarker);
   if (!body) {
     console.error(
       `[FAIL] Could not locate "${check.startMarker}" in ${check.file}.\n` +
-        `       The marker text may have changed — update check-panic-wipe-silence.js to match.`
+        `       The marker text may have changed — update this script to match.`,
     );
     exitCode = 1;
     continue;
   }
-
   const violations = findViolations(body, src, FORBIDDEN);
   if (violations.length === 0) {
     console.log(`[PASS] ${check.label} — no Haptics/Audio calls found.`);
@@ -123,12 +138,98 @@ for (const check of CHECKS) {
   }
 }
 
+// ── departure-contract checks ─────────────────────────────────────────────────
+
+function pass(label) {
+  console.log(`[PASS] ${label}`);
+}
+
+function fail(label, detail) {
+  console.error(`[FAIL] ${label}${detail ? "\n       " + detail : ""}`);
+  exitCode = 1;
+}
+
+const appCtxSrc = readOrBail(APP_CONTEXT);
+if (appCtxSrc) {
+  const panicBody = extractBracedBody(
+    appCtxSrc,
+    "const panicWipe = useCallback(async () => {",
+  );
+
+  // 3a. panicWipe must broadcast {type:"departed", toAliases:[...]} ...
+  if (panicBody && /type:\s*["']departed["']/.test(panicBody) && /toAliases/.test(panicBody)) {
+    // 3b. ... and the broadcast must appear BEFORE local state is cleared.
+    const departedIdx = panicBody.search(/type:\s*["']departed["']/);
+    const clearIdx = panicBody.indexOf("setState({");
+    if (clearIdx !== -1 && departedIdx > clearIdx) {
+      fail(
+        "panicWipe broadcasts departed AFTER clearing state",
+        "Move the departure broadcast above setState({ alias: null, ... }) so the WS is still open when we notify peers.",
+      );
+    } else {
+      pass(
+        "panicWipe broadcasts {type:\"departed\", toAliases} before clearing local state",
+      );
+    }
+  } else {
+    fail(
+      "panicWipe does not broadcast a departed notice",
+      "Expected a ws.send(JSON.stringify({ type: \"departed\", toAliases: [...] })) before the wipe.",
+    );
+  }
+
+  // 4. Incoming-message handler must flip destroyedAt on type === "departed".
+  const departedBranchRe =
+    /wsMsg\.type\s*===\s*["']departed["'][\s\S]{0,800}?destroyedAt:\s*\w+/m;
+  if (departedBranchRe.test(appCtxSrc)) {
+    pass("incoming \"departed\" handler sets destroyedAt on the matching conversation");
+  } else {
+    fail(
+      "incoming \"departed\" handler is missing or does not set destroyedAt",
+      "Expected a branch like: if (wsMsg.type === \"departed\" && wsMsg.from) { ... destroyedAt: stamp ... }",
+    );
+  }
+}
+
+// 5. messages.tsx renders SELF-DESTRUCTED badge gated on destroyedAt.
+const messagesSrc = readOrBail(MESSAGES_LIST);
+if (messagesSrc) {
+  const hasBadge = /SELF-DESTRUCTED/.test(messagesSrc);
+  const hasGate = /item\.destroyedAt/.test(messagesSrc);
+  if (hasBadge && hasGate) {
+    pass("messages list renders SELF-DESTRUCTED badge gated on item.destroyedAt");
+  } else {
+    fail(
+      "messages list missing destroyedAt-gated SELF-DESTRUCTED badge",
+      `expected both the badge text and an item.destroyedAt branch in ${MESSAGES_LIST}`,
+    );
+  }
+}
+
+// 6. chat/[id].tsx renders sealed banner gated on conv.destroyedAt.
+const chatSrc = readOrBail(CHAT_SCREEN);
+if (chatSrc) {
+  const hasBanner = /CONTACT SELF-DESTRUCTED/.test(chatSrc);
+  const hasGate = /conv\.destroyedAt/.test(chatSrc);
+  if (hasBanner && hasGate) {
+    pass("chat screen renders sealed banner gated on conv.destroyedAt");
+  } else {
+    fail(
+      "chat screen missing destroyedAt-gated sealed banner",
+      `expected both the banner text and a conv.destroyedAt branch in ${CHAT_SCREEN}`,
+    );
+  }
+}
+
+// ── summary ────────────────────────────────────────────────────────────────────
+
 if (exitCode === 0) {
-  console.log("\nAll silence-contract checks passed.");
+  console.log("\nAll silence + departure contract checks passed.");
 } else {
   console.error(
-    "\nSilence-contract check FAILED.\n" +
-      "Remove any Haptics.* / Audio.* calls from panicWipe and the duress interval."
+    "\nContract check FAILED.\n" +
+      "Restore the silence guarantees (no Haptics/Audio in panicWipe or duress interval) " +
+      "and the departure flow (broadcast before wipe, destroyedAt on receive, sealed UI in list + chat).",
   );
 }
 
