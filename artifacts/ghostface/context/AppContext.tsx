@@ -358,12 +358,7 @@ const CALL_SIGNAL_TYPES = new Set([
   "call-offer", "call-answer", "call-ice",
 ]);
 
-const DEFAULT_TRANSACTIONS: Transaction[] = [
-  { id: "t1", type: "receive", token: "FD", amount: 500, address: "GhF3...x9mK", timestamp: Date.now() - 1000 * 60 * 60 * 2 },
-  { id: "t2", type: "send", token: "CASPER", amount: 120, address: "CsP7...v2nQ", timestamp: Date.now() - 1000 * 60 * 60 * 6 },
-  { id: "t3", type: "receive", token: "CASPER", amount: 1000, address: "CsP9...r4wX", timestamp: Date.now() - 1000 * 60 * 60 * 24 },
-  { id: "t4", type: "send", token: "FD", amount: 200, address: "GhF1...m8pL", timestamp: Date.now() - 1000 * 60 * 60 * 48 },
-];
+const DEFAULT_TRANSACTIONS: Transaction[] = [];
 
 const VPN_SERVERS: VPNServer[] = [
   { id: "1", name: "US East", country: "United States", region: "New York", shortRegion: "NYC", latency: 12, flag: "🇺🇸" },
@@ -850,8 +845,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     vpnConnected: false,
     vpnServer: null,
     conversations: createDefaultConversations(),
-    fdBalance: 4250.75,
-    casperBalance: 8920.5,
+    fdBalance: 0,
+    casperBalance: 0,
     walletAddress: "GhFc3...x9mKr4",
     incomingCall: null,
     transactions: DEFAULT_TRANSACTIONS,
@@ -1848,8 +1843,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       vpnConnected: false,
       vpnServer: null,
       conversations: [],
-      fdBalance: 4250.75,
-      casperBalance: 8920.5,
+      fdBalance: 0,
+      casperBalance: 0,
       walletAddress: "GhFc3...x9mKr4",
       transactions: DEFAULT_TRANSACTIONS,
       dataUsed: 2.4,

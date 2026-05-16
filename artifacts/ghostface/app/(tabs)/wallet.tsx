@@ -208,7 +208,7 @@ export default function WalletScreen() {
       backgroundColor: colors.success,
     },
     linkedStatusText: {
-      color: colors.success,
+      color: colors.foreground,
       fontSize: 9,
       letterSpacing: 2,
       fontWeight: "700" as const,
@@ -538,7 +538,7 @@ export default function WalletScreen() {
       letterSpacing: 2,
     },
     successText: {
-      color: colors.success,
+      color: colors.foreground,
       fontSize: 16,
       fontWeight: "800" as const,
       letterSpacing: 3,
@@ -722,8 +722,8 @@ export default function WalletScreen() {
               setShowReceive(true);
             }}
           >
-            <Ionicons name="arrow-down" size={16} color={colors.success} />
-            <Text style={[styles.actionBtnText, { color: colors.success }]}>RECEIVE</Text>
+            <Ionicons name="arrow-down" size={16} color={colors.foreground} />
+            <Text style={[styles.actionBtnText, { color: colors.foreground }]}>RECEIVE</Text>
           </Pressable>
           <Pressable
             style={({ pressed }) => [
@@ -765,7 +765,7 @@ export default function WalletScreen() {
               <Text
                 style={[
                   styles.txAmount,
-                  { color: tx.type === "receive" ? colors.success : colors.primary },
+                  { color: tx.type === "receive" ? colors.foreground : colors.primary },
                 ]}
               >
                 {tx.type === "receive" ? "+" : "-"}
