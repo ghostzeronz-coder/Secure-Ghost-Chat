@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { inflateRawSync, inflateSync } from "node:zlib";
 
 import {
   classifyLinkQuality,
@@ -152,6 +153,30 @@ test("compressFrameIfBeneficial round-trips a realistic msg frame and shrinks it
   assert.equal(typeof parsed.data, "string");
   const inflated = JSON.parse(decompressFrameData(parsed.data));
   assert.deepEqual(inflated, frame);
+});
+
+test("client→server codec interop: server's inflateRawSync recovers the client's deflated frame", () => {
+  // Belt-and-suspenders: fflate.deflateSync produces RAW deflate (no
+  // zlib header). If anyone swaps the server back to plain
+  // zlib.inflateSync, compressed sends silently break in production —
+  // this assertion catches that the same way the server does.
+  const frame = {
+    type: "msg",
+    to: "WRAITH_X",
+    payload: JSON.stringify({
+      header: { dh: "a".repeat(64), n: 0, pn: 0 },
+      ciphertext: "deadbeef".repeat(32),
+    }),
+    x3dhHeader: { ik: "b".repeat(64), ek: "c".repeat(64), spkId: "spk-1", otpkId: "otpk-1" },
+  };
+  const wire = compressFrameIfBeneficial(frame);
+  const parsed = JSON.parse(wire);
+  assert.equal(parsed.type, "msg-z", "frame should be large enough to compress");
+  const inflated = inflateRawSync(Buffer.from(parsed.data, "base64")).toString("utf8");
+  assert.deepEqual(JSON.parse(inflated), frame);
+  // And confirm zlib-wrapped inflate would fail — protecting the comment
+  // and the codec choice on the server side.
+  assert.throws(() => inflateSync(Buffer.from(parsed.data, "base64")));
 });
 
 test("compressFrameIfBeneficial keeps original when compression would make it larger", () => {

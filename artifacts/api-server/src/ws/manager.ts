@@ -3,7 +3,7 @@ import { IncomingMessage } from "http";
 import { db, messagesTable, deviceTokensTable, departuresTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
-import { inflateSync } from "zlib";
+import { inflateRawSync } from "zlib";
 import { logger } from "../lib/logger";
 import { normalizeAlias } from "../utils/alias";
 
@@ -254,7 +254,11 @@ export function createWsServer(wss: WebSocketServer): void {
         }
         let inflated: string;
         try {
-          const buf = inflateSync(Buffer.from(data, "base64"), {
+          // fflate.deflateSync (client) emits a RAW deflate stream — no
+          // zlib header/checksum — so we use inflateRawSync here. Using
+          // plain inflateSync fails with "incorrect header check" and the
+          // client's compressed frames silently never deliver.
+          const buf = inflateRawSync(Buffer.from(data, "base64"), {
             maxOutputLength: MSG_Z_MAX_INFLATED_BYTES,
           });
           inflated = buf.toString("utf8");
