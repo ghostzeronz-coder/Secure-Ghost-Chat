@@ -279,7 +279,15 @@ export function evaluateExpiredHandshake(
   if (!c.pendingX3DHHeader) return null;
   const peerEverReplied = c.messages.some((m) => !m.fromMe && !m.system);
   if (peerEverReplied) return null;
-  if (now - c.timestamp <= 24 * 60 * 60 * 1000) return null;
+  // Anchor the 24h window to the EARLIEST message (or the conversation
+  // creation time if no messages yet). c.timestamp is mutated on every
+  // outgoing send, so using it would let a user with a flaky session
+  // indefinitely defer the seal by retrying — exactly the opposite of
+  // what we want.
+  const handshakeStart = c.messages.length > 0
+    ? Math.min(...c.messages.map((m) => m.timestamp))
+    : c.timestamp;
+  if (now - handshakeStart <= 24 * 60 * 60 * 1000) return null;
   return {
     destroyedAt: now,
     lastMessage: "SELF-DESTRUCTED",
@@ -1174,47 +1182,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
-  // Seal conversations whose X3DH handshake has expired before completing.
-  // Runs once on mount and every 5 minutes thereafter so a stale pending
-  // session is detected even when the user never opens the chat or attempts
-  // to send a new message. The seal predicate lives in
-  // evaluateExpiredHandshake — see its docstring for the conditions.
-  useEffect(() => {
-    const sweep = () => {
-      // Compute the next conversations array first (the setState updater
-      // stays pure — no I/O inside it), then persist outside. This keeps
-      // React's update semantics clean and avoids running AsyncStorage in
-      // the unlikely event setState gets replayed in StrictMode.
-      let toPersist: Conversation[] | null = null;
-      setState((prev) => {
-        let changed = false;
-        const conversations = prev.conversations.map((c) => {
-          const expiry = evaluateExpiredHandshake(c);
-          if (!expiry) return c;
-          changed = true;
-          return {
-            ...c,
-            destroyedAt: expiry.destroyedAt,
-            lastMessage: expiry.lastMessage,
-            timestamp: expiry.timestamp,
-            messages: [...c.messages, expiry.systemMsg],
-          };
-        });
-        if (!changed) return prev;
-        toPersist = conversations;
-        return { ...prev, conversations };
-      });
-      if (toPersist) {
-        AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(toPersist)).catch((err) =>
-          console.warn("[AppContext] Failed to persist expired-handshake seal:", err)
-        );
-      }
-    };
-    sweep();
-    const interval = setInterval(sweep, 5 * 60_000);
-    return () => clearInterval(interval);
-  }, []);
-
   const persistConversations = useCallback(async (convs: Conversation[]) => {
     try {
       await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
@@ -1234,6 +1201,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const outboxRef = React.useRef<OutboxItem[]>([]);
   const outboxDrainingRef = React.useRef(false);
   useEffect(() => { latestStateRef.current = state; }, [state]);
+
+  // Seal conversations whose X3DH handshake has expired before completing.
+  // Runs once on mount and every 5 minutes thereafter so a stale pending
+  // session is detected even when the user never opens the chat or attempts
+  // to send a new message. The seal predicate lives in
+  // evaluateExpiredHandshake — see its docstring for the conditions.
+  // Placed AFTER latestStateRef so the ref is in scope when the closure runs.
+  useEffect(() => {
+    const sweep = () => {
+      // Read current conversations from the latest-state ref so the next
+      // array is computed deterministically OUTSIDE setState. We commit
+      // with a passthrough setState call and persist in the same tick,
+      // avoiding StrictMode replay re-running side effects.
+      const current = latestStateRef.current.conversations;
+      let changed = false;
+      const next = current.map((c) => {
+        const expiry = evaluateExpiredHandshake(c);
+        if (!expiry) return c;
+        changed = true;
+        return {
+          ...c,
+          destroyedAt: expiry.destroyedAt,
+          lastMessage: expiry.lastMessage,
+          timestamp: expiry.timestamp,
+          messages: [...c.messages, expiry.systemMsg],
+        };
+      });
+      if (!changed) return;
+      setState((prev) => ({ ...prev, conversations: next }));
+      AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(next)).catch((err) =>
+        console.warn("[AppContext] Failed to persist expired-handshake seal:", err)
+      );
+    };
+    sweep();
+    const interval = setInterval(sweep, 5 * 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const setAlias = useCallback(async (alias: string) => {
     try {
