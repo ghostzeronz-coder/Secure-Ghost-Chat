@@ -136,6 +136,10 @@ export default function GhostNumberScreen() {
   );
 
   const handleAcquire = async () => {
+    // Belt-and-braces: the button is disabled while !loaded, but if a rapid
+    // tap slips through we silently no-op rather than fire the misleading
+    // "NOT READY" alert during the AsyncStorage hydration window.
+    if (!loaded) return;
     if (!alias || !deviceToken) {
       Alert.alert("NOT READY", "Finish onboarding before acquiring a ghost number.");
       return;
@@ -750,11 +754,11 @@ export default function GhostNumberScreen() {
 
       <View style={styles.footer}>
         <Pressable
-          style={[styles.acquireBtn, provisioning && styles.acquireBtnDisabled]}
+          style={[styles.acquireBtn, (provisioning || !loaded) && styles.acquireBtnDisabled]}
           onPress={handleAcquire}
-          disabled={provisioning}
+          disabled={provisioning || !loaded}
         >
-          {provisioning ? (
+          {provisioning || !loaded ? (
             <ActivityIndicator color="#000" />
           ) : (
             <>

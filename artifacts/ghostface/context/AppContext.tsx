@@ -1915,18 +1915,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
         let next = { ...c, messages: msgs };
         // ── Invite/key-expired destruct path ──────────────────────────────
-        // If this is a real contact and the peer has never sent us a single
-        // message back (no inbound non-system message in the timeline), the
-        // most likely cause after exhausting all delivery attempts is that
-        // their one-time pre-key has expired or they never came back online
-        // to bootstrap the X3DH handshake. Mark the conversation destroyed
-        // and inject a system notice so the user sees a clear reason in
-        // the timeline.
+        // Narrow heuristic so a single batch of transient delivery failures
+        // does not seal a healthy conversation. We only mark destroyed when
+        // ALL of the following hold:
+        //   - real contact (sketch contacts are mocked, never expire)
+        //   - the X3DH bootstrap header is still queued (the peer has never
+        //     received our first ciphertext — so the session was never set
+        //     up on their side)
+        //   - the peer has never sent us a single non-system message
+        //   - the conversation is older than 24 hours (gives the peer a
+        //     reasonable window to come back online before we seal)
+        // This matches "invite/key expired with no successful exchange"
+        // without false-positives on temporary network outages.
         const peerEverReplied = next.messages.some((m) => !m.fromMe && !m.system);
+        const olderThanDay = Date.now() - next.timestamp > 24 * 60 * 60 * 1000;
         if (
           !next.destroyedAt &&
           next.isRealContact &&
-          !peerEverReplied
+          !!next.pendingX3DHHeader &&
+          !peerEverReplied &&
+          olderThanDay
         ) {
           const stamp = Date.now();
           const systemMsg: Message = {
