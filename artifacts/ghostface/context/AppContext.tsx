@@ -275,6 +275,10 @@ export function evaluateExpiredHandshake(
   now: number = Date.now()
 ): { destroyedAt: number; systemMsg: Message; lastMessage: string; timestamp: number } | null {
   if (c.destroyedAt) return null;
+  // Idempotence: if an expiry system message already exists (e.g. a prior
+  // sweep already sealed this conversation in a partial-write state), do
+  // not append another one.
+  if (c.messages.some((m) => m.id.startsWith("sys-expired-"))) return null;
   if (!c.isRealContact) return null;
   if (!c.pendingX3DHHeader) return null;
   const peerEverReplied = c.messages.some((m) => !m.fromMe && !m.system);
