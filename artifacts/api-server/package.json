@@ -24,7 +24,6 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "express-rate-limit": "^8.5.1",
-    "fflate": "^0.8.2",
     "helmet": "^8.1.0",
     "pino": "^9",
     "pino-http": "^10",

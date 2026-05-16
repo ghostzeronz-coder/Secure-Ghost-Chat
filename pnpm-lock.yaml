@@ -215,9 +215,6 @@ importers:
       express-rate-limit:
         specifier: ^8.5.1
         version: 8.5.1(express@5.2.1)
-      fflate:
-        specifier: ^0.8.2
-        version: 0.8.2
       helmet:
         specifier: ^8.1.0
         version: 8.1.0
