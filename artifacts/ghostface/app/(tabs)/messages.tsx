@@ -55,21 +55,33 @@ export default function MessagesScreen() {
 
   const handleLongPressConversation = (convId: string, alias: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const conv = conversations.find((c) => c.id === convId);
+    const isSealed = !!conv?.destroyedAt;
+    const title = isSealed ? `${alias} — SEALED` : alias;
+    const body = isSealed
+      ? "This contact has self-destructed. Remove the sealed conversation from your list?"
+      : "What would you like to do?";
+    const actionLabel = isSealed ? "Delete Sealed Conversation" : "Delete Contact";
     if (Platform.OS !== "web") {
       Alert.alert(
-        alias,
-        "What would you like to do?",
+        title,
+        body,
         [
           { text: "Cancel", style: "cancel" },
           {
-            text: "Delete Contact",
+            text: actionLabel,
             style: "destructive",
             onPress: () => deleteConversation(convId),
           },
         ]
       );
-    } else if (window.confirm(`${alias}\nDelete this contact and all messages? This cannot be undone.`)) {
-      deleteConversation(convId);
+    } else {
+      const webPrompt = isSealed
+        ? `${alias} (SEALED)\nRemove this self-destructed conversation from your list? This cannot be undone.`
+        : `${alias}\nDelete this contact and all messages? This cannot be undone.`;
+      if (window.confirm(webPrompt)) {
+        deleteConversation(convId);
+      }
     }
   };
 

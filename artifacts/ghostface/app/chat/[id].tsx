@@ -55,7 +55,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation } = useApp();
+  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation, deleteConversation } = useApp();
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
@@ -1105,7 +1105,7 @@ export default function ChatScreen() {
             borderTopColor: colors.border,
             backgroundColor: `${colors.destructive}10`,
             alignItems: "center",
-            gap: 4,
+            gap: 8,
           }}
           testID="conv-sealed-banner"
         >
@@ -1118,6 +1118,46 @@ export default function ChatScreen() {
           <Text style={{ color: colors.mutedForeground, fontSize: 11, textAlign: "center" }}>
             This contact has wiped their device. The conversation is sealed.
           </Text>
+          <Pressable
+            testID="conv-sealed-delete-btn"
+            accessibilityLabel="Delete sealed conversation"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              const doDelete = () => {
+                deleteConversation(conv.id);
+                router.back();
+              };
+              if (Platform.OS !== "web") {
+                Alert.alert(
+                  "Delete Sealed Conversation",
+                  `Remove the conversation with ${conv.alias} from your device? This cannot be undone.`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: doDelete },
+                  ]
+                );
+              } else if (window.confirm(`Remove the conversation with ${conv.alias} from your device? This cannot be undone.`)) {
+                doDelete();
+              }
+            }}
+            style={({ pressed }) => ({
+              marginTop: 4,
+              paddingHorizontal: 14,
+              paddingVertical: 8,
+              borderRadius: 6,
+              borderWidth: 1,
+              borderColor: colors.destructive,
+              backgroundColor: pressed ? `${colors.destructive}33` : `${colors.destructive}1A`,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            })}
+          >
+            <Ionicons name="trash-outline" size={13} color={colors.destructive} />
+            <Text style={{ color: colors.destructive, fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>
+              DELETE SEALED CONVERSATION
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <View style={styles.inputBar}>
