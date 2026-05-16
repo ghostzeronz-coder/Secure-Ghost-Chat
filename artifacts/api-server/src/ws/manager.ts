@@ -3,6 +3,7 @@ import { IncomingMessage } from "http";
 import { db, messagesTable, deviceTokensTable, departuresTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
+import { inflateSync } from "fflate";
 import { logger } from "../lib/logger";
 import { normalizeAlias } from "../utils/alias";
 
@@ -180,6 +181,28 @@ export function createWsServer(wss: WebSocketServer): void {
       } catch {
         ws.send(JSON.stringify({ type: "error", message: "Invalid JSON" }));
         return;
+      }
+
+      // ── Low-bandwidth compressed frame unwrap (Task #111) ──────────────
+      // The client wraps outgoing JSON in `msg-z` when low-bandwidth mode
+      // is active to save satellite bytes. We inflate transparently here
+      // and continue processing as if the original `msg` frame arrived.
+      // Server→client traffic is NOT compressed at this layer; receivers
+      // get the normal `msg` envelope back unchanged.
+      if ((msg as { type?: string }).type === "msg-z") {
+        const data = (msg as { data?: unknown }).data;
+        if (typeof data !== "string") {
+          ws.send(JSON.stringify({ type: "error", message: "msg-z requires data" }));
+          return;
+        }
+        try {
+          const inflated = Buffer.from(inflateSync(Buffer.from(data, "base64"))).toString("utf8");
+          msg = JSON.parse(inflated) as WireMessage;
+        } catch (e) {
+          logger.warn({ err: e }, "Failed to inflate msg-z frame");
+          ws.send(JSON.stringify({ type: "error", message: "Invalid compressed frame" }));
+          return;
+        }
       }
 
       if (msg.type === "ping") {

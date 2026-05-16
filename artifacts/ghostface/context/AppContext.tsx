@@ -4,6 +4,8 @@ import {
   isLowBandwidthActive,
   wsPingIntervalMs,
   wsReconnectDelayMs,
+  outboxDrainDebounceMs,
+  compressFrameIfBeneficial,
   LBW_ATTACHMENT_REFUSAL_REASON,
   type LinkQuality,
   type LinkStats,
@@ -1397,6 +1399,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     lbwActiveRef.current = state.lowBandwidthActive;
   }, [state.lowBandwidthActive]);
 
+  // ── Outbox drain debouncer (LBW batching) ───────────────────────────
+  // sendMessage in LBW mode pushes ciphertexts onto the outbox and calls
+  // scheduleOutboxDrain() instead of invoking ws.send directly. This lets
+  // a burst of rapid sends collapse into one debounced drain so the
+  // satellite link sees one batched round trip rather than N separate
+  // frames. We route through a ref because `drainOutbox` is declared
+  // further down the component body (after sendMessage) — the ref is
+  // wired up by a useEffect below once drainOutbox is in scope.
+  const drainOutboxRef = React.useRef<(() => Promise<void>) | null>(null);
+  const outboxDrainTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleOutboxDrain = useCallback(() => {
+    if (outboxDrainTimerRef.current) {
+      clearTimeout(outboxDrainTimerRef.current);
+      outboxDrainTimerRef.current = null;
+    }
+    const delay = outboxDrainDebounceMs(lbwActiveRef.current);
+    const fire = () => {
+      outboxDrainTimerRef.current = null;
+      drainOutboxRef.current?.().catch((e) => console.error("[Outbox] scheduled drain failed:", e));
+    };
+    if (delay === 0) {
+      fire();
+    } else {
+      outboxDrainTimerRef.current = setTimeout(fire, delay);
+    }
+  }, []);
+
   const recomputeLinkQuality = useCallback(() => {
     const lq = classifyLinkQuality(linkStatsRef.current);
     setState((prev) => {
@@ -1658,6 +1687,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // For real contacts: send over WebSocket FIRST, then commit the advanced
       // ratchet state to React state. If the send throws for any reason, we
       // bail before persisting — keeping sender and receiver in sync.
+      //
+      // Low-bandwidth mode short-circuit: when LBW is active, we route the
+      // outgoing message through the outbox + a debounced drain instead of
+      // an immediate ws.send. Successive rapid sends accumulate in the
+      // outbox and then drain together (see scheduleOutboxDrain below),
+      // which is the "batch outgoing ciphertexts" line item from the task.
+      // We DO NOT advance the ratchet here in that path — drainOutbox
+      // encrypts at delivery time so ordering still matches the receiver.
+      if (isRealContact && aliceMsg && latestStateRef.current.lowBandwidthActive) {
+        const pendingId = `pending-${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
+        const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment };
+        const nextOutbox = [...outboxRef.current, outboxItem];
+        outboxRef.current = nextOutbox;
+        persistOutbox(nextOutbox);
+        const pendingMsg: Message = {
+          id: pendingId,
+          text,
+          fromMe: true,
+          timestamp: Date.now(),
+          encrypted: false,
+          sealed: false,
+          pending: true,
+          attachment,
+        };
+        setState((prev) => {
+          const updated = prev.conversations.map((c) =>
+            c.id === conversationId
+              ? { ...c, messages: [...c.messages, pendingMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
+              : c
+          );
+          persistConversations(updated);
+          return { ...prev, conversations: updated };
+        });
+        scheduleOutboxDrain();
+        return { queued: true };
+      }
+
       if (isRealContact && aliceMsg) {
         const ws = wsRef.current;
         if (ws && ws.readyState === 1) {
@@ -2194,12 +2260,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // re-sent X3DH header on subsequent messages would force the
           // receiver to discard the live session.
           const x3dhHeader = headerSent.has(item.conversationId) ? undefined : conv.pendingX3DHHeader;
-          ws.send(JSON.stringify({
+          // In LBW mode we compress the JSON envelope before send. The
+          // server unwraps `msg-z` back into `msg` server-side. See
+          // lib/lowBandwidth.ts for the wire format and the "only ship
+          // compressed if it's actually smaller" guard.
+          const frame = {
             type: "msg",
             to: conv.alias,
             payload: JSON.stringify(aliceMsg),
             x3dhHeader,
-          }));
+          };
+          ws.send(
+            lbwActiveRef.current
+              ? compressFrameIfBeneficial(frame)
+              : JSON.stringify(frame),
+          );
           aliceCursor.set(item.conversationId, newAlice);
           headerSent.add(item.conversationId);
           const expiresAt = conv.disappearAfterSec ? Date.now() + conv.disappearAfterSec * 1000 : undefined;
@@ -2234,6 +2309,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       outboxDrainingRef.current = false;
     }
   }, [persistConversations, persistOutbox, markMessageFailed]);
+
+  // Wire the scheduler's ref to the live drainOutbox each render so the
+  // debounced fire() always invokes the freshest closure.
+  useEffect(() => {
+    drainOutboxRef.current = drainOutbox;
+  }, [drainOutbox]);
 
   const retryMessage = useCallback((conversationId: string, messageId: string) => {
     const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
