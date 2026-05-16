@@ -951,7 +951,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     language: "en",
     linkQuality: "unknown",
     lowBandwidthMode: "auto",
-    lowBandwidthActive: false,
+    // Derive from the classifier so AUTO+UNKNOWN starts active (per task
+    // spec: "constrained or unknown-quality link → enters LBW mode
+    // automatically"). Hardcoding `false` here would mean cold start and
+    // panic-wipe reset both show INACTIVE until the classifier fires.
+    lowBandwidthActive: isLowBandwidthActive("unknown", "auto"),
   });
 
   useEffect(() => {
@@ -1036,9 +1040,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           lowBwRaw && (VALID_LBW_MODES as string[]).includes(lowBwRaw)
             ? (lowBwRaw as LowBandwidthMode)
             : "auto";
-        // `forceOn` is honoured immediately; otherwise we wait for the
-        // classifier to observe link quality before activating.
-        const lowBandwidthActive = lowBandwidthMode === "forceOn";
+        // Derive activeness from the classifier so AUTO + initial UNKNOWN
+        // link starts active immediately (per task spec). The classifier
+        // will downgrade to "good" + INACTIVE once we observe a clean
+        // auth ack.
+        const lowBandwidthActive = isLowBandwidthActive("unknown", lowBandwidthMode);
 
         // Fetch Stripe publishable key in the background (non-blocking)
         const apiBase = getApiBase();

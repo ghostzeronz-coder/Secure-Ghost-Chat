@@ -93,6 +93,16 @@ test("isLowBandwidthActive — auto activates on 'constrained' OR 'unknown' per 
   assert.equal(isLowBandwidthActive("good", "auto"), false);
 });
 
+test("initial-state contract: AUTO + UNKNOWN must derive lowBandwidthActive = true on cold start", () => {
+  // AppContext initializes/resets `lowBandwidthActive` via this exact
+  // call in three places (createInitialState, persisted-state load, and
+  // panicWipe reset). If this assertion ever flips to `false` we'll be
+  // re-shipping the AUTO+UNKNOWN regression flagged in the second
+  // review pass — fail loudly here before the user sees an INACTIVE
+  // header on a brand-new install.
+  assert.equal(isLowBandwidthActive("unknown", "auto"), true);
+});
+
 test("wsPingIntervalMs and wsReconnectDelayMs stretch when active", () => {
   assert.equal(wsPingIntervalMs(false), WS_PING_INTERVAL_NORMAL_MS);
   assert.equal(wsPingIntervalMs(true), WS_PING_INTERVAL_LBW_MS);
