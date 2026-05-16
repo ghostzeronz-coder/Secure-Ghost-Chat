@@ -255,6 +255,47 @@ export interface Conversation {
   destroyedAt?: number;
 }
 
+/**
+ * Detect a conversation whose X3DH handshake has expired before completing:
+ * the redeemer queued the bootstrap header, the peer never came online,
+ * and enough time has passed that we should seal the conversation rather
+ * than let it dangle forever. Pure helper — no React, no side effects, so
+ * the same predicate can be used by the outbox-failure path and the
+ * background sweep without diverging.
+ *
+ * All conditions must hold:
+ *   - real contact (sketch contacts are mocked, never expire)
+ *   - bootstrap X3DH header is still queued (the peer has never received
+ *     our first ciphertext — no session exists on their side)
+ *   - the peer has never sent us a non-system message
+ *   - the conversation is older than 24 hours
+ */
+export function evaluateExpiredHandshake(
+  c: Conversation,
+  now: number = Date.now()
+): { destroyedAt: number; systemMsg: Message; lastMessage: string; timestamp: number } | null {
+  if (c.destroyedAt) return null;
+  if (!c.isRealContact) return null;
+  if (!c.pendingX3DHHeader) return null;
+  const peerEverReplied = c.messages.some((m) => !m.fromMe && !m.system);
+  if (peerEverReplied) return null;
+  if (now - c.timestamp <= 24 * 60 * 60 * 1000) return null;
+  return {
+    destroyedAt: now,
+    lastMessage: "SELF-DESTRUCTED",
+    timestamp: now,
+    systemMsg: {
+      id: `sys-expired-${now}`,
+      text: "This contact's invite or keys have expired before a secure session could be established. The conversation is sealed.",
+      fromMe: false,
+      timestamp: now,
+      encrypted: false,
+      sealed: true,
+      system: true,
+    },
+  };
+}
+
 export interface Transaction {
   id: string;
   type: "send" | "receive";
@@ -1133,6 +1174,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
+  // Seal conversations whose X3DH handshake has expired before completing.
+  // Runs once on mount and every 5 minutes thereafter so a stale pending
+  // session is detected even when the user never opens the chat or attempts
+  // to send a new message. The seal predicate lives in
+  // evaluateExpiredHandshake — see its docstring for the conditions.
+  useEffect(() => {
+    const sweep = () => {
+      setState((prev) => {
+        let changed = false;
+        const conversations = prev.conversations.map((c) => {
+          const expiry = evaluateExpiredHandshake(c);
+          if (!expiry) return c;
+          changed = true;
+          return {
+            ...c,
+            destroyedAt: expiry.destroyedAt,
+            lastMessage: expiry.lastMessage,
+            timestamp: expiry.timestamp,
+            messages: [...c.messages, expiry.systemMsg],
+          };
+        });
+        if (!changed) return prev;
+        AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations)).catch((err) =>
+          console.warn("[AppContext] Failed to persist expired-handshake seal:", err)
+        );
+        return { ...prev, conversations };
+      });
+    };
+    sweep();
+    const interval = setInterval(sweep, 5 * 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
   const persistConversations = useCallback(async (convs: Conversation[]) => {
     try {
       await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
@@ -1963,43 +2037,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
         let next = { ...c, messages: msgs };
         // ── Invite/key-expired destruct path ──────────────────────────────
-        // Narrow heuristic so a single batch of transient delivery failures
-        // does not seal a healthy conversation. We only mark destroyed when
-        // ALL of the following hold:
-        //   - real contact (sketch contacts are mocked, never expire)
-        //   - the X3DH bootstrap header is still queued (the peer has never
-        //     received our first ciphertext — so the session was never set
-        //     up on their side)
-        //   - the peer has never sent us a single non-system message
-        //   - the conversation is older than 24 hours (gives the peer a
-        //     reasonable window to come back online before we seal)
-        // This matches "invite/key expired with no successful exchange"
-        // without false-positives on temporary network outages.
-        const peerEverReplied = next.messages.some((m) => !m.fromMe && !m.system);
-        const olderThanDay = Date.now() - next.timestamp > 24 * 60 * 60 * 1000;
-        if (
-          !next.destroyedAt &&
-          next.isRealContact &&
-          !!next.pendingX3DHHeader &&
-          !peerEverReplied &&
-          olderThanDay
-        ) {
-          const stamp = Date.now();
-          const systemMsg: Message = {
-            id: `sys-expired-${stamp}`,
-            text: "This contact's invite or keys have expired before a secure session could be established. The conversation is sealed.",
-            fromMe: false,
-            timestamp: stamp,
-            encrypted: false,
-            sealed: true,
-            system: true,
-          };
+        // Delegated to evaluateExpiredHandshake so the outbox-failure path
+        // and the background sweep stay in lockstep. See its docstring for
+        // the (deliberately narrow) detection conditions.
+        const expiry = evaluateExpiredHandshake(next);
+        if (expiry) {
           next = {
             ...next,
-            destroyedAt: stamp,
-            lastMessage: "SELF-DESTRUCTED",
-            timestamp: stamp,
-            messages: [...next.messages, systemMsg],
+            destroyedAt: expiry.destroyedAt,
+            lastMessage: expiry.lastMessage,
+            timestamp: expiry.timestamp,
+            messages: [...next.messages, expiry.systemMsg],
           };
         }
         return next;
