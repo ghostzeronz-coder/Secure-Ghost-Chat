@@ -2,9 +2,13 @@
 type ModuleMap = Record<string, () => Promise<Record<string, unknown>>>;
 export const modules: ModuleMap = {
   "./components/mockups/ghostface-home/AliasFocus.tsx": () => import("../components/mockups/ghostface-home/AliasFocus.tsx"),
+  "./components/mockups/ghostface-home/Chats.tsx": () => import("../components/mockups/ghostface-home/Chats.tsx"),
   "./components/mockups/ghostface-home/Cockpit.tsx": () => import("../components/mockups/ghostface-home/Cockpit.tsx"),
+  "./components/mockups/ghostface-home/Command.tsx": () => import("../components/mockups/ghostface-home/Command.tsx"),
   "./components/mockups/ghostface-home/CommandDeck.tsx": () => import("../components/mockups/ghostface-home/CommandDeck.tsx"),
+  "./components/mockups/ghostface-home/Gauge.tsx": () => import("../components/mockups/ghostface-home/Gauge.tsx"),
   "./components/mockups/ghostface-home/Ledger.tsx": () => import("../components/mockups/ghostface-home/Ledger.tsx"),
+  "./components/mockups/ghostface-home/Map.tsx": () => import("../components/mockups/ghostface-home/Map.tsx"),
   "./components/mockups/ghostface-home/SplitIdentity.tsx": () => import("../components/mockups/ghostface-home/SplitIdentity.tsx"),
   "./components/mockups/ghostface-home/SplitIdentityElevated.tsx": () => import("../components/mockups/ghostface-home/SplitIdentityElevated.tsx"),
   "./components/mockups/ghostface-home/SplitIdentityTight.tsx": () => import("../components/mockups/ghostface-home/SplitIdentityTight.tsx"),

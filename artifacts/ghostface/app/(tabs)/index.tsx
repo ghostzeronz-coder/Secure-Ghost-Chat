@@ -1,410 +1,489 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  Modal,
+  Animated,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GhostLogo } from "@/components/GhostLogo";
-import { useApp } from "@/context/AppContext";
-import { useColors } from "@/hooks/useColors";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
+import { useApp } from "@/context/AppContext";
+
+const BG = "#000";
+const GOLD = "#d4af37";
+const DIM = "#333";
+const DIMMER = "#222";
+const FAINT = "#1a1a1a";
+const MUTED = "#888";
+const RED = "#dc2626";
+
+const FONT_SERIF = Platform.select({
+  ios: "Georgia",
+  android: "serif",
+  default: "Georgia",
+});
+const FONT_MONO = Platform.select({
+  ios: "Menlo",
+  android: "monospace",
+  default: "monospace",
+});
+
+type IconName = keyof typeof Ionicons.glyphMap;
 
 export default function HomeScreen() {
-  const colors = useColors();
   const insets = useSafeAreaInsets();
   const { alias, vpnConnected, panicWipe } = useApp();
-  const [panicModalVisible, setPanicModalVisible] = useState(false);
-  const [wiping, setWiping] = useState(false);
+  const [isRevealing, setIsRevealing] = useState(false);
+  const [wipeArmed, setWipeArmed] = useState(false);
+  const [isWiping, setIsWiping] = useState(false);
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wipeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wipeFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
-    // ── Identity Section ─────────────────────────────────────────
-    identity: {
-      alignItems: "center",
-      justifyContent: "center",
-      paddingTop: insets.top + (Platform.OS === "web" ? 72 : 40),
-      paddingBottom: 32,
-      paddingHorizontal: 24,
-    },
-    aliasText: {
-      color: colors.foreground,
-      fontSize: 32,
-      fontWeight: "800" as const,
-      letterSpacing: 10,
-      marginTop: 24,
-      marginBottom: 6,
-    },
-    tagline: {
-      color: colors.foreground,
-      fontSize: 12,
-      letterSpacing: 5,
-      fontWeight: "800" as const,
-      opacity: 0.6,
-    },
+  const revealAnim = useRef(new Animated.Value(0)).current;
+  const wipeAnim = useRef(new Animated.Value(0)).current;
 
-    divider: {
-      height: 1,
-      backgroundColor: colors.border,
-    },
+  useEffect(() => {
+    Animated.timing(revealAnim, {
+      toValue: isRevealing ? 1 : 0,
+      duration: 600,
+      useNativeDriver: false,
+    }).start();
+  }, [isRevealing, revealAnim]);
 
-    // ── Quick Actions ─────────────────────────────────────────────
-    actionsSection: {
-      paddingHorizontal: 20,
-      paddingTop: 32,
-      paddingBottom: 24,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-    },
-    actionItem: {
-      alignItems: "center",
-      gap: 10,
-    },
-    actionCircle: {
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-      backgroundColor: colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    actionLabel: {
-      color: colors.foreground,
-      fontSize: 10,
-      letterSpacing: 2,
-      fontWeight: "800" as const,
-    },
+  useEffect(() => {
+    Animated.timing(wipeAnim, {
+      toValue: wipeArmed || isWiping ? 1 : 0,
+      duration: 700,
+      useNativeDriver: false,
+    }).start();
+  }, [wipeArmed, isWiping, wipeAnim]);
 
-    // ── Panic Button (fixed at bottom above tab bar) ──────────────
-    panicSection: {
-      paddingHorizontal: 20,
-      paddingBottom: insets.bottom + (Platform.OS === "web" ? 90 : 80),
-      paddingTop: 12,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      backgroundColor: colors.background,
-    },
-    panicButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 10,
-      borderRadius: 12,
-      borderWidth: 2,
-      borderColor: "#7f1d1d",
-      backgroundColor: "rgba(239,68,68,0.08)",
-      paddingVertical: 16,
-    },
-    panicButtonText: {
-      color: "#ef4444",
-      fontSize: 12,
-      letterSpacing: 4,
-      fontWeight: "800" as const,
-    },
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      if (wipeTimer.current) clearTimeout(wipeTimer.current);
+      if (wipeFeedbackTimer.current) clearTimeout(wipeFeedbackTimer.current);
+    };
+  }, []);
 
-    // ── Panic Modal ───────────────────────────────────────────────
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.85)",
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: 24,
-    },
-    modalCard: {
-      backgroundColor: colors.card,
-      borderRadius: colors.radius,
-      borderWidth: 1,
-      borderColor: "#7f1d1d",
-      padding: 28,
-      width: "100%",
-      maxWidth: 360,
-      alignItems: "center",
-    },
-    modalTitle: {
-      color: "#ef4444",
-      fontSize: 14,
-      fontWeight: "800" as const,
-      letterSpacing: 4,
-      marginBottom: 12,
-    },
-    modalBody: {
-      color: colors.mutedForeground,
-      fontSize: 12,
-      letterSpacing: 1,
-      textAlign: "center",
-      lineHeight: 20,
-      marginBottom: 28,
-    },
-    modalButtons: {
-      flexDirection: "row",
-      gap: 12,
-      width: "100%",
-    },
-    modalCancel: {
-      flex: 1,
-      backgroundColor: colors.card,
-      borderRadius: colors.radius,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingVertical: 12,
-      alignItems: "center",
-    },
-    modalCancelText: {
-      color: colors.foreground,
-      fontSize: 11,
-      letterSpacing: 2,
-      fontWeight: "700" as const,
-    },
-    modalConfirm: {
-      flex: 1,
-      backgroundColor: "#7f1d1d",
-      borderRadius: colors.radius,
-      paddingVertical: 12,
-      alignItems: "center",
-    },
-    modalConfirmText: {
-      color: "#fca5a5",
-      fontSize: 11,
-      letterSpacing: 2,
-      fontWeight: "700" as const,
-    },
-    // ── Upgrade Banner ────────────────────────────────────────────
-    upgradeBanner: {
-      marginHorizontal: 20,
-      marginBottom: 16,
-      borderRadius: 14,
-      borderWidth: 1,
-      borderColor: "#9945FF44",
-      backgroundColor: "#9945FF12",
-      overflow: "hidden",
-    },
-    upgradeBannerInner: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      gap: 12,
-    },
-    upgradeBannerIconWrap: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
-      backgroundColor: "#9945FF22",
-      borderWidth: 1,
-      borderColor: "#9945FF55",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    upgradeBannerText: {
-      flex: 1,
-    },
-    upgradeBannerTitle: {
-      color: colors.foreground,
-      fontSize: 12,
-      fontWeight: "800" as const,
-      letterSpacing: 3,
-    },
-    upgradeBannerSub: {
-      color: colors.mutedForeground,
-      fontSize: 9,
-      letterSpacing: 2,
-      marginTop: 2,
-    },
-    upgradeBannerBadge: {
-      backgroundColor: "#9945FF",
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 7,
-    },
-    upgradeBannerBadgeText: {
-      color: "#fff",
-      fontSize: 10,
-      fontWeight: "800" as const,
-      letterSpacing: 2,
-    },
+  // Hold-to-reveal (300ms) — latches open once revealed.
+  const handleScreenPressIn = () => {
+    if (isRevealing) return;
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = setTimeout(() => {
+      if (mountedRef.current) setIsRevealing(true);
+    }, 300);
+  };
 
-    scrollPad: {
-      height: 40,
-    },
-  });
+  const handleScreenPressOut = () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+  };
+
+  const lock = () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    setIsRevealing(false);
+  };
+
+  // Panic-wipe gesture — silent: no haptics, no audio, no toast, no alert.
+  // The 3-second hold IS the confirmation.
+  const handleWipePressIn = () => {
+    if (isWiping) return;
+    setWipeArmed(true);
+    if (wipeTimer.current) clearTimeout(wipeTimer.current);
+    wipeTimer.current = setTimeout(async () => {
+      if (!mountedRef.current) return;
+      setIsWiping(true);
+      setWipeArmed(false);
+      try {
+        await panicWipe();
+      } catch {
+        // swallow — silent
+      }
+      if (!mountedRef.current) return;
+      if (wipeFeedbackTimer.current) clearTimeout(wipeFeedbackTimer.current);
+      wipeFeedbackTimer.current = setTimeout(() => {
+        if (mountedRef.current) setIsWiping(false);
+      }, 1500);
+    }, 3000);
+  };
+
+  const handleWipePressOut = () => {
+    if (wipeTimer.current) clearTimeout(wipeTimer.current);
+    if (!isWiping) setWipeArmed(false);
+  };
+
+  const go = (path: () => void) => () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    path();
+  };
+
+  const aliasText = (alias ?? "GHOST_00").toUpperCase();
 
   return (
     <TabScreenWrapper>
-    <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {/* ── Identity ── */}
-        <View style={styles.identity}>
-          <GhostLogo size={300} color="#FFB800" />
-          <Text style={styles.aliasText}>{alias ?? "GHOST_00"}</Text>
-          <Text style={styles.tagline}>SECURE IDENTITY</Text>
-        </View>
-
-        <View style={styles.divider} />
-
-        {/* ── Quick Actions ── */}
-        <View style={styles.actionsSection}>
-          <Pressable
-            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/(tabs)/messages");
-            }}
-          >
-            <View style={styles.actionCircle}>
-              <Ionicons name="chatbubble-ellipses" size={22} color={colors.foreground} />
-            </View>
-            <Text style={styles.actionLabel}>NEW MSG</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push({ pathname: "/call", params: { alias: "SECURE_LINE", mode: "voice" } });
-            }}
-          >
-            <View style={styles.actionCircle}>
-              <Ionicons name="call" size={22} color={colors.foreground} />
-            </View>
-            <Text style={styles.actionLabel}>CALL</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/(tabs)/vpn");
-            }}
-          >
-            <View style={[
-              styles.actionCircle,
-              vpnConnected && { borderColor: colors.border },
-            ]}>
-              <Ionicons
-                name="shield"
-                size={22}
-                color={colors.foreground}
-              />
-            </View>
-            <Text style={styles.actionLabel}>
-              {vpnConnected ? "VPN ON" : "VPN"}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/(tabs)/wallet");
-            }}
-          >
-            <View style={styles.actionCircle}>
-              <Ionicons name="wallet" size={22} color={colors.foreground} />
-            </View>
-            <Text style={styles.actionLabel}>WALLET</Text>
-          </Pressable>
-        </View>
-
-        {/* ── Upgrade Banner ── */}
-        <Pressable
-          style={({ pressed }) => [styles.upgradeBanner, pressed && { opacity: 0.8 }]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push("/paywall");
-          }}
-        >
-          <View style={styles.upgradeBannerInner}>
-            <View style={styles.upgradeBannerIconWrap}>
-              <Ionicons name="flash" size={18} color="#9945FF" />
-            </View>
-            <View style={styles.upgradeBannerText}>
-              <Text style={styles.upgradeBannerTitle}>7-DAY FREE TRIAL</Text>
-              <Text style={styles.upgradeBannerSub}>UNLOCK VPN · WALLET · GHOST NUMBER · MORE</Text>
-            </View>
-            <View style={styles.upgradeBannerBadge}>
-              <Text style={styles.upgradeBannerBadgeText}>START FREE</Text>
-            </View>
-          </View>
-        </Pressable>
-
-        <View style={styles.scrollPad} />
-      </ScrollView>
-
-      {/* ── Panic Button (fixed bottom) ── */}
-      <View style={styles.panicSection}>
-        <Pressable
-          style={({ pressed }) => [styles.panicButton, pressed && { opacity: 0.7 }]}
-          onPress={() => {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            setPanicModalVisible(true);
-          }}
-        >
-          <Ionicons name="warning" size={18} color="#ef4444" />
-          <Text style={styles.panicButtonText}>PANIC WIPE</Text>
-        </Pressable>
-      </View>
-
-      {/* ── Panic Modal ── */}
-      <Modal
-        visible={panicModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => { if (!wiping) setPanicModalVisible(false); }}
+      <Pressable
+        onPressIn={handleScreenPressIn}
+        onPressOut={handleScreenPressOut}
+        style={styles.container}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>PANIC WIPE</Text>
-            <Text style={styles.modalBody}>
-              This will permanently erase all messages, contacts, keys, and session data. The app will reset to onboarding.{"\n\n"}This cannot be undone.
-            </Text>
-            <View style={styles.modalButtons}>
-              <Pressable
-                style={({ pressed }) => [styles.modalCancel, pressed && { opacity: 0.7 }]}
-                onPress={() => {
-                  if (!wiping) {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    setPanicModalVisible(false);
-                  }
-                }}
-              >
-                <Text style={styles.modalCancelText}>CANCEL</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.modalConfirm,
-                  pressed && { opacity: 0.7 },
-                  wiping && { opacity: 0.5 },
-                ]}
-                onPress={async () => {
-                  if (wiping) return;
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-                  setWiping(true);
-                  await panicWipe();
-                  setWiping(false);
-                  setPanicModalVisible(false);
-                }}
-              >
-                <Text style={styles.modalConfirmText}>{wiping ? "WIPING..." : "WIPE ALL"}</Text>
-              </Pressable>
-            </View>
-          </View>
+        {/* Panic-wipe seal — top-right, tiny, silent */}
+        <View
+          pointerEvents="box-none"
+          style={[styles.wipeContainer, { top: insets.top + 16 }]}
+        >
+          <Pressable
+            onPressIn={handleWipePressIn}
+            onPressOut={handleWipePressOut}
+            hitSlop={16}
+            style={styles.wipeHit}
+          >
+            <Animated.View
+              style={[
+                styles.wipeDot,
+                {
+                  backgroundColor: wipeAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["rgba(127,29,29,0.45)", RED],
+                  }),
+                  transform: [
+                    {
+                      scale: wipeAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.6],
+                      }),
+                    },
+                  ],
+                  shadowOpacity: wipeArmed || isWiping ? 0.8 : 0,
+                },
+              ]}
+            />
+            {(wipeArmed || isWiping) && (
+              <Text style={styles.wipeLabel}>
+                {isWiping ? "WIPED" : "HOLD 3s"}
+              </Text>
+            )}
+          </Pressable>
         </View>
-      </Modal>
-    </View>
+
+        {/* Center seal */}
+        <View pointerEvents="none" style={styles.centerWrap}>
+          <Animated.View
+            style={[
+              styles.seal,
+              {
+                borderColor: revealAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [FAINT, "rgba(212,175,55,0.22)"],
+                }),
+                backgroundColor: revealAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ["rgba(0,0,0,0)", "rgba(212,175,55,0.02)"],
+                }),
+              },
+            ]}
+          >
+            <View style={styles.innerRing} />
+
+            <Animated.Text
+              style={[
+                styles.aliasText,
+                {
+                  color: revealAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [DIM, "rgba(212,175,55,0.78)"],
+                  }),
+                },
+              ]}
+            >
+              {aliasText}
+            </Animated.Text>
+
+            <Animated.View
+              style={[
+                styles.aliasDivider,
+                {
+                  backgroundColor: revealAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [DIMMER, "rgba(212,175,55,0.3)"],
+                  }),
+                },
+              ]}
+            />
+
+            <Text style={styles.aliasTagline}>SECURE IDENTITY</Text>
+          </Animated.View>
+        </View>
+
+        {/* Bottom: reveal hint + revealed actions (cross-fade) */}
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.bottom,
+            {
+              paddingBottom:
+                insets.bottom + (Platform.OS === "web" ? 96 : 88),
+            },
+          ]}
+        >
+          <View style={styles.bottomStack}>
+            {/* Reveal hint */}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.hintWrap,
+                {
+                  opacity: revealAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, 0],
+                  }),
+                  transform: [
+                    {
+                      translateY: revealAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, 16],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.hintLine} />
+              <Text style={styles.hintText}>HOLD TO REVEAL</Text>
+            </Animated.View>
+
+            {/* Revealed action row */}
+            <Animated.View
+              pointerEvents={isRevealing ? "auto" : "none"}
+              style={[
+                styles.actionsRow,
+                {
+                  opacity: revealAnim,
+                  transform: [
+                    {
+                      translateY: revealAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [24, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <ActionItem
+                icon="chatbubble-ellipses-outline"
+                label="MSG"
+                onPress={go(() => router.push("/(tabs)/messages"))}
+              />
+              <View style={styles.actionDivider} />
+              <ActionItem
+                icon="call-outline"
+                label="CALL"
+                onPress={go(() =>
+                  router.push({
+                    pathname: "/call",
+                    params: { alias: "SECURE_LINE", mode: "voice" },
+                  }),
+                )}
+              />
+              <View style={styles.actionDivider} />
+              <ActionItem
+                icon="shield-outline"
+                label={vpnConnected ? "VPN ON" : "VPN"}
+                active={!!vpnConnected}
+                onPress={go(() => router.push("/(tabs)/vpn"))}
+              />
+              <View style={styles.actionDivider} />
+              <ActionItem
+                icon="wallet-outline"
+                label="WALLET"
+                onPress={go(() => router.push("/(tabs)/wallet"))}
+              />
+            </Animated.View>
+          </View>
+
+          {/* Lock pill — only when revealed */}
+          <Animated.View
+            pointerEvents={isRevealing ? "auto" : "none"}
+            style={[styles.lockWrap, { opacity: revealAnim }]}
+          >
+            <Pressable onPress={lock} hitSlop={12}>
+              <Text style={styles.lockText}>· TAP TO LOCK ·</Text>
+            </Pressable>
+          </Animated.View>
+        </View>
+      </Pressable>
     </TabScreenWrapper>
   );
 }
+
+function ActionItem({
+  icon,
+  label,
+  active = false,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  active?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={6}
+      style={({ pressed }) => [styles.actionItem, pressed && { opacity: 0.7 }]}
+    >
+      <View style={[styles.actionCircle, active && styles.actionCircleActive]}>
+        <Ionicons name={icon} size={18} color={active ? GOLD : MUTED} />
+      </View>
+      <Text style={[styles.actionLabel, active && styles.actionLabelActive]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BG },
+
+  // Wipe seal (top-right)
+  wipeContainer: {
+    position: "absolute",
+    right: 24,
+    alignItems: "center",
+    zIndex: 50,
+  },
+  wipeHit: { alignItems: "center", justifyContent: "center", padding: 8 },
+  wipeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    shadowColor: RED,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  wipeLabel: {
+    position: "absolute",
+    top: 28,
+    fontFamily: FONT_MONO,
+    fontSize: 8,
+    letterSpacing: 3,
+    color: "rgba(220,38,38,0.85)",
+  },
+
+  // Center seal
+  centerWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  seal: {
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  innerRing: {
+    position: "absolute",
+    top: 14,
+    left: 14,
+    right: 14,
+    bottom: 14,
+    borderRadius: 120,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.04)",
+  },
+  aliasText: {
+    fontFamily: FONT_SERIF,
+    fontSize: 22,
+    letterSpacing: 8,
+    fontWeight: "400" as const,
+  },
+  aliasDivider: { width: 32, height: 1, marginVertical: 14 },
+  aliasTagline: {
+    fontFamily: FONT_MONO,
+    fontSize: 9,
+    letterSpacing: 5,
+    color: DIM,
+  },
+
+  // Bottom
+  bottom: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    paddingTop: 16,
+  },
+  bottomStack: {
+    height: 96,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hintWrap: {
+    position: "absolute",
+    alignItems: "center",
+  },
+  hintLine: { width: 1, height: 22, backgroundColor: DIM },
+  hintText: {
+    fontFamily: FONT_MONO,
+    fontSize: 10,
+    letterSpacing: 3,
+    color: "#444",
+    marginTop: 10,
+  },
+  actionsRow: {
+    position: "absolute",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  actionDivider: {
+    width: 24,
+    height: 1,
+    backgroundColor: DIM,
+    marginHorizontal: 2,
+  },
+  actionItem: { alignItems: "center", width: 56, gap: 8 },
+  actionCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#111",
+    borderWidth: 1,
+    borderColor: DIMMER,
+  },
+  actionCircleActive: {
+    backgroundColor: "rgba(212,175,55,0.06)",
+    borderColor: "rgba(212,175,55,0.3)",
+  },
+  actionLabel: {
+    fontFamily: FONT_MONO,
+    fontSize: 9,
+    letterSpacing: 2,
+    color: "#555",
+  },
+  actionLabelActive: { color: "rgba(212,175,55,0.85)" },
+
+  lockWrap: { marginTop: 4 },
+  lockText: {
+    fontFamily: FONT_MONO,
+    fontSize: 9,
+    letterSpacing: 4,
+    color: "#444",
+  },
+});
