@@ -12,5 +12,7 @@ export const modules: ModuleMap = {
   "./components/mockups/ghostface-home/SplitIdentity.tsx": () => import("../components/mockups/ghostface-home/SplitIdentity.tsx"),
   "./components/mockups/ghostface-home/SplitIdentityElevated.tsx": () => import("../components/mockups/ghostface-home/SplitIdentityElevated.tsx"),
   "./components/mockups/ghostface-home/SplitIdentityTight.tsx": () => import("../components/mockups/ghostface-home/SplitIdentityTight.tsx"),
-  "./components/mockups/ghostface-home/Vault.tsx": () => import("../components/mockups/ghostface-home/Vault.tsx")
+  "./components/mockups/ghostface-home/Vault.tsx": () => import("../components/mockups/ghostface-home/Vault.tsx"),
+  "./components/mockups/ghostface-home/VaultBreathing.tsx": () => import("../components/mockups/ghostface-home/VaultBreathing.tsx"),
+  "./components/mockups/ghostface-home/VaultEngraved.tsx": () => import("../components/mockups/ghostface-home/VaultEngraved.tsx")
 };
