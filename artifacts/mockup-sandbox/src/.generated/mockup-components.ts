@@ -14,5 +14,7 @@ export const modules: ModuleMap = {
   "./components/mockups/ghostface-home/SplitIdentityTight.tsx": () => import("../components/mockups/ghostface-home/SplitIdentityTight.tsx"),
   "./components/mockups/ghostface-home/Vault.tsx": () => import("../components/mockups/ghostface-home/Vault.tsx"),
   "./components/mockups/ghostface-home/VaultBreathing.tsx": () => import("../components/mockups/ghostface-home/VaultBreathing.tsx"),
+  "./components/mockups/ghostface-home/VaultCipher.tsx": () => import("../components/mockups/ghostface-home/VaultCipher.tsx"),
+  "./components/mockups/ghostface-home/VaultCompass.tsx": () => import("../components/mockups/ghostface-home/VaultCompass.tsx"),
   "./components/mockups/ghostface-home/VaultEngraved.tsx": () => import("../components/mockups/ghostface-home/VaultEngraved.tsx")
 };
