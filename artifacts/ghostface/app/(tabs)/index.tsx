@@ -17,9 +17,6 @@ import { useApp } from "@/context/AppContext";
 
 const BG = "#000";
 const GOLD = "#d4af37";
-const DIM = "#333";
-const DIMMER = "#222";
-const MUTED = "#888";
 const RED = "#dc2626";
 
 const FONT_SERIF = Platform.select({
@@ -261,29 +258,29 @@ export default function HomeScreen() {
           >
             <Animated.View
               style={[
-                styles.wipeDot,
+                styles.wipeSeal,
                 {
                   backgroundColor: wipeAnim.interpolate({
                     inputRange: [0, 1],
-                    outputRange: ["rgba(127,29,29,0.45)", RED],
+                    outputRange: ["rgba(127,29,29,0.4)", RED],
                   }),
                   transform: [
                     {
                       scale: wipeAnim.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [1, 1.6],
+                        outputRange: [1, 1.25],
                       }),
                     },
                   ],
-                  shadowOpacity: wipeArmed || isWiping ? 0.8 : 0,
+                  shadowOpacity: wipeArmed || isWiping ? 0.95 : 0.5,
                 },
               ]}
-            />
-            {(wipeArmed || isWiping) && (
-              <Text style={styles.wipeLabel}>
-                {isWiping ? "WIPED" : "HOLD 3s"}
-              </Text>
-            )}
+            >
+              <Ionicons name="flame" size={13} color="#fff" />
+            </Animated.View>
+            <Text style={styles.wipeLabel}>
+              {isWiping ? "WIPED" : wipeArmed ? "HOLD 3s" : "WIPE"}
+            </Text>
           </Pressable>
         </View>
 
@@ -334,6 +331,8 @@ export default function HomeScreen() {
                     menuOpen ? "Hide menu" : "Long press to reveal menu"
                   }
                 >
+                  <View pointerEvents="none" style={styles.globeGlow} />
+                  <View pointerEvents="none" style={styles.globeGlowInner} />
                   <Animated.Image
                     source={require("../../assets/images/login-compass.png")}
                     resizeMode="contain"
@@ -395,7 +394,7 @@ export default function HomeScreen() {
                       <Ionicons
                         name={node.icon}
                         size={20}
-                        color={active ? GOLD : MUTED}
+                        color={active ? GOLD : "rgba(212,175,55,0.75)"}
                       />
                     </View>
                     <Text
@@ -425,21 +424,25 @@ const styles = StyleSheet.create({
     zIndex: 50,
   },
   wipeHit: { alignItems: "center", justifyContent: "center", padding: 8 },
-  wipeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  wipeSeal: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(220,38,38,0.7)",
     shadowColor: RED,
-    shadowRadius: 8,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 0 },
   },
   wipeLabel: {
     position: "absolute",
-    top: 28,
+    top: 32,
     fontFamily: FONT_MONO,
     fontSize: 8,
-    letterSpacing: 3,
-    color: "rgba(220,38,38,0.85)",
+    letterSpacing: 2,
+    color: "rgba(220,38,38,0.9)",
   },
 
   // Alias header
@@ -466,7 +469,7 @@ const styles = StyleSheet.create({
     fontFamily: FONT_MONO,
     fontSize: 9,
     letterSpacing: 5,
-    color: DIM,
+    color: "rgba(212,175,55,0.5)",
   },
 
   // Radial dial
@@ -489,7 +492,7 @@ const styles = StyleSheet.create({
     width: 2,
     height: 10,
     borderRadius: 1,
-    backgroundColor: "rgba(212,175,55,0.18)",
+    backgroundColor: "rgba(212,175,55,0.4)",
   },
 
   // Central rotating compass emblem
@@ -511,6 +514,30 @@ const styles = StyleSheet.create({
   centerEmblem: {
     width: 184,
     height: 184,
+  },
+  globeGlow: {
+    position: "absolute",
+    width: 250,
+    height: 250,
+    top: (184 - 250) / 2,
+    left: (184 - 250) / 2,
+    borderRadius: 125,
+    backgroundColor: "rgba(212,175,55,0.07)",
+    shadowColor: GOLD,
+    shadowOpacity: 0.6,
+    shadowRadius: 55,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  globeGlowInner: {
+    position: "absolute",
+    width: 196,
+    height: 196,
+    top: (184 - 196) / 2,
+    left: (184 - 196) / 2,
+    borderRadius: 98,
+    backgroundColor: "rgba(245,200,80,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(212,175,55,0.22)",
   },
   centerHint: {
     position: "absolute",
@@ -534,19 +561,19 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#0c0c0c",
+    backgroundColor: "rgba(212,175,55,0.07)",
     borderWidth: 1,
-    borderColor: DIMMER,
+    borderColor: "rgba(212,175,55,0.3)",
   },
   nodeCircleActive: {
-    backgroundColor: "rgba(212,175,55,0.06)",
-    borderColor: "rgba(212,175,55,0.35)",
+    backgroundColor: "rgba(212,175,55,0.16)",
+    borderColor: "rgba(212,175,55,0.6)",
   },
   nodeLabel: {
     fontFamily: FONT_MONO,
     fontSize: 9,
     letterSpacing: 2,
-    color: "#555",
+    color: "rgba(212,175,55,0.65)",
   },
-  nodeLabelActive: { color: "rgba(212,175,55,0.85)" },
+  nodeLabelActive: { color: GOLD },
 });
