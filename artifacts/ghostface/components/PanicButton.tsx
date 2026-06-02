@@ -156,7 +156,7 @@ function GhostWipeScreen({ onDone }: { onDone: () => void }) {
           width: 260,
           height: 260,
           borderRadius: 130,
-          backgroundColor: "#d4af37",
+          backgroundColor: "#bf9b30",
           opacity: glowOpacity,
           transform: [{ scale: ghostScale }],
         }}

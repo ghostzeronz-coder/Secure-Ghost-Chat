@@ -57,7 +57,7 @@ const PLANS: Plan[] = [
     badge: "POPULAR",
     priceUsdc: 9.99,
     priceNzd: 16.99,
-    color: "#d4af37",
+    color: "#bf9b30",
     recommended: true,
     features: [
       "Everything in GHOST",
@@ -74,7 +74,7 @@ const PLANS: Plan[] = [
     badge: "ELITE",
     priceUsdc: 19.99,
     priceNzd: 32.99,
-    color: "#D4AF37",
+    color: "#bf9b30",
     features: [
       "Everything in SPECTER",
       "Crypto wallet (FD + CASPER)",
@@ -225,7 +225,7 @@ export default function PaywallScreen() {
       paddingVertical: 8,
     },
     toggleBtnActive: {
-      backgroundColor: "#d4af37",
+      backgroundColor: "#bf9b30",
     },
     toggleTxt: { fontSize: 10, fontWeight: "800", letterSpacing: 2, color: colors.mutedForeground },
     toggleTxtActive: { color: "#000" },
@@ -528,12 +528,12 @@ export default function PaywallScreen() {
                       backgroundColor: plan.recommended
                         ? plan.color
                         : isPaid
-                        ? (payMethod === "card" ? "#d4af3722" : "#8A8A8A22")
+                        ? (payMethod === "card" ? "#bf9b3022" : "#8A8A8A22")
                         : "transparent",
                       borderWidth: isPaid && !plan.recommended ? 1 : plan.id === "ghost" ? 1 : 0,
                       borderColor: plan.id === "ghost"
                         ? plan.color
-                        : payMethod === "card" ? "#d4af37" : "#8A8A8A",
+                        : payMethod === "card" ? "#bf9b30" : "#8A8A8A",
                     },
                     pressed && { opacity: 0.8 },
                     loading !== null && { opacity: 0.6 },
@@ -544,13 +544,13 @@ export default function PaywallScreen() {
                   {isLoading ? (
                     <ActivityIndicator
                       size="small"
-                      color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : (payMethod === "card" ? "#d4af37" : "#8A8A8A")}
+                      color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : (payMethod === "card" ? "#bf9b30" : "#8A8A8A")}
                     />
                   ) : (
                     <>
                       {isPaid ? (
                         payMethod === "card" ? (
-                          <Ionicons name="card" size={14} color={plan.recommended ? "#000" : "#d4af37"} />
+                          <Ionicons name="card" size={14} color={plan.recommended ? "#000" : "#bf9b30"} />
                         ) : (
                           <Text style={{ fontSize: 16 }}>◎</Text>
                         )
@@ -564,7 +564,7 @@ export default function PaywallScreen() {
                             color: plan.recommended
                               ? "#000"
                               : isPaid
-                              ? (payMethod === "card" ? "#d4af37" : "#8A8A8A")
+                              ? (payMethod === "card" ? "#bf9b30" : "#8A8A8A")
                               : plan.color,
                           },
                         ]}

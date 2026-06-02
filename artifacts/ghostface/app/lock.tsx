@@ -448,8 +448,8 @@ export default function LockScreen() {
       flex: 1,
       backgroundColor: colors.background,
       alignItems: "center",
-      justifyContent: "flex-start",
-      paddingTop: insets.top + (Platform.OS === "web" ? 72 : 40),
+      justifyContent: "center",
+      paddingTop: insets.top + (Platform.OS === "web" ? 67 : 0),
       paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 0),
     },
     logo: { marginBottom: 12 },
@@ -560,9 +560,19 @@ export default function LockScreen() {
 
     // ── Coin-spin entry gate ────────────────────────────────────────────────
     compassWrap: {
+      position: "absolute",
+      top: 8,
+      left: 0,
+      right: 0,
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 14,
+    },
+    gate: {
+      flex: 1,
+      alignSelf: "stretch",
+      alignItems: "center",
+      justifyContent: "flex-end",
+      paddingBottom: 130,
     },
     compassImg: {
       width: 300,
@@ -872,7 +882,7 @@ export default function LockScreen() {
           {biometricError ? <Text style={styles.errorText}>{biometricError}</Text> : null}
         </>
       ) : (
-        <>
+        <View style={styles.gate}>
           <Animated.View
             style={[
               styles.compassWrap,
@@ -914,7 +924,7 @@ export default function LockScreen() {
             <Ionicons name="lock-closed" size={11} color={colors.mutedForeground} />
             <Text style={styles.taglineText}>NO FACE. NO TRACE.</Text>
           </View>
-        </>
+        </View>
       )}
 
       {biometricEnabled && hasPin && decryptRevealed && duressCountdown === null && (

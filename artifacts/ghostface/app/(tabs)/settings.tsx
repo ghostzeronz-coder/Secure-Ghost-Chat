@@ -1119,11 +1119,11 @@ export default function SettingsScreen() {
                   />
                   <PinStrengthIndicator
                     pin={newPin}
-                    barColor={(level) => ["#ef4444", "#d4af37", "#7dd3fc"][level]}
+                    barColor={(level) => ["#ef4444", "#bf9b30", "#7dd3fc"][level]}
                     mutedColor={colors.border}
                   />
                   {pinSimilar && (
-                    <Text style={{ color: "#d4af37", fontSize: 9, fontWeight: "800", letterSpacing: 2, marginTop: -8, marginBottom: 10 }}>
+                    <Text style={{ color: "#bf9b30", fontSize: 9, fontWeight: "800", letterSpacing: 2, marginTop: -8, marginBottom: 10 }}>
                       TOO SIMILAR TO CURRENT PIN
                     </Text>
                   )}
@@ -1205,7 +1205,7 @@ export default function SettingsScreen() {
                   />
                   <PinStrengthIndicator
                     pin={duressPin}
-                    barColor={(level) => ["#ef4444", "#d4af37", "#7dd3fc"][level]}
+                    barColor={(level) => ["#ef4444", "#bf9b30", "#7dd3fc"][level]}
                     mutedColor={colors.border}
                   />
                   <TextInput

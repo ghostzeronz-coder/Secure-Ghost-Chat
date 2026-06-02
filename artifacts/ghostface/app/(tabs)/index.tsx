@@ -16,7 +16,7 @@ import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 import { useApp } from "@/context/AppContext";
 
 const BG = "#000";
-const GOLD = "#d4af37";
+const GOLD = "#bf9b30";
 const RED = "#dc2626";
 
 const FONT_SERIF = Platform.select({
@@ -394,7 +394,7 @@ export default function HomeScreen() {
                       <Ionicons
                         name={node.icon}
                         size={20}
-                        color={active ? GOLD : "rgba(212,175,55,0.75)"}
+                        color={active ? GOLD : "rgba(191,155,48,0.75)"}
                       />
                     </View>
                     <Text
@@ -457,19 +457,19 @@ const styles = StyleSheet.create({
     fontSize: 20,
     letterSpacing: 8,
     fontWeight: "400" as const,
-    color: "rgba(212,175,55,0.78)",
+    color: "rgba(191,155,48,0.78)",
   },
   aliasDivider: {
     width: 32,
     height: 1,
     marginVertical: 12,
-    backgroundColor: "rgba(212,175,55,0.3)",
+    backgroundColor: "rgba(191,155,48,0.3)",
   },
   aliasTagline: {
     fontFamily: FONT_MONO,
     fontSize: 9,
     letterSpacing: 5,
-    color: "rgba(212,175,55,0.5)",
+    color: "rgba(191,155,48,0.5)",
   },
 
   // Radial dial
@@ -492,7 +492,7 @@ const styles = StyleSheet.create({
     width: 2,
     height: 10,
     borderRadius: 1,
-    backgroundColor: "rgba(212,175,55,0.4)",
+    backgroundColor: "rgba(191,155,48,0.4)",
   },
 
   // Central rotating compass emblem
@@ -522,7 +522,7 @@ const styles = StyleSheet.create({
     top: (184 - 250) / 2,
     left: (184 - 250) / 2,
     borderRadius: 125,
-    backgroundColor: "rgba(212,175,55,0.07)",
+    backgroundColor: "rgba(191,155,48,0.07)",
     shadowColor: GOLD,
     shadowOpacity: 0.6,
     shadowRadius: 55,
@@ -537,7 +537,7 @@ const styles = StyleSheet.create({
     borderRadius: 98,
     backgroundColor: "rgba(245,200,80,0.05)",
     borderWidth: 1,
-    borderColor: "rgba(212,175,55,0.22)",
+    borderColor: "rgba(191,155,48,0.22)",
   },
   centerHint: {
     position: "absolute",
@@ -545,7 +545,7 @@ const styles = StyleSheet.create({
     fontFamily: FONT_MONO,
     fontSize: 9,
     letterSpacing: 4,
-    color: "rgba(212,175,55,0.6)",
+    color: "rgba(191,155,48,0.6)",
   },
 
   // Nav nodes
@@ -561,19 +561,19 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(212,175,55,0.07)",
+    backgroundColor: "rgba(191,155,48,0.07)",
     borderWidth: 1,
-    borderColor: "rgba(212,175,55,0.3)",
+    borderColor: "rgba(191,155,48,0.3)",
   },
   nodeCircleActive: {
-    backgroundColor: "rgba(212,175,55,0.16)",
-    borderColor: "rgba(212,175,55,0.6)",
+    backgroundColor: "rgba(191,155,48,0.16)",
+    borderColor: "rgba(191,155,48,0.6)",
   },
   nodeLabel: {
     fontFamily: FONT_MONO,
     fontSize: 9,
     letterSpacing: 2,
-    color: "rgba(212,175,55,0.65)",
+    color: "rgba(191,155,48,0.65)",
   },
   nodeLabelActive: { color: GOLD },
 });
