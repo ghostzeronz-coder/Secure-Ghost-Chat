@@ -53,6 +53,7 @@ export default function HomeScreen() {
   const { alias, vpnConnected, panicWipe } = useApp();
   const [wipeArmed, setWipeArmed] = useState(false);
   const [isWiping, setIsWiping] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const wipeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wipeFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,6 +61,7 @@ export default function HomeScreen() {
 
   const spin = useRef(new Animated.Value(0)).current;
   const fade = useRef(new Animated.Value(0)).current;
+  const reveal = useRef(new Animated.Value(0)).current;
   const wipeAnim = useRef(new Animated.Value(0)).current;
 
   // Continuous slow spin + ghostly breathing fade for the centerpiece.
@@ -98,6 +100,16 @@ export default function HomeScreen() {
       };
     }, [spin, fade]),
   );
+
+  // Reveal/hide the orbiting menu when the central circle is long-pressed.
+  useEffect(() => {
+    Animated.timing(reveal, {
+      toValue: menuOpen ? 1 : 0,
+      duration: 360,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [menuOpen, reveal]);
 
   useEffect(() => {
     Animated.timing(wipeAnim, {
@@ -149,6 +161,11 @@ export default function HomeScreen() {
     path();
   };
 
+  const toggleMenu = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setMenuOpen((open) => !open);
+  };
+
   const aliasText = (alias ?? "GHOST_00").toUpperCase();
 
   const nodes: NavNode[] = [
@@ -194,13 +211,21 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
-  const counterSpinDeg = spin.interpolate({
+  const circleOpacity = fade.interpolate({
     inputRange: [0, 1],
-    outputRange: ["0deg", "-360deg"],
+    outputRange: [0.82, 1],
   });
-  const logoOpacity = fade.interpolate({
+  const nodeScale = reveal.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.16, 0.72],
+    outputRange: [0.55, 1],
+  });
+  const ringOpacity = reveal.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+  const hintOpacity = reveal.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
   });
 
   return (
@@ -252,13 +277,16 @@ export default function HomeScreen() {
           <Text style={styles.aliasTagline}>SECURE IDENTITY</Text>
         </View>
 
-        {/* Radial dial: spinning faded GF logo + orbiting nav nodes */}
+        {/* Radial dial: long-press the transparent circle to reveal the menu */}
         <View style={styles.orbitWrap}>
           <View style={styles.orbit}>
-            {/* Rotating decorative ring */}
+            {/* Decorative tick ring — fades in with the menu */}
             <Animated.View
               pointerEvents="none"
-              style={[styles.ring, { transform: [{ rotate: spinDeg }] }]}
+              style={[
+                styles.ring,
+                { opacity: ringOpacity, transform: [{ rotate: spinDeg }] },
+              ]}
             >
               {Array.from({ length: 12 }).map((_, i) => (
                 <View
@@ -276,31 +304,59 @@ export default function HomeScreen() {
               ))}
             </Animated.View>
 
-            {/* Spinning, faded GF logo centerpiece */}
-            <View pointerEvents="none" style={styles.logoWrap}>
-              <Animated.Image
-                source={require("../../assets/images/ghostlogo.png")}
-                resizeMode="contain"
-                style={[
-                  styles.logo,
-                  {
-                    opacity: logoOpacity,
-                    transform: [{ rotate: counterSpinDeg }],
-                  },
-                ]}
-              />
+            {/* Rotating compass emblem — long-press to reveal/hide menu */}
+            <View pointerEvents="box-none" style={styles.centerWrap}>
+              <View style={styles.centerCol}>
+                <Pressable
+                  onLongPress={toggleMenu}
+                  delayLongPress={350}
+                  hitSlop={24}
+                  style={styles.centerHit}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    menuOpen ? "Hide menu" : "Long press to reveal menu"
+                  }
+                >
+                  <Animated.Image
+                    source={require("../../assets/images/compass-emblem.png")}
+                    resizeMode="contain"
+                    style={[
+                      styles.centerEmblem,
+                      {
+                        opacity: circleOpacity,
+                        transform: [{ rotate: spinDeg }],
+                      },
+                    ]}
+                  />
+                </Pressable>
+                <Animated.Text
+                  pointerEvents="none"
+                  style={[styles.centerHint, { opacity: hintOpacity }]}
+                >
+                  HOLD TO REVEAL
+                </Animated.Text>
+              </View>
             </View>
 
-            {/* Orbiting nav nodes */}
+            {/* Orbiting nav nodes — hidden until revealed */}
             {nodes.map((node, i) => {
               const angle = (-90 + i * (360 / nodes.length)) * (Math.PI / 180);
               const x = ORBIT_CENTER + ORBIT_RADIUS * Math.cos(angle) - NODE / 2;
               const y = ORBIT_CENTER + ORBIT_RADIUS * Math.sin(angle) - NODE / 2;
               const active = node.activeKey === "vpn" && !!vpnConnected;
               return (
-                <View
+                <Animated.View
                   key={node.label}
-                  style={[styles.node, { left: x, top: y }]}
+                  pointerEvents={menuOpen ? "auto" : "none"}
+                  style={[
+                    styles.node,
+                    {
+                      left: x,
+                      top: y,
+                      opacity: reveal,
+                      transform: [{ scale: nodeScale }],
+                    },
+                  ]}
                 >
                   <Pressable
                     onPress={node.onPress}
@@ -328,7 +384,7 @@ export default function HomeScreen() {
                       {node.label}
                     </Text>
                   </Pressable>
-                </View>
+                </Animated.View>
               );
             })}
           </View>
@@ -415,14 +471,34 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     backgroundColor: "rgba(212,175,55,0.18)",
   },
-  logoWrap: {
+
+  // Central rotating compass emblem
+  centerWrap: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
   },
-  logo: {
-    width: 150,
-    height: 150,
+  centerCol: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  centerHit: {
+    width: 184,
+    height: 184,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  centerEmblem: {
+    width: 184,
+    height: 184,
+  },
+  centerHint: {
+    position: "absolute",
+    bottom: -26,
+    fontFamily: FONT_MONO,
+    fontSize: 9,
+    letterSpacing: 4,
+    color: "rgba(212,175,55,0.6)",
   },
 
   // Nav nodes
