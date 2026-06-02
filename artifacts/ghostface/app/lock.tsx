@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -23,6 +24,7 @@ import { useColors } from "@/hooks/useColors";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+const GOLD_METALLIC = ["#f4e2a1", "#d9b84a", "#bf9b30", "#9a7a24"] as const;
 const MAX_ATTEMPTS = 10;
 const WARN_FROM = 7;
 const FAIL_KEY = "ghostface_pin_fail_count";
@@ -602,18 +604,20 @@ export default function LockScreen() {
       letterSpacing: 3,
       fontWeight: "700" as const,
     },
-    enterBtn: {
-      backgroundColor: colors.primary,
+    enterBtnWrap: {
+      borderRadius: colors.radius,
       borderWidth: 1,
       borderColor: "#ffffff",
-      paddingHorizontal: 64,
-      paddingVertical: 15,
-      borderRadius: colors.radius,
-      alignItems: "center",
+      overflow: "hidden",
       shadowColor: colors.primary,
       shadowOpacity: 0.4,
       shadowRadius: 16,
       shadowOffset: { width: 0, height: 4 },
+    },
+    enterBtn: {
+      paddingHorizontal: 64,
+      paddingVertical: 15,
+      alignItems: "center",
     },
     enterBtnText: {
       color: colors.primaryForeground,
@@ -913,11 +917,19 @@ export default function LockScreen() {
           </View>
 
           <Pressable
-            style={({ pressed }) => [styles.enterBtn, pressed && { opacity: 0.85 }]}
+            style={({ pressed }) => [styles.enterBtnWrap, pressed && { opacity: 0.85 }]}
             onPress={hasPin ? revealKeypad : () => setLocked(false)}
             testID={hasPin ? "enter-btn" : "no-pin-continue"}
           >
-            <Text style={styles.enterBtnText}>ENTER</Text>
+            <LinearGradient
+              colors={GOLD_METALLIC}
+              locations={[0, 0.45, 0.75, 1]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={styles.enterBtn}
+            >
+              <Text style={styles.enterBtnText}>ENTER</Text>
+            </LinearGradient>
           </Pressable>
 
           <View style={styles.taglineRow}>
