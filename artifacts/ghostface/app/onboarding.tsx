@@ -199,9 +199,9 @@ export default function OnboardingScreen() {
     },
     promoBanner: {
       borderWidth: 1,
-      borderColor: "#d4af37",
+      borderColor: "#7dd3fc",
       borderRadius: colors.radius,
-      backgroundColor: "rgba(212,175,55,0.07)",
+      backgroundColor: "rgba(125,211,252,0.07)",
       paddingHorizontal: 16,
       paddingVertical: 14,
       marginBottom: 20,
@@ -213,7 +213,7 @@ export default function OnboardingScreen() {
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: "rgba(212,175,55,0.15)",
+      backgroundColor: "rgba(125,211,252,0.15)",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -221,7 +221,7 @@ export default function OnboardingScreen() {
       flex: 1,
     },
     promoLabel: {
-      color: "#d4af37",
+      color: "#7dd3fc",
       fontSize: 10,
       fontWeight: "800" as const,
       letterSpacing: 3,
@@ -240,7 +240,7 @@ export default function OnboardingScreen() {
       marginTop: 2,
     },
     promoBadge: {
-      backgroundColor: "#d4af37",
+      backgroundColor: "#7dd3fc",
       borderRadius: 4,
       paddingHorizontal: 8,
       paddingVertical: 3,
@@ -267,7 +267,7 @@ export default function OnboardingScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <GhostLogo size={105} color={colors.foreground} />
+          <GhostLogo size={160} color={colors.foreground} />
           <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
           <Text style={styles.appName}>GHOSTFACE</Text>
         </View>
@@ -302,7 +302,7 @@ export default function OnboardingScreen() {
             {/* First Login Special — Free Ghost Number */}
             <View style={styles.promoBanner}>
               <View style={styles.promoIconWrap}>
-                <Ionicons name="call" size={18} color="#d4af37" />
+                <Ionicons name="call" size={18} color="#7dd3fc" />
               </View>
               <View style={styles.promoTextWrap}>
                 <Text style={styles.promoLabel}>FIRST LOGIN SPECIAL</Text>

@@ -4,9 +4,9 @@ description: Durable design decisions for GHOSTFACE — accent color, lock-scree
 ---
 
 # Brand accent
-- Accent is **gold `#d4af37`** on a near-black monochrome base (migrated from an earlier cyan; secondary purple → neutral gray). Semantic red (danger) and green (success) are intentionally kept.
-- **Why:** user wanted a near-black monochrome look in gold, keeping the gold ghost logo.
-- **How to apply:** pull accents from `useColors()`; don't reintroduce cyan/purple. Monochrome-gold is about the brand accent, not removing status semantics.
+- Accent is **gold `#d4af37`** on a near-black monochrome base (migrated from an earlier cyan; secondary purple → neutral gray). Semantic red (danger) is kept. **Green is removed app-wide** — `success` token is **light blue `#7dd3fc`** (sky-300), which is also the trial-badge / offer accent.
+- **Why:** user wanted a near-black gold monochrome look, asked to remove all green, and to bring back light blue for trial/success treatments.
+- **How to apply:** pull accents from `useColors()`; don't reintroduce cyan/purple/green. Use `#7dd3fc` (and `rgba(125,211,252,…)`) for any success/trial/offer accent; the `success` token in `constants/colors.ts` already carries it.
 
 # Lock screen unlock model
 - Lock screen opens as an idle "CIPHER · LOCKED" seal; a hold-to-decrypt gesture reveals the secure PIN keypad. Backgrounding re-seals and cancels any in-flight hold. Biometric auto-prompt only fires after the seal is decrypted.
