@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GoldGradient } from "@/components/GoldGradient";
 import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
 import type { Attachment } from "@/context/AppContext";
@@ -749,7 +750,11 @@ export default function ChatScreen() {
     },
     sendBtn: {
       width: 40, height: 40, borderRadius: 20,
-      backgroundColor: colors.primary,
+      alignItems: "center", justifyContent: "center",
+      overflow: "hidden",
+    },
+    sendBtnInner: {
+      width: "100%", height: "100%", borderRadius: 20,
       alignItems: "center", justifyContent: "center",
     },
     sendBtnDisabled: { backgroundColor: colors.muted },
@@ -1405,11 +1410,21 @@ export default function ChatScreen() {
             disabled={!text.trim() && !pendingAttachment}
             testID="send-btn"
           >
-            <Ionicons
-              name="send"
-              size={16}
-              color={text.trim() || pendingAttachment ? colors.primaryForeground : colors.mutedForeground}
-            />
+            {text.trim() || pendingAttachment ? (
+              <GoldGradient style={styles.sendBtnInner}>
+                <Ionicons
+                  name="send"
+                  size={16}
+                  color={colors.primaryForeground}
+                />
+              </GoldGradient>
+            ) : (
+              <Ionicons
+                name="send"
+                size={16}
+                color={colors.mutedForeground}
+              />
+            )}
           </Pressable>
         </View>
       )}

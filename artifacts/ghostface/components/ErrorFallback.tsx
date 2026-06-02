@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
+import { GoldGradient } from "@/components/GoldGradient";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -82,20 +83,21 @@ export function ErrorFallback({ error, resetError }: ErrorFallbackProps) {
           style={({ pressed }) => [
             styles.button,
             {
-              backgroundColor: colors.primary,
               opacity: pressed ? 0.9 : 1,
               transform: [{ scale: pressed ? 0.98 : 1 }],
             },
           ]}
         >
-          <Text
-            style={[
-              styles.buttonText,
-              { color: colors.primaryForeground },
-            ]}
-          >
-            Try Again
-          </Text>
+          <GoldGradient style={styles.buttonInner}>
+            <Text
+              style={[
+                styles.buttonText,
+                { color: colors.primaryForeground },
+              ]}
+            >
+              Try Again
+            </Text>
+          </GoldGradient>
         </Pressable>
       </View>
 
@@ -210,9 +212,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   button: {
-    paddingVertical: 16,
     borderRadius: 8,
-    paddingHorizontal: 24,
     minWidth: 200,
     shadowColor: "#000",
     shadowOffset: {
@@ -222,6 +222,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  buttonInner: {
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 8,
   },
   buttonText: {
     fontWeight: "600",

@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GoldGradient } from "@/components/GoldGradient";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
@@ -474,14 +475,17 @@ export default function GhostNumberScreen() {
       marginBottom: 4,
     },
     rotateNowBtn: {
+      marginTop: 8,
+      borderRadius: colors.radius,
+      overflow: "hidden",
+    },
+    rotateNowBtnInner: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
       gap: 6,
-      marginTop: 8,
-      borderRadius: colors.radius,
       paddingVertical: 10,
-      backgroundColor: colors.primary,
+      borderRadius: colors.radius,
     },
     rotateNowBtnText: {
       color: "#000",
@@ -520,13 +524,16 @@ export default function GhostNumberScreen() {
       borderTopColor: colors.border,
     },
     acquireBtn: {
-      backgroundColor: colors.primary,
       borderRadius: colors.radius,
+      overflow: "hidden",
+    },
+    acquireBtnInner: {
       paddingVertical: 16,
       alignItems: "center",
       justifyContent: "center",
       flexDirection: "row",
       gap: 8,
+      borderRadius: colors.radius,
     },
     acquireBtnDisabled: {
       opacity: 0.5,
@@ -719,14 +726,16 @@ export default function GhostNumberScreen() {
                   onPress={() => handleRotateNow(n)}
                   disabled={rotatingNow === n.id}
                 >
-                  {rotatingNow === n.id ? (
-                    <ActivityIndicator size="small" color="#000" />
-                  ) : (
-                    <>
-                      <Ionicons name="refresh-outline" size={12} color="#000" />
-                      <Text style={styles.rotateNowBtnText}>ROTATE NOW</Text>
-                    </>
-                  )}
+                  <GoldGradient style={styles.rotateNowBtnInner}>
+                    {rotatingNow === n.id ? (
+                      <ActivityIndicator size="small" color="#000" />
+                    ) : (
+                      <>
+                        <Ionicons name="refresh-outline" size={12} color="#000" />
+                        <Text style={styles.rotateNowBtnText}>ROTATE NOW</Text>
+                      </>
+                    )}
+                  </GoldGradient>
                 </Pressable>
 
                 <View style={[styles.cardDivider, { marginTop: 12 }]} />
@@ -758,14 +767,16 @@ export default function GhostNumberScreen() {
           onPress={handleAcquire}
           disabled={provisioning || !loaded}
         >
-          {provisioning || !loaded ? (
-            <ActivityIndicator color="#000" />
-          ) : (
-            <>
-              <Ionicons name="add-circle-outline" size={16} color="#000" />
-              <Text style={styles.acquireBtnText}>ACQUIRE NUMBER</Text>
-            </>
-          )}
+          <GoldGradient style={styles.acquireBtnInner}>
+            {provisioning || !loaded ? (
+              <ActivityIndicator color="#000" />
+            ) : (
+              <>
+                <Ionicons name="add-circle-outline" size={16} color="#000" />
+                <Text style={styles.acquireBtnText}>ACQUIRE NUMBER</Text>
+              </>
+            )}
+          </GoldGradient>
         </Pressable>
       </View>
     </View>

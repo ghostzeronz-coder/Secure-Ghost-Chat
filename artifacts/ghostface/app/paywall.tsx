@@ -17,6 +17,7 @@ import {
 import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
+import { GoldGradient } from "@/components/GoldGradient";
 import { useColors } from "@/hooks/useColors";
 
 const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
@@ -288,6 +289,19 @@ export default function PaywallScreen() {
       flexDirection: "row",
       gap: 8,
     },
+    ctaBtnRec: {
+      margin: 16, marginTop: 8,
+      borderRadius: colors.radius,
+      overflow: "hidden",
+    },
+    ctaBtnRecInner: {
+      borderRadius: colors.radius,
+      paddingVertical: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "row",
+      gap: 8,
+    },
     ctaTxt: { fontSize: 13, fontWeight: "800", letterSpacing: 3 },
     errorBox: {
       marginHorizontal: 16, marginBottom: 8,
@@ -476,6 +490,43 @@ export default function PaywallScreen() {
             const isPaid = plan.id !== "ghost";
             const isLoading = loading === plan.id;
 
+            const ctaInner = isLoading ? (
+              <ActivityIndicator
+                size="small"
+                color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : (payMethod === "card" ? "#bf9b30" : "#8A8A8A")}
+              />
+            ) : (
+              <>
+                {isPaid ? (
+                  payMethod === "card" ? (
+                    <Ionicons name="card" size={14} color={plan.recommended ? "#000" : "#bf9b30"} />
+                  ) : (
+                    <Text style={{ fontSize: 16 }}>◎</Text>
+                  )
+                ) : (
+                  <Ionicons name="arrow-forward" size={15} color={plan.color} />
+                )}
+                <Text
+                  style={[
+                    s.ctaTxt,
+                    {
+                      color: plan.recommended
+                        ? "#000"
+                        : isPaid
+                        ? (payMethod === "card" ? "#bf9b30" : "#8A8A8A")
+                        : plan.color,
+                    },
+                  ]}
+                >
+                  {plan.id === "ghost"
+                    ? "CONTINUE FREE"
+                    : payMethod === "card"
+                    ? `START ${TRIAL_DAYS}-DAY FREE TRIAL`
+                    : `PAY ${plan.priceUsdc} USDC`}
+                </Text>
+              </>
+            );
+
             return (
               <View
                 key={plan.id}
@@ -523,14 +574,12 @@ export default function PaywallScreen() {
 
                 <Pressable
                   style={({ pressed }) => [
-                    s.ctaBtn,
-                    {
-                      backgroundColor: plan.recommended
-                        ? plan.color
-                        : isPaid
+                    plan.recommended ? s.ctaBtnRec : s.ctaBtn,
+                    !plan.recommended && {
+                      backgroundColor: isPaid
                         ? (payMethod === "card" ? "#bf9b3022" : "#8A8A8A22")
                         : "transparent",
-                      borderWidth: isPaid && !plan.recommended ? 1 : plan.id === "ghost" ? 1 : 0,
+                      borderWidth: isPaid ? 1 : plan.id === "ghost" ? 1 : 0,
                       borderColor: plan.id === "ghost"
                         ? plan.color
                         : payMethod === "card" ? "#bf9b30" : "#8A8A8A",
@@ -541,41 +590,10 @@ export default function PaywallScreen() {
                   onPress={() => handleSelect(plan)}
                   disabled={loading !== null}
                 >
-                  {isLoading ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : (payMethod === "card" ? "#bf9b30" : "#8A8A8A")}
-                    />
+                  {plan.recommended ? (
+                    <GoldGradient style={s.ctaBtnRecInner}>{ctaInner}</GoldGradient>
                   ) : (
-                    <>
-                      {isPaid ? (
-                        payMethod === "card" ? (
-                          <Ionicons name="card" size={14} color={plan.recommended ? "#000" : "#bf9b30"} />
-                        ) : (
-                          <Text style={{ fontSize: 16 }}>◎</Text>
-                        )
-                      ) : (
-                        <Ionicons name="arrow-forward" size={15} color={plan.color} />
-                      )}
-                      <Text
-                        style={[
-                          s.ctaTxt,
-                          {
-                            color: plan.recommended
-                              ? "#000"
-                              : isPaid
-                              ? (payMethod === "card" ? "#bf9b30" : "#8A8A8A")
-                              : plan.color,
-                          },
-                        ]}
-                      >
-                        {plan.id === "ghost"
-                          ? "CONTINUE FREE"
-                          : payMethod === "card"
-                          ? `START ${TRIAL_DAYS}-DAY FREE TRIAL`
-                          : `PAY ${plan.priceUsdc} USDC`}
-                      </Text>
-                    </>
+                    ctaInner
                   )}
                 </Pressable>
               </View>

@@ -14,6 +14,7 @@ import QRCode from "react-native-qrcode-svg";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { QRScanner, encodeContactQR, encodeInviteQR } from "@/components/QRScanner";
+import { GoldGradient } from "@/components/GoldGradient";
 
 const TIMER_OPTIONS = [
   { label: "10 MIN", ms: 10 * 60 * 1000 },
@@ -370,12 +371,15 @@ export default function GhostInvite() {
       color: colors.destructive,
     },
     regenBtn: {
-      backgroundColor: colors.primary,
+      borderRadius: colors.radius,
+      overflow: "hidden",
+    },
+    goldBtnInner: {
       borderRadius: colors.radius,
       paddingVertical: 14,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
       gap: 8,
     },
     regenBtnTxt: {
@@ -443,13 +447,8 @@ export default function GhostInvite() {
       textAlign: "center",
     },
     redeemBtn: {
-      backgroundColor: colors.primary,
       borderRadius: colors.radius,
-      paddingVertical: 14,
-      flexDirection: "row" as const,
-      alignItems: "center" as const,
-      justifyContent: "center" as const,
-      gap: 8,
+      overflow: "hidden",
     },
     redeemBtnTxt: {
       color: colors.primaryForeground,
@@ -491,13 +490,8 @@ export default function GhostInvite() {
       textAlign: "center",
     },
     scanBtn: {
-      backgroundColor: colors.primary,
       borderRadius: colors.radius,
-      paddingVertical: 14,
-      flexDirection: "row" as const,
-      alignItems: "center" as const,
-      justifyContent: "center" as const,
-      gap: 8,
+      overflow: "hidden",
     },
     scanBtnTxt: {
       color: colors.primaryForeground,
@@ -541,8 +535,10 @@ export default function GhostInvite() {
           style={styles.scanBtn}
           onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setShowScanner(true); }}
         >
-          <Ionicons name="qr-code-outline" size={18} color={colors.primaryForeground} />
-          <Text style={styles.scanBtnTxt}>SCAN THEIR QR CODE</Text>
+          <GoldGradient style={styles.goldBtnInner}>
+            <Ionicons name="qr-code-outline" size={18} color={colors.primaryForeground} />
+            <Text style={styles.scanBtnTxt}>SCAN THEIR QR CODE</Text>
+          </GoldGradient>
         </Pressable>
 
         {/* QR card */}
@@ -626,8 +622,10 @@ export default function GhostInvite() {
           style={({ pressed }) => [styles.regenBtn, pressed && { opacity: 0.8 }]}
           onPress={() => reset()}
         >
-          <Ionicons name="refresh-outline" size={16} color={colors.primaryForeground} />
-          <Text style={styles.regenBtnTxt}>GENERATE NEW CODE</Text>
+          <GoldGradient style={styles.goldBtnInner}>
+            <Ionicons name="refresh-outline" size={16} color={colors.primaryForeground} />
+            <Text style={styles.regenBtnTxt}>GENERATE NEW CODE</Text>
+          </GoldGradient>
         </Pressable>
 
         {/* Info */}
@@ -690,8 +688,10 @@ export default function GhostInvite() {
               onPress={handleRedeem}
               disabled={redeemInput.length < 12 || redeemState === "success"}
             >
-              <Ionicons name="enter-outline" size={16} color={colors.primaryForeground} />
-              <Text style={styles.redeemBtnTxt}>ESTABLISH CHANNEL</Text>
+              <GoldGradient style={styles.goldBtnInner}>
+                <Ionicons name="enter-outline" size={16} color={colors.primaryForeground} />
+                <Text style={styles.redeemBtnTxt}>ESTABLISH CHANNEL</Text>
+              </GoldGradient>
             </Pressable>
           </View>
         </View>

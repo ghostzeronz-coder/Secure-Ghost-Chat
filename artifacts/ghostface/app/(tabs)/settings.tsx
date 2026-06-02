@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
+import { GoldGradient } from "@/components/GoldGradient";
 import { PanicButton } from "@/components/PanicButton";
 import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
@@ -613,6 +614,16 @@ export default function SettingsScreen() {
       alignItems: "center",
       marginBottom: 8,
     },
+    modalBtnGold: {
+      borderRadius: colors.radius,
+      marginBottom: 8,
+      overflow: "hidden",
+    },
+    modalBtnGoldInner: {
+      paddingVertical: 14,
+      alignItems: "center",
+      borderRadius: colors.radius,
+    },
     modalBtnText: {
       color: colors.primaryForeground,
       fontSize: 12,
@@ -1145,13 +1156,15 @@ export default function SettingsScreen() {
                   ) : null}
                   <Pressable
                     style={[
-                      styles.modalBtn,
+                      styles.modalBtnGold,
                       newPin.length < 4 && { opacity: 0.4 },
                     ]}
                     onPress={handlePinSave}
                     disabled={newPin.length < 4}
                   >
-                    <Text style={styles.modalBtnText}>SAVE PIN</Text>
+                    <GoldGradient style={styles.modalBtnGoldInner}>
+                      <Text style={styles.modalBtnText}>SAVE PIN</Text>
+                    </GoldGradient>
                   </Pressable>
                   <Pressable
                     style={styles.cancelBtn}
@@ -1359,11 +1372,13 @@ export default function SettingsScreen() {
                   testID="fallback-number-input"
                 />
                 <Pressable
-                  style={[styles.modalBtn, { marginBottom: 0, paddingHorizontal: 18, alignSelf: "stretch", justifyContent: "center" }]}
+                  style={[styles.modalBtnGold, { marginBottom: 0, alignSelf: "stretch" }]}
                   onPress={handleAddFallbackNumber}
                   testID="fallback-add-btn"
                 >
-                  <Text style={styles.modalBtnText}>ADD</Text>
+                  <GoldGradient style={[styles.modalBtnGoldInner, { flex: 1, paddingHorizontal: 18, justifyContent: "center" }]}>
+                    <Text style={styles.modalBtnText}>ADD</Text>
+                  </GoldGradient>
                 </Pressable>
               </View>
             )}
@@ -1395,12 +1410,14 @@ export default function SettingsScreen() {
               </Pressable>
             </View>
             <Pressable
-              style={[styles.modalBtn, draftFallbackMessage === smsFallbackMessage && { opacity: 0.5 }]}
+              style={[styles.modalBtnGold, draftFallbackMessage === smsFallbackMessage && { opacity: 0.5 }]}
               onPress={handleSaveFallbackMessage}
               disabled={draftFallbackMessage === smsFallbackMessage}
               testID="fallback-save-msg-btn"
             >
-              <Text style={styles.modalBtnText}>SAVE MESSAGE</Text>
+              <GoldGradient style={styles.modalBtnGoldInner}>
+                <Text style={styles.modalBtnText}>SAVE MESSAGE</Text>
+              </GoldGradient>
             </Pressable>
 
             <View style={{ marginTop: 8, padding: 10, borderWidth: 1, borderColor: `${colors.destructive}60`, borderRadius: 6 }}>
@@ -1447,15 +1464,17 @@ export default function SettingsScreen() {
                 <Text style={styles.errorText}>{billingError.toUpperCase()}</Text>
               ) : null}
               <Pressable
-                style={[styles.modalBtn, (billingLoading || !billingEmail) && { opacity: 0.5 }]}
+                style={[styles.modalBtnGold, (billingLoading || !billingEmail) && { opacity: 0.5 }]}
                 onPress={handleBillingPortal}
                 disabled={billingLoading || !billingEmail}
               >
-                {billingLoading ? (
-                  <ActivityIndicator size="small" color="#000" />
-                ) : (
-                  <Text style={styles.modalBtnText}>OPEN STRIPE PORTAL</Text>
-                )}
+                <GoldGradient style={styles.modalBtnGoldInner}>
+                  {billingLoading ? (
+                    <ActivityIndicator size="small" color="#000" />
+                  ) : (
+                    <Text style={styles.modalBtnText}>OPEN STRIPE PORTAL</Text>
+                  )}
+                </GoldGradient>
               </Pressable>
               {stripeEmail && (
                 <Pressable

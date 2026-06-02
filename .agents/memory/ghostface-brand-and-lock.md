@@ -4,9 +4,14 @@ description: Durable design decisions for GHOSTFACE — accent color, lock-scree
 ---
 
 # Brand accent
-- Accent is **gold `#d4af37`** on a near-black monochrome base (migrated from an earlier cyan; secondary purple → neutral gray). Semantic red (danger) is kept. **Green is removed app-wide** — `success` token is **light blue `#7dd3fc`** (sky-300), which is also the trial-badge / offer accent.
-- **Why:** user wanted a near-black gold monochrome look, asked to remove all green, and to bring back light blue for trial/success treatments.
-- **How to apply:** pull accents from `useColors()`; don't reintroduce cyan/purple/green. Use `#7dd3fc` (and `rgba(125,211,252,…)`) for any success/trial/offer accent; the `success` token in `constants/colors.ts` already carries it.
+- Accent is **antique gold `#bf9b30`** (deeper than the earlier `#d4af37`) on a near-black monochrome base. Secondary purple → neutral gray. **Green is removed app-wide.** `success` token is still **light blue `#7dd3fc`** (sky-300), but the **trial-badge / offer accent is now red `#ef4444`** (changed from light blue).
+- **Why:** user wanted a near-black gold monochrome look, then deepened the gold to `#bf9b30`, and moved the trial/offer treatment to red.
+- **How to apply:** pull accents from `useColors()`; don't reintroduce cyan/purple/green or the old `#d4af37`. Use red `#ef4444` for trial/offer; keep `#7dd3fc` only for non-trial success states. The `primary`/`accent`/`tint`/`warning` tokens in `constants/colors.ts` all carry `#bf9b30`.
+
+# Metallic gold buttons
+- Prominent solid-gold **CTA buttons** use a shared metallic gradient component `components/GoldGradient.tsx` (single source of truth for the `GOLD_METALLIC` palette + locations; includes a `#bf9b30` solid fallback). Non-CTA gold surfaces (active toggles/chips, badges/dots, the lock keypad, QR-scanner UI, destructive/muted buttons) deliberately stay **flat** gold.
+- **Why:** user asked for a polished metallic finish on the gold buttons app-wide; flat surfaces would look busy/odd with a gradient and toggles need the simple fill.
+- **How to apply:** wrap a CTA's children in `<GoldGradient>`; outer touchable keeps `borderRadius`/border/shadow/margins/opacity-logic but **must NOT use `overflow:"hidden"` together with shadow props** (it clips the iOS shadow) — instead give the inner `GoldGradient` a matching `borderRadius` to round its own corners.
 
 # Lock screen unlock model
 - Lock screen opens as an idle "CIPHER · LOCKED" seal; a hold-to-decrypt gesture reveals the secure PIN keypad. Backgrounding re-seals and cancels any in-flight hold. Biometric auto-prompt only fires after the seal is decrypted.

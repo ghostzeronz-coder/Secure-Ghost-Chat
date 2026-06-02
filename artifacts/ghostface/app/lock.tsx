@@ -1,7 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { LinearGradient } from "expo-linear-gradient";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -19,12 +18,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
+import { GoldGradient } from "@/components/GoldGradient";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const GOLD_METALLIC = ["#f4e2a1", "#d9b84a", "#bf9b30", "#9a7a24"] as const;
 const MAX_ATTEMPTS = 10;
 const WARN_FROM = 7;
 const FAIL_KEY = "ghostface_pin_fail_count";
@@ -608,7 +607,6 @@ export default function LockScreen() {
       borderRadius: colors.radius,
       borderWidth: 1,
       borderColor: "#ffffff",
-      overflow: "hidden",
       shadowColor: colors.primary,
       shadowOpacity: 0.4,
       shadowRadius: 16,
@@ -618,6 +616,7 @@ export default function LockScreen() {
       paddingHorizontal: 64,
       paddingVertical: 15,
       alignItems: "center",
+      borderRadius: colors.radius,
     },
     enterBtnText: {
       color: colors.primaryForeground,
@@ -921,15 +920,9 @@ export default function LockScreen() {
             onPress={hasPin ? revealKeypad : () => setLocked(false)}
             testID={hasPin ? "enter-btn" : "no-pin-continue"}
           >
-            <LinearGradient
-              colors={GOLD_METALLIC}
-              locations={[0, 0.45, 0.75, 1]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-              style={styles.enterBtn}
-            >
+            <GoldGradient style={styles.enterBtn}>
               <Text style={styles.enterBtnText}>ENTER</Text>
-            </LinearGradient>
+            </GoldGradient>
           </Pressable>
 
           <View style={styles.taglineRow}>

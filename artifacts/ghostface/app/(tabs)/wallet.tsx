@@ -19,6 +19,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GoldGradient } from "@/components/GoldGradient";
 import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
@@ -516,11 +517,14 @@ export default function WalletScreen() {
       gap: 8,
     },
     modalBtnPrimary: {
-      backgroundColor: colors.primary,
       borderRadius: colors.radius,
+      marginBottom: 8,
+      overflow: "hidden",
+    },
+    modalBtnPrimaryInner: {
       paddingVertical: 14,
       alignItems: "center",
-      marginBottom: 8,
+      borderRadius: colors.radius,
     },
     modalBtnText: {
       color: "#FFFFFF",
@@ -868,7 +872,9 @@ export default function WalletScreen() {
                     onPress={handleSend}
                     disabled={!sendAmount || !sendAddress}
                   >
-                    <Text style={styles.modalBtnText}>CONFIRM SEND</Text>
+                    <GoldGradient style={styles.modalBtnPrimaryInner}>
+                      <Text style={styles.modalBtnText}>CONFIRM SEND</Text>
+                    </GoldGradient>
                   </Pressable>
                   <Pressable style={styles.cancelBtn} onPress={() => setShowSend(false)}>
                     <Text style={styles.cancelText}>CANCEL</Text>

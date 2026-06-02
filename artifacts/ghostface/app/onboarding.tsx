@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
+import { GoldGradient } from "@/components/GoldGradient";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { normalizeAlias } from "@/utils/alias";
@@ -137,13 +138,16 @@ export default function OnboardingScreen() {
       fontWeight: "600" as const,
     },
     confirmBtn: {
-      backgroundColor: "#bf9b30",
       borderRadius: colors.radius,
-      paddingVertical: 16,
-      alignItems: "center",
       marginBottom: 12,
       borderWidth: 1,
       borderColor: "#ffffff",
+      overflow: "hidden",
+    },
+    confirmBtnInner: {
+      borderRadius: colors.radius,
+      paddingVertical: 16,
+      alignItems: "center",
     },
     confirmBtnDisabled: {
       opacity: 0.3,
@@ -327,7 +331,9 @@ export default function OnboardingScreen() {
               disabled={alias.trim().length < 3}
               testID="alias-confirm"
             >
-              <Text style={styles.confirmBtnText}>CONFIRM ALIAS</Text>
+              <GoldGradient style={styles.confirmBtnInner}>
+                <Text style={styles.confirmBtnText}>CONFIRM ALIAS</Text>
+              </GoldGradient>
             </Pressable>
 
             <View style={styles.disclaimerRow}>
@@ -394,7 +400,9 @@ export default function OnboardingScreen() {
               disabled={pin.length < 4}
               testID="pin-confirm-btn"
             >
-              <Text style={styles.confirmBtnText}>SET PIN & ENTER</Text>
+              <GoldGradient style={styles.confirmBtnInner}>
+                <Text style={styles.confirmBtnText}>SET PIN & ENTER</Text>
+              </GoldGradient>
             </Pressable>
 
             <Pressable

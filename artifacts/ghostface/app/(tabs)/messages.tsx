@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import EncryptionTools from "@/components/EncryptionTools";
 import GhostInvite from "@/components/GhostInvite";
+import { GoldGradient } from "@/components/GoldGradient";
 import { QRScanner } from "@/components/QRScanner";
 import { SecureBadge } from "@/components/SecureBadge";
 import { StatusDot } from "@/components/StatusDot";
@@ -275,10 +276,13 @@ export default function MessagesScreen() {
     },
     emptyBtn: {
       marginTop: 8,
-      backgroundColor: colors.primary,
       borderRadius: colors.radius,
+      overflow: "hidden",
+    },
+    emptyBtnInner: {
       paddingHorizontal: 24,
       paddingVertical: 12,
+      borderRadius: colors.radius,
     },
     emptyBtnTxt: {
       color: colors.primaryForeground,
@@ -458,7 +462,9 @@ export default function MessagesScreen() {
                 style={styles.emptyBtn}
                 onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setNewAlias(""); setShowNew(true); }}
               >
-                <Text style={styles.emptyBtnTxt}>+ NEW CHANNEL</Text>
+                <GoldGradient style={styles.emptyBtnInner}>
+                  <Text style={styles.emptyBtnTxt}>+ NEW CHANNEL</Text>
+                </GoldGradient>
               </Pressable>
             </View>
           }
@@ -553,11 +559,13 @@ export default function MessagesScreen() {
               />
 
               <Pressable
-                style={[styles.sheetBtn, (newAlias.trim().length < 2 || addingChat) && { opacity: 0.38 }]}
+                style={[{ borderRadius: colors.radius, overflow: "hidden" }, (newAlias.trim().length < 2 || addingChat) && { opacity: 0.38 }]}
                 onPress={handleNewChat}
                 disabled={newAlias.trim().length < 2 || addingChat}
               >
-                <Text style={styles.sheetBtnTxt}>{addingChat ? "SEARCHING…" : "ESTABLISH CHANNEL"}</Text>
+                <GoldGradient style={{ paddingVertical: 14, alignItems: "center", borderRadius: colors.radius }}>
+                  <Text style={styles.sheetBtnTxt}>{addingChat ? "SEARCHING…" : "ESTABLISH CHANNEL"}</Text>
+                </GoldGradient>
               </Pressable>
 
               <Pressable style={styles.cancelBtn} onPress={() => setShowNew(false)}>

@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { GoldGradient } from "@/components/GoldGradient";
 
 type EncToolTab = "cipher" | "hash" | "keygen" | "stealth";
 
@@ -173,7 +174,8 @@ export default function EncryptionTools() {
     modeRow: { flexDirection: "row", gap: 8 },
     modeBtn: { flex: 1, paddingVertical: 10, alignItems: "center", borderRadius: colors.radius, borderWidth: 1 },
     modeTxt: { fontSize: 11, letterSpacing: 2, fontWeight: "700" },
-    btn: { backgroundColor: colors.primary, borderRadius: colors.radius, paddingVertical: 13, alignItems: "center" },
+    btn: { borderRadius: colors.radius, overflow: "hidden" },
+    btnGold: { borderRadius: colors.radius, paddingVertical: 13, alignItems: "center" },
     btnTxt: { color: colors.primaryForeground, fontSize: 12, fontWeight: "800", letterSpacing: 3 },
     out: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: colors.radius, padding: 12 },
     outTxt: { color: colors.primary, fontSize: 11, fontFamily: MONO },
@@ -260,7 +262,9 @@ export default function EncryptionTools() {
               style={[s.btn, !encInput && { opacity: 0.38 }]} disabled={!encInput}
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setEncOutput(encMode === "encrypt" ? ghostEncrypt(encInput, encKey) : ghostDecrypt(encInput, encKey)); }}
             >
-              <Text style={s.btnTxt}>{encMode === "encrypt" ? "🔒  ENCRYPT" : "🔓  DECRYPT"}</Text>
+              <GoldGradient style={s.btnGold}>
+                <Text style={s.btnTxt}>{encMode === "encrypt" ? "🔒  ENCRYPT" : "🔓  DECRYPT"}</Text>
+              </GoldGradient>
             </Pressable>
 
             {!!encOutput && (
@@ -304,7 +308,9 @@ export default function EncryptionTools() {
               style={[s.btn, !hashInput && { opacity: 0.38 }]} disabled={!hashInput}
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setHashOutput(simHash(hashInput, hashAlgo)); }}
             >
-              <Text style={s.btnTxt}>GENERATE HASH</Text>
+              <GoldGradient style={s.btnGold}>
+                <Text style={s.btnTxt}>GENERATE HASH</Text>
+              </GoldGradient>
             </Pressable>
 
             {!!hashOutput && (
@@ -329,7 +335,9 @@ export default function EncryptionTools() {
               style={s.btn}
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); setKeys(genKeyPair()); setKeyCopied(null); }}
             >
-              <Text style={s.btnTxt}>⚡  GENERATE KEY PAIR</Text>
+              <GoldGradient style={s.btnGold}>
+                <Text style={s.btnTxt}>⚡  GENERATE KEY PAIR</Text>
+              </GoldGradient>
             </Pressable>
 
             {keys ? (
@@ -385,7 +393,9 @@ export default function EncryptionTools() {
                   style={[s.btn, !stealthMsg && { opacity: 0.38 }]} disabled={!stealthMsg}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setStealthOut(stealthEncode(stealthMsg)); }}
                 >
-                  <Text style={s.btnTxt}>👻  HIDE IN TEXT</Text>
+                  <GoldGradient style={s.btnGold}>
+                    <Text style={s.btnTxt}>👻  HIDE IN TEXT</Text>
+                  </GoldGradient>
                 </Pressable>
               </>
             ) : (
@@ -400,7 +410,9 @@ export default function EncryptionTools() {
                   style={[s.btn, !stealthCarrier && { opacity: 0.38 }]} disabled={!stealthCarrier}
                   onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setStealthOut(stealthDecode(stealthCarrier)); }}
                 >
-                  <Text style={s.btnTxt}>🔍  SCAN FOR MESSAGE</Text>
+                  <GoldGradient style={s.btnGold}>
+                    <Text style={s.btnTxt}>🔍  SCAN FOR MESSAGE</Text>
+                  </GoldGradient>
                 </Pressable>
               </>
             )}
