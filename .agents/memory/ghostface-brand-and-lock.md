@@ -1,16 +1,18 @@
 ---
-name: GHOSTFACE brand + lock-screen interaction
-description: Durable design decisions for the GHOSTFACE app — accent color and the lock-screen unlock model.
+name: GHOSTFACE brand, lock + home design
+description: Durable design decisions for GHOSTFACE — accent color, lock-screen unlock model, and the home radial-dial layout.
 ---
 
-# GHOSTFACE brand accent
+# Brand accent
+- Accent is **gold `#d4af37`** on a near-black monochrome base (migrated from an earlier cyan; secondary purple → neutral gray). Semantic red (danger) and green (success) are intentionally kept.
+- **Why:** user wanted a near-black monochrome look in gold, keeping the gold ghost logo.
+- **How to apply:** pull accents from `useColors()`; don't reintroduce cyan/purple. Monochrome-gold is about the brand accent, not removing status semantics.
 
-- The app accent is **gold `#d4af37`** on a near-black monochrome base (`constants/colors.ts` primary/accent/tint/warning). It was migrated from the earlier cyan `#00C8FF`; crypto/secondary purple `#9945FF` was mapped to neutral gray `#8A8A8A`.
-- **Why:** user asked for a near-black monochrome look "to gold", keeping the ghost logo (recolored gold).
-- **How to apply:** new UI should pull accents from `useColors()` (gold), not hardcode cyan/purple. Semantic red (`destructive`) and green (`success`) are deliberately kept for danger/secure status — monochrome-gold is about the *brand* accent, not eliminating status semantics.
+# Lock screen unlock model
+- Lock screen opens as an idle "CIPHER · LOCKED" seal; a hold-to-decrypt gesture reveals the secure PIN keypad. Backgrounding re-seals and cancels any in-flight hold. Biometric auto-prompt only fires after the seal is decrypted.
+- **Silence contract (critical):** `panicWipe` and the duress `setInterval` callback must NEVER trigger Haptics/Audio/Toast/Alert — visual only. A repo guard script enforces this; run it after touching the lock screen or the app context. Hold-to-decrypt / navigation haptics are fine because they live outside those two paths.
 
-# Lock screen unlock model (`app/lock.tsx`)
-
-- The lock screen opens as an idle **"CIPHER · LOCKED"** seal; holding it (hold-to-decrypt, `decryptRevealed` state) reveals the existing secure PIN keypad. Backgrounding re-seals it and cancels any in-flight hold.
-- All PIN / scramble / duress / panic-wipe / biometric logic is unchanged; the seal is only a visual gate. Biometric auto-prompt is gated behind `decryptRevealed`.
-- **Silence contract:** hold-to-decrypt haptics are intentionally OUTSIDE `panicWipe` and the duress `setInterval` callback — those two must never call Haptics/Audio/Toast/Alert (enforced by `scripts/check-panic-wipe-silence.js`). Keep new lock-screen feedback out of those paths.
+# Home screen = radial dial
+- Home is a radial menu: a spinning, breathing-fade ghost-logo centerpiece with the nav destinations (messages, call, vpn, wallet, number, settings) arranged in a ring around it. The bottom tab bar is hidden on the home tab only (still present on the other tabs).
+- **Why:** user explicitly asked to drop the bottom menu on home and orbit the items around a rotating GF-logo circle.
+- **How to apply:** keep continuous animation loops gated by screen focus (start on focus, stop on blur) so they don't churn battery off-screen. Note the tradeoff: nav is always visible after unlock (the old hold-to-reveal gate was removed) — revisit if the threat model wants shoulder-surfing resistance.

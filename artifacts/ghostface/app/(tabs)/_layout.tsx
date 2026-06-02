@@ -83,6 +83,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "HOME",
+          tabBarStyle: { display: "none" },
           tabBarIcon: ({ color, focused }) => (
             <PulseIcon focused={focused}>
               <Feather name="home" size={20} color={color} />
