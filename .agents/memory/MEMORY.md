@@ -1,2 +1,2 @@
-- [GHOSTFACE brand + lock screen](ghostface-brand-and-lock.md) — accent is gold #d4af37 (near-black monochrome); lock screen is an idle cipher seal that hold-to-decrypt reveals the secure keypad.
-- [Stripe credential setup](stripe-setup.md) — prod uses global STRIPE_SECRET_KEY/STRIPE_PUBLISHABLE_KEY secrets (not the dev-only connector); keys must be same mode + same account.
+- [GHOSTFACE brand + lock screen](ghostface-brand-and-lock.md) — accent is antique gold #bf9b30 (near-black monochrome); lock screen is an idle cipher seal that hold-to-decrypt reveals the secure keypad.
+- [GHOSTFACE payments](ghostface-payments.md) — crypto-only (USDC on Solana); Stripe was fully removed. Do not reintroduce a card/fiat path.

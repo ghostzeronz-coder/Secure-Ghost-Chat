@@ -6,10 +6,8 @@ import React, { useEffect, useRef, useState } from "react";
 
 import {
   ActionSheetIOS,
-  ActivityIndicator,
   Alert,
   Animated,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -96,8 +94,6 @@ export default function SettingsScreen() {
     alias,
     biometricEnabled,
     hasDuressPin,
-    stripeEmail,
-    subscriptionStatus,
     autoLockTimeout,
     duressGracePeriod,
     language,
@@ -119,8 +115,6 @@ export default function SettingsScreen() {
     clearDuressPin,
     setLocked,
     panicWipe,
-    setStripeEmail,
-    checkSubscription,
     setAutoLockTimeout,
     setDuressGracePeriod,
     setLanguage,
@@ -325,47 +319,6 @@ export default function SettingsScreen() {
 
   const handleResetFallbackMessage = () => {
     setDraftFallbackMessage(DEFAULT_SMS_FALLBACK_MESSAGE);
-  };
-
-  const [showBilling, setShowBilling] = useState(false);
-  const [billingEmail, setBillingEmail] = useState("");
-  const [billingLoading, setBillingLoading] = useState(false);
-  const [billingError, setBillingError] = useState("");
-
-  const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
-  const handleBillingPortal = async () => {
-    if (!billingEmail.includes("@")) {
-      setBillingError("Enter a valid email");
-      return;
-    }
-    try {
-      setBillingLoading(true);
-      setBillingError("");
-      const res = await fetch(`${API_BASE}/stripe/customer-portal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: billingEmail }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not open billing portal");
-      await setStripeEmail(billingEmail);
-      checkSubscription(billingEmail).catch(() => {});
-      setShowBilling(false);
-      setBillingEmail("");
-      await Linking.openURL(data.url);
-    } catch (err: any) {
-      setBillingError(err.message || "Something went wrong");
-    } finally {
-      setBillingLoading(false);
-    }
-  };
-
-  const handleDisconnectStripe = async () => {
-    await setStripeEmail(null);
-    setShowBilling(false);
-    setBillingEmail("");
-    setBillingError("");
   };
 
   const handleBioToggle = async (val: boolean) => {
@@ -678,37 +631,6 @@ export default function SettingsScreen() {
             <View style={{ backgroundColor: "#8A8A8A", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
               <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>UPGRADE</Text>
             </View>
-          </Pressable>
-          <View style={{ height: 1, backgroundColor: `${colors.primary}30` }} />
-          <Pressable
-            style={styles.settingRow}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setBillingEmail(stripeEmail ?? "");
-              setBillingError("");
-              setShowBilling(true);
-            }}
-          >
-            <View style={styles.settingIcon}>
-              <Ionicons name="card-outline" size={18} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.settingLabel}>MANAGE BILLING</Text>
-              <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>
-                {stripeEmail ? stripeEmail.toUpperCase() : "STRIPE CUSTOMER PORTAL"}
-              </Text>
-            </View>
-            {subscriptionStatus?.active && subscriptionStatus.plan ? (
-              <View style={{ backgroundColor: "#8A8A8A", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" as const, letterSpacing: 2 }}>{subscriptionStatus.plan.toUpperCase()}</Text>
-              </View>
-            ) : stripeEmail ? (
-              <View style={{ backgroundColor: colors.success, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
-                <Text style={{ color: "#000", fontSize: 9, fontWeight: "800" as const, letterSpacing: 2 }}>LINKED</Text>
-              </View>
-            ) : (
-              <Ionicons name="open-outline" size={16} color={colors.mutedForeground} />
-            )}
           </Pressable>
         </View>
 
@@ -1433,63 +1355,6 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* Billing portal modal */}
-      <Modal
-        visible={showBilling}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowBilling(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowBilling(false)} />
-            <View style={styles.modalContent}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
-                <Ionicons name="card" size={20} color={colors.primary} />
-                <Text style={styles.modalTitle}>BILLING PORTAL</Text>
-              </View>
-              <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginBottom: 16, textAlign: "center" }}>
-                ENTER YOUR ACCOUNT EMAIL TO MANAGE SUBSCRIPTIONS, INVOICES & PAYMENT METHODS
-              </Text>
-              <TextInput
-                style={styles.input}
-                value={billingEmail}
-                onChangeText={(t) => { setBillingEmail(t); setBillingError(""); }}
-                placeholder="YOUR EMAIL"
-                placeholderTextColor={colors.mutedForeground}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {billingError ? (
-                <Text style={styles.errorText}>{billingError.toUpperCase()}</Text>
-              ) : null}
-              <Pressable
-                style={[styles.modalBtnGold, (billingLoading || !billingEmail) && { opacity: 0.5 }]}
-                onPress={handleBillingPortal}
-                disabled={billingLoading || !billingEmail}
-              >
-                <GoldGradient style={styles.modalBtnGoldInner}>
-                  {billingLoading ? (
-                    <ActivityIndicator size="small" color="#000" />
-                  ) : (
-                    <Text style={styles.modalBtnText}>OPEN STRIPE PORTAL</Text>
-                  )}
-                </GoldGradient>
-              </Pressable>
-              {stripeEmail && (
-                <Pressable
-                  style={[styles.cancelBtn, { borderColor: colors.destructive, marginBottom: 2 }]}
-                  onPress={handleDisconnectStripe}
-                >
-                  <Text style={[styles.cancelText, { color: colors.destructive }]}>DISCONNECT ACCOUNT</Text>
-                </Pressable>
-              )}
-              <Pressable style={styles.cancelBtn} onPress={() => { setShowBilling(false); setBillingEmail(""); setBillingError(""); }}>
-                <Text style={styles.cancelText}>CANCEL</Text>
-              </Pressable>
-            </View>
-        </View>
-      </Modal>
     </View>
     </TabScreenWrapper>
   );

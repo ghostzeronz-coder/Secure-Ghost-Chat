@@ -146,7 +146,6 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_51ScqJLPffC0Uwr45TroumRS6IwHFNSBmJ2g0yuffR9AMBZaPTDSGj5CoqA9qPYLDGdyEPCJSgrCF3wPnM4yvBybP00GQ0Dtt5k"
 
 [[ports]]
 localPort = 8080

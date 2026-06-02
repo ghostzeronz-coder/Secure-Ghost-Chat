@@ -31,18 +31,8 @@ GHOSTFACE is a privacy-first mobile communications platform built with Expo + Re
 
 ## API Server (`artifacts/api-server/`)
 - Express + TypeScript, port via `$PORT`, path prefix `/api`
-- **Stripe integration**: Uses Replit Stripe connector (no hardcoded keys)
-  - `src/stripeClient.ts` — Replit connector-based Stripe client + StripeSync singleton
-  - `src/stripeService.ts` — Products listing, checkout session creation
-  - `src/routes/stripe.ts` — `/api/stripe/plans`, `/api/stripe/checkout`, `/api/stripe/seed`, success/cancel pages
-  - `src/routes/index.ts` — Route aggregator
-  - `build.mjs` — `stripe-replit-sync` externalized so migration path resolution works
-- **Stripe DB**: `stripe` schema in PostgreSQL, migrated via `runMigrations` on startup
-- **Webhook**: `/api/stripe/webhook` registered before `express.json()`, managed via `findOrCreateManagedWebhook`
-
-## Stripe Products (Sandbox)
-- SPECTER: `prod_UGrG7BejTEHhfT`, monthly `price_1TIJXg88Vhf4WcZqOGvGNLk5` ($9.99), yearly `price_1TIJXg88Vhf4WcZqUiAHyinH` ($99)
-- PHANTOM: `prod_UGrGy18baF4LjU`, monthly `price_1TIJXh88Vhf4WcZqgs3zxbxP` ($19.99), yearly `price_1TIJXh88Vhf4WcZqZ9P4jvyr` ($199)
+- `src/routes/index.ts` — Route aggregator
+- **Payments**: Crypto-only (USDC on Solana) via `src/routes/crypto.ts` — `/api/crypto/payment-info`
 
 ## Design System
 - Background: #000000

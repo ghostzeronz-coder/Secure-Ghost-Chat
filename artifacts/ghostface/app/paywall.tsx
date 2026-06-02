@@ -6,7 +6,6 @@ import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -22,20 +21,15 @@ import { useColors } from "@/hooks/useColors";
 
 const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
-type PayMethod = "crypto" | "card";
-
 interface Plan {
   id: string;
   name: string;
   badge: string;
   priceUsdc: number | null;
-  priceNzd: number | null;
   color: string;
   features: string[];
   recommended?: boolean;
 }
-
-const TRIAL_DAYS = 7;
 
 const PLANS: Plan[] = [
   {
@@ -43,7 +37,6 @@ const PLANS: Plan[] = [
     name: "GHOST",
     badge: "FREE",
     priceUsdc: null,
-    priceNzd: null,
     color: "#555555",
     features: [
       "Anonymous alias identity",
@@ -57,7 +50,6 @@ const PLANS: Plan[] = [
     name: "SPECTER",
     badge: "POPULAR",
     priceUsdc: 9.99,
-    priceNzd: 16.99,
     color: "#bf9b30",
     recommended: true,
     features: [
@@ -74,7 +66,6 @@ const PLANS: Plan[] = [
     name: "PHANTOM",
     badge: "ELITE",
     priceUsdc: 19.99,
-    priceNzd: 32.99,
     color: "#bf9b30",
     features: [
       "Everything in SPECTER",
@@ -106,7 +97,6 @@ export default function PaywallScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
-  const [payMethod, setPayMethod] = useState<PayMethod>("crypto");
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activePayment, setActivePayment] = useState<ActivePayment | null>(null);
@@ -138,29 +128,6 @@ export default function PaywallScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (plan.id === "ghost") {
       router.back();
-      return;
-    }
-
-    if (payMethod === "card") {
-      try {
-        setLoading(plan.id);
-        setError(null);
-        const res = await fetch(`${API_BASE}/stripe/checkout`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plan: plan.id, currency: "nzd" }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Could not create checkout session");
-        if (data.url) {
-          await Linking.openURL(data.url);
-        }
-      } catch (err: any) {
-        setError(err.message || "Card checkout unavailable. Try again.");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      } finally {
-        setLoading(null);
-      }
       return;
     }
 
@@ -211,25 +178,6 @@ export default function PaywallScreen() {
       letterSpacing: 6,
     },
     sub: { color: colors.mutedForeground, fontSize: 11, letterSpacing: 3 },
-    toggleRow: {
-      flexDirection: "row",
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: "hidden",
-    },
-    toggleBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 5,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-    },
-    toggleBtnActive: {
-      backgroundColor: "#bf9b30",
-    },
-    toggleTxt: { fontSize: 10, fontWeight: "800", letterSpacing: 2, color: colors.mutedForeground },
-    toggleTxtActive: { color: "#000" },
     networkRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -310,51 +258,6 @@ export default function PaywallScreen() {
       borderRadius: colors.radius, padding: 12,
     },
     errorTxt: { color: colors.destructive, fontSize: 11, letterSpacing: 2, textAlign: "center" },
-    trialBanner: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 8,
-      marginHorizontal: 16,
-      marginBottom: 4,
-      backgroundColor: "rgba(125,211,252,0.08)",
-      borderWidth: 1,
-      borderColor: "rgba(125,211,252,0.25)",
-      borderRadius: colors.radius,
-      paddingVertical: 10,
-      paddingHorizontal: 14,
-    },
-    trialBannerText: {
-      color: colors.success,
-      fontSize: 11,
-      fontWeight: "800" as const,
-      letterSpacing: 3,
-    },
-    trialSubText: {
-      color: colors.mutedForeground,
-      fontSize: 10,
-      letterSpacing: 1,
-      textAlign: "center" as const,
-      marginBottom: 12,
-      marginTop: -4,
-    },
-    trialTag: {
-      alignSelf: "flex-start" as const,
-      backgroundColor: "rgba(125,211,252,0.12)",
-      borderWidth: 1,
-      borderColor: "rgba(125,211,252,0.3)",
-      borderRadius: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      marginHorizontal: 16,
-      marginBottom: 10,
-    },
-    trialTagText: {
-      color: colors.success,
-      fontSize: 9,
-      fontWeight: "800" as const,
-      letterSpacing: 2,
-    },
     footer: {
       color: colors.mutedForeground, fontSize: 9, letterSpacing: 2,
       textAlign: "center", paddingBottom: insets.bottom + 24, opacity: 0.4,
@@ -435,32 +338,6 @@ export default function PaywallScreen() {
         <GhostLogo size={52} />
         <Text style={s.headline}>GHOST PLANS</Text>
         <Text style={s.sub}>CHOOSE YOUR LEVEL OF INVISIBILITY</Text>
-
-        {/* Payment method toggle */}
-        <View style={s.toggleRow}>
-          <Pressable
-            style={[s.toggleBtn, payMethod === "crypto" && s.toggleBtnActive]}
-            onPress={() => { setPayMethod("crypto"); setError(null); }}
-          >
-            <Text style={{ fontSize: 12, color: payMethod === "crypto" ? "#000" : colors.mutedForeground }}>◎</Text>
-            <Text style={[s.toggleTxt, payMethod === "crypto" && s.toggleTxtActive]}>
-              USDC
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[s.toggleBtn, payMethod === "card" && s.toggleBtnActive]}
-            onPress={() => { setPayMethod("card"); setError(null); }}
-          >
-            <Ionicons
-              name="card-outline"
-              size={12}
-              color={payMethod === "card" ? "#000" : colors.mutedForeground}
-            />
-            <Text style={[s.toggleTxt, payMethod === "card" && s.toggleTxtActive]}>
-              CARD · NZD
-            </Text>
-          </Pressable>
-        </View>
       </View>
 
       <View style={s.divider} />
@@ -473,19 +350,6 @@ export default function PaywallScreen() {
 
       <ScrollView style={s.scroll} showsVerticalScrollIndicator={false}>
         <View style={s.plans}>
-          {/* Trial banner — shown for card payments only */}
-          {payMethod === "card" && (
-            <>
-              <View style={s.trialBanner}>
-                <Ionicons name="shield-checkmark" size={14} color={colors.success} />
-                <Text style={s.trialBannerText}>{TRIAL_DAYS}-DAY FREE TRIAL INCLUDED</Text>
-              </View>
-              <Text style={s.trialSubText}>
-                Card required to start · cancel anytime · no charge for {TRIAL_DAYS} days
-              </Text>
-            </>
-          )}
-
           {PLANS.map((plan) => {
             const isPaid = plan.id !== "ghost";
             const isLoading = loading === plan.id;
@@ -493,16 +357,12 @@ export default function PaywallScreen() {
             const ctaInner = isLoading ? (
               <ActivityIndicator
                 size="small"
-                color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : (payMethod === "card" ? "#bf9b30" : "#8A8A8A")}
+                color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : "#8A8A8A"}
               />
             ) : (
               <>
                 {isPaid ? (
-                  payMethod === "card" ? (
-                    <Ionicons name="card" size={14} color={plan.recommended ? "#000" : "#bf9b30"} />
-                  ) : (
-                    <Text style={{ fontSize: 16 }}>◎</Text>
-                  )
+                  <Text style={{ fontSize: 16 }}>◎</Text>
                 ) : (
                   <Ionicons name="arrow-forward" size={15} color={plan.color} />
                 )}
@@ -513,16 +373,12 @@ export default function PaywallScreen() {
                       color: plan.recommended
                         ? "#000"
                         : isPaid
-                        ? (payMethod === "card" ? "#bf9b30" : "#8A8A8A")
+                        ? "#8A8A8A"
                         : plan.color,
                     },
                   ]}
                 >
-                  {plan.id === "ghost"
-                    ? "CONTINUE FREE"
-                    : payMethod === "card"
-                    ? `START ${TRIAL_DAYS}-DAY FREE TRIAL`
-                    : `PAY ${plan.priceUsdc} USDC`}
+                  {plan.id === "ghost" ? "CONTINUE FREE" : `PAY ${plan.priceUsdc} USDC`}
                 </Text>
               </>
             );
@@ -543,22 +399,11 @@ export default function PaywallScreen() {
                 </View>
 
                 {isPaid ? (
-                  <>
-                    <View style={s.priceRow}>
-                      <Text style={[s.price, { color: plan.color }]}>
-                        {payMethod === "card" ? plan.priceNzd : plan.priceUsdc}
-                      </Text>
-                      <Text style={[s.currency, { color: plan.color }]}>
-                        {payMethod === "card" ? "NZD" : "USDC"}
-                      </Text>
-                      <Text style={s.interval}>/mo</Text>
-                    </View>
-                    {payMethod === "card" && (
-                      <Text style={[s.interval, { fontSize: 11, paddingHorizontal: 16, marginTop: -8, marginBottom: 8, opacity: 0.7 }]}>
-                        Free for {TRIAL_DAYS} days, then NZ${plan.priceNzd}/mo
-                      </Text>
-                    )}
-                  </>
+                  <View style={s.priceRow}>
+                    <Text style={[s.price, { color: plan.color }]}>{plan.priceUsdc}</Text>
+                    <Text style={[s.currency, { color: plan.color }]}>USDC</Text>
+                    <Text style={s.interval}>/mo</Text>
+                  </View>
                 ) : (
                   <Text style={s.freeTxt}>FREE</Text>
                 )}
@@ -576,13 +421,9 @@ export default function PaywallScreen() {
                   style={({ pressed }) => [
                     plan.recommended ? s.ctaBtnRec : s.ctaBtn,
                     !plan.recommended && {
-                      backgroundColor: isPaid
-                        ? (payMethod === "card" ? "#bf9b3022" : "#8A8A8A22")
-                        : "transparent",
+                      backgroundColor: isPaid ? "#8A8A8A22" : "transparent",
                       borderWidth: isPaid ? 1 : plan.id === "ghost" ? 1 : 0,
-                      borderColor: plan.id === "ghost"
-                        ? plan.color
-                        : payMethod === "card" ? "#bf9b30" : "#8A8A8A",
+                      borderColor: plan.id === "ghost" ? plan.color : "#8A8A8A",
                     },
                     pressed && { opacity: 0.8 },
                     loading !== null && { opacity: 0.6 },
@@ -602,9 +443,7 @@ export default function PaywallScreen() {
         </View>
 
         <Text style={s.footer}>
-          {payMethod === "card"
-            ? `${TRIAL_DAYS}-DAY FREE TRIAL · NZD VIA STRIPE · CANCEL ANYTIME · NO FACE · NO TRACE`
-            : "ALL PAYMENTS RECEIVED IN USDC ON SOLANA · NO FACE · NO TRACE"}
+          ALL PAYMENTS RECEIVED IN USDC ON SOLANA · NO FACE · NO TRACE
         </Text>
       </ScrollView>
 

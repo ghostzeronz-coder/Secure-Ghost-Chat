@@ -347,9 +347,6 @@ interface AppState {
   transactions: Transaction[];
   dataUsed: number;
   dataLimit: number;
-  stripeEmail: string | null;
-  stripePublishableKey: string | null;
-  subscriptionStatus: { active: boolean; plan: string | null; status: string | null } | null;
   connectedWalletAddress: string | null;
   solBalance: number;
   autoLockTimeout: number | null;
@@ -403,8 +400,6 @@ interface AppContextType extends AppState {
   setDisappearTimer: (conversationId: string, seconds: number | undefined) => void;
   verifyConversation: (conversationId: string) => void;
   panicWipe: () => Promise<void>;
-  setStripeEmail: (email: string | null) => Promise<void>;
-  checkSubscription: (email: string) => Promise<void>;
   connectWallet: (address: string) => Promise<{ error?: string }>;
   disconnectWallet: () => Promise<void>;
   setAutoLockTimeout: (ms: number | null) => Promise<void>;
@@ -502,7 +497,6 @@ const SECURE_PIN_KEY = "ghostface_pin";
 const SECURE_DURESS_PIN_KEY = "ghostface_duress_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
 const OUTBOX_KEY = "ghostface_outbox";
-const STRIPE_EMAIL_KEY = "stripeEmail";
 const CONNECTED_WALLET_KEY = "ghostface_connected_wallet";
 const OPK_STORE_KEY = "ghostface_opk_store";
 const OPK_BATCH_SIZE = 10;
@@ -525,7 +519,6 @@ const APP_STORAGE_KEYS = [
   "biometricEnabled",
   CONVERSATIONS_KEY,
   OUTBOX_KEY,
-  STRIPE_EMAIL_KEY,
   CONNECTED_WALLET_KEY,
   OPK_STORE_KEY,
   CONTACT_IDENTITY_STORE_KEY,
@@ -983,9 +976,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     transactions: DEFAULT_TRANSACTIONS,
     dataUsed: 2.4,
     dataLimit: 10,
-    stripeEmail: null,
-    stripePublishableKey: null,
-    subscriptionStatus: null,
     connectedWalletAddress: null,
     solBalance: 0,
     autoLockTimeout: 5 * 60 * 1000,
@@ -1005,14 +995,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, stripeEmailVal, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw, lowBwRaw, smsNumbersRaw, smsMessageRaw] = await Promise.all([
+        const [alias, pinValue, duressValue, biometric, onboarded, convData, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw, lowBwRaw, smsNumbersRaw, smsMessageRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
           AsyncStorage.getItem("isOnboarded"),
           AsyncStorage.getItem(CONVERSATIONS_KEY),
-          AsyncStorage.getItem(STRIPE_EMAIL_KEY),
           AsyncStorage.getItem(CONNECTED_WALLET_KEY),
           AsyncStorage.getItem(AUTO_LOCK_TIMEOUT_KEY),
           secureGet(DEVICE_TOKEN_KEY),
@@ -1092,20 +1081,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // auth ack.
         const lowBandwidthActive = isLowBandwidthActive("unknown", lowBandwidthMode);
 
-        // Fetch Stripe publishable key in the background (non-blocking)
-        const apiBase = getApiBase();
-        let stripePublishableKey: string | null = null;
-        if (apiBase) {
-          fetch(`${apiBase}/stripe/config`)
-            .then((r) => r.json())
-            .then((d) => {
-              if (d?.publishableKey) {
-                setState((prev) => ({ ...prev, stripePublishableKey: d.publishableKey }));
-              }
-            })
-            .catch(() => {});
-        }
-
         // Restore the outbox (queued messages pending WS delivery).
         // Items written by older builds may be missing `createdAt`; fall
         // back to 0 so they sort to the front and drain first. Always
@@ -1138,8 +1113,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           isOnboarded,
           isLocked: true,
           conversations,
-          stripeEmail: stripeEmailVal,
-          stripePublishableKey,
           connectedWalletAddress: connectedWallet ?? null,
           autoLockTimeout,
           duressGracePeriod,
@@ -2144,33 +2117,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [persistConversations]
   );
 
-  const setStripeEmail = useCallback(async (email: string | null) => {
-    try {
-      if (email) {
-        await AsyncStorage.setItem(STRIPE_EMAIL_KEY, email);
-      } else {
-        await AsyncStorage.removeItem(STRIPE_EMAIL_KEY);
-      }
-      setState((prev) => ({ ...prev, stripeEmail: email }));
-    } catch (err) {
-      console.error("[AppContext] Failed to save stripe email:", err);
-      throw err;
-    }
-  }, []);
-
-  const checkSubscription = useCallback(async (email: string) => {
-    const apiBase = getApiBase();
-    if (!apiBase || !email) return;
-    try {
-      const res = await fetch(`${apiBase}/stripe/subscription?email=${encodeURIComponent(email)}`);
-      if (!res.ok) return;
-      const data = await res.json() as { active: boolean; plan: string | null; status: string | null };
-      setState((prev) => ({ ...prev, subscriptionStatus: data }));
-    } catch {
-      // Non-critical — subscription status remains as last known
-    }
-  }, []);
-
   const connectWallet = useCallback(async (address: string): Promise<{ error?: string }> => {
     const trimmed = address.trim();
     if (!isValidSolanaAddress(trimmed)) {
@@ -2343,9 +2289,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       transactions: DEFAULT_TRANSACTIONS,
       dataUsed: 2.4,
       dataLimit: 10,
-      stripeEmail: null,
-      stripePublishableKey: null,
-      subscriptionStatus: null,
       connectedWalletAddress: null,
       solBalance: 0,
       autoLockTimeout: 5 * 60 * 1000,
@@ -3165,8 +3108,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         registerCallListener,
         dismissIncomingCall,
         panicWipe,
-        setStripeEmail,
-        checkSubscription,
         connectWallet,
         disconnectWallet,
         setAutoLockTimeout,

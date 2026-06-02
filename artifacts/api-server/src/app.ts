@@ -3,9 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import router from "./routes";
-import { WebhookHandlers } from "./webhookHandlers";
 import { logger } from "./lib/logger";
-import { toErrorMessage } from "./utils/error";
 
 const app: Express = express();
 
@@ -52,7 +50,7 @@ const ALLOWED_ORIGINS = [
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow non-browser requests (mobile app, curl, Stripe webhooks)
+      // Allow non-browser requests (mobile app, curl)
       if (!origin) return callback(null, true);
       // Allow any Replit dev subdomain (*.spock.replit.dev) — covers expo.*, api.*, etc.
       if (origin.endsWith(".spock.replit.dev") || origin.endsWith(".replit.dev")) {
@@ -64,7 +62,7 @@ app.use(
       callback(new Error(`CORS: origin '${origin}' not allowed`));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "stripe-signature"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
     maxAge: 600, // preflight cache 10 min
   }),
@@ -83,27 +81,6 @@ app.use(
       },
     },
   }),
-);
-
-// ── Stripe webhook MUST be registered BEFORE express.json() ──────────────────
-// Webhooks need the raw Buffer body, not parsed JSON.
-app.post(
-  "/api/stripe/webhook",
-  express.raw({ type: "application/json" }),
-  async (req: Request, res: Response) => {
-    const signature = req.headers["stripe-signature"];
-    if (!signature) {
-      return res.status(400).json({ error: "Missing stripe-signature header" });
-    }
-    try {
-      const sig = Array.isArray(signature) ? signature[0] : signature;
-      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-      return res.status(200).json({ received: true });
-    } catch (err) {
-      logger.error({ err }, "Stripe webhook error");
-      return res.status(400).json({ error: toErrorMessage(err) });
-    }
-  },
 );
 
 // ── General middleware ────────────────────────────────────────────────────────
