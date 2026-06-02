@@ -137,11 +137,13 @@ export default function OnboardingScreen() {
       fontWeight: "600" as const,
     },
     confirmBtn: {
-      backgroundColor: colors.primary,
+      backgroundColor: "#bf9b30",
       borderRadius: colors.radius,
       paddingVertical: 16,
       alignItems: "center",
       marginBottom: 12,
+      borderWidth: 1,
+      borderColor: "#ffffff",
     },
     confirmBtnDisabled: {
       opacity: 0.3,
@@ -199,9 +201,9 @@ export default function OnboardingScreen() {
     },
     promoBanner: {
       borderWidth: 1,
-      borderColor: "#7dd3fc",
+      borderColor: "#ef4444",
       borderRadius: colors.radius,
-      backgroundColor: "rgba(125,211,252,0.07)",
+      backgroundColor: "rgba(239,68,68,0.07)",
       paddingHorizontal: 16,
       paddingVertical: 14,
       marginBottom: 20,
@@ -213,7 +215,7 @@ export default function OnboardingScreen() {
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: "rgba(125,211,252,0.15)",
+      backgroundColor: "rgba(239,68,68,0.15)",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -221,7 +223,7 @@ export default function OnboardingScreen() {
       flex: 1,
     },
     promoLabel: {
-      color: "#7dd3fc",
+      color: "#ef4444",
       fontSize: 10,
       fontWeight: "800" as const,
       letterSpacing: 3,
@@ -240,7 +242,7 @@ export default function OnboardingScreen() {
       marginTop: 2,
     },
     promoBadge: {
-      backgroundColor: "#7dd3fc",
+      backgroundColor: "#ef4444",
       borderRadius: 4,
       paddingHorizontal: 8,
       paddingVertical: 3,
@@ -248,7 +250,7 @@ export default function OnboardingScreen() {
       marginTop: 6,
     },
     promoBadgeText: {
-      color: "#000",
+      color: "#ffffff",
       fontSize: 9,
       fontWeight: "800" as const,
       letterSpacing: 2,
@@ -267,7 +269,7 @@ export default function OnboardingScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <GhostLogo size={160} color={colors.foreground} />
+          <GhostLogo size={320} color={colors.foreground} />
           <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
           <Text style={styles.appName}>GHOSTFACE</Text>
         </View>
@@ -302,7 +304,7 @@ export default function OnboardingScreen() {
             {/* First Login Special — Free Ghost Number */}
             <View style={styles.promoBanner}>
               <View style={styles.promoIconWrap}>
-                <Ionicons name="call" size={18} color="#7dd3fc" />
+                <Ionicons name="call" size={18} color="#ef4444" />
               </View>
               <View style={styles.promoTextWrap}>
                 <Text style={styles.promoLabel}>FIRST LOGIN SPECIAL</Text>
