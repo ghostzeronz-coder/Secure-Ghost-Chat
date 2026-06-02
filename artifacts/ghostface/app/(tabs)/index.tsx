@@ -60,6 +60,7 @@ export default function HomeScreen() {
   const mountedRef = useRef(true);
 
   const spin = useRef(new Animated.Value(0)).current;
+  const globeSpin = useRef(new Animated.Value(0)).current;
   const fade = useRef(new Animated.Value(0)).current;
   const reveal = useRef(new Animated.Value(0)).current;
   const wipeAnim = useRef(new Animated.Value(0)).current;
@@ -72,6 +73,16 @@ export default function HomeScreen() {
         Animated.timing(spin, {
           toValue: 1,
           duration: 26000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      );
+      // Sideways "globe" spin for the centerpiece — rotates on its vertical
+      // axis (rotateY) rather than flat round-and-round (rotateZ).
+      const globeLoop = Animated.loop(
+        Animated.timing(globeSpin, {
+          toValue: 1,
+          duration: 9000,
           easing: Easing.linear,
           useNativeDriver: true,
         }),
@@ -93,12 +104,14 @@ export default function HomeScreen() {
         ]),
       );
       spinLoop.start();
+      globeLoop.start();
       fadeLoop.start();
       return () => {
         spinLoop.stop();
+        globeLoop.stop();
         fadeLoop.stop();
       };
-    }, [spin, fade]),
+    }, [spin, globeSpin, fade]),
   );
 
   // Reveal/hide the orbiting menu when the central circle is long-pressed.
@@ -211,6 +224,10 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
+  const globeDeg = globeSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
   const circleOpacity = fade.interpolate({
     inputRange: [0, 1],
     outputRange: [0.82, 1],
@@ -318,13 +335,16 @@ export default function HomeScreen() {
                   }
                 >
                   <Animated.Image
-                    source={require("../../assets/images/compass-emblem.png")}
+                    source={require("../../assets/images/login-compass.png")}
                     resizeMode="contain"
                     style={[
                       styles.centerEmblem,
                       {
                         opacity: circleOpacity,
-                        transform: [{ rotate: spinDeg }],
+                        transform: [
+                          { perspective: 800 },
+                          { rotateY: globeDeg },
+                        ],
                       },
                     ]}
                   />

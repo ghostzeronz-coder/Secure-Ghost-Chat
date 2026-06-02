@@ -7,6 +7,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   AppState,
+  Easing,
+  Image,
   Platform,
   Pressable,
   StyleSheet,
@@ -25,18 +27,16 @@ const MAX_ATTEMPTS = 10;
 const WARN_FROM = 7;
 const FAIL_KEY = "ghostface_pin_fail_count";
 
-// ── Hold-to-decrypt reveal ────────────────────────────────────────────────────
-// The lock screen opens in an idle "CIPHER · LOCKED" state. Holding on the seal
-// for HOLD_DURATION ms decrypts it and reveals the secure PIN keypad. This is a
-// purely visual gate — all PIN / duress / wipe / biometric logic below is
-// untouched and only becomes reachable once the keypad is revealed.
-const HOLD_DURATION = 750;
-
+// ── Tap-to-enter reveal ───────────────────────────────────────────────────────
+// The lock screen opens on an idle "IDENTITY KEY READY" gate built around a
+// coin-spinning compass emblem. Tapping ENTER reveals the secure scrambled
+// keypad. This is a purely visual gate — all PIN / duress / wipe / biometric
+// logic below is untouched and only becomes reachable once the keypad is shown.
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
 
-// Decorative cipher glyphs shown inside the locked seal.
-const CIPHER_ROW_A = "✛  ✕  ✕  ▢  ▢  ▦";
-const CIPHER_ROW_B = "⌗ ▢ ✕ ▮ ▸ ◂ ▮ ⌗ ▢ ◻ ⌗";
+// Coin-spin centerpiece — the brand compass/globe emblem. It rotates on its
+// vertical axis like a coin spinning on a table, not a flat round-and-round spin.
+const LOGIN_COMPASS = require("@/assets/images/login-compass.png");
 
 // ── Secure storage helpers (web-safe) ─────────────────────────────────────────
 
@@ -111,14 +111,11 @@ export default function LockScreen() {
   const failedAttemptsRef = useRef(0);
   const [failCountLoaded, setFailCountLoaded] = useState(false);
 
-  // Hold-to-decrypt reveal state. The keypad stays hidden behind the idle
-  // cipher seal until the user holds long enough to "decrypt" it.
+  // Tap-to-enter reveal state. The keypad stays hidden behind the idle
+  // "identity key ready" gate until the user taps ENTER.
   const [decryptRevealed, setDecryptRevealed] = useState(false);
-  const holdAnim = useRef(new Animated.Value(0)).current;
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const holdAnimRef = useRef<Animated.CompositeAnimation | null>(null);
-  // Subtle ambient shimmer of the cipher glyphs while locked.
-  const glyphAnim = useRef(new Animated.Value(0)).current;
+  // Coin-spin animation for the compass emblem (vertical-axis rotation).
+  const coinSpin = useRef(new Animated.Value(0)).current;
 
   // Duress grace-period state
   const [duressCountdown, setDuressCountdown] = useState<number | null>(null);
@@ -133,22 +130,22 @@ export default function LockScreen() {
         duressAnimRef.current.stop();
         duressAnimRef.current = null;
       }
-      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-      if (holdAnimRef.current) holdAnimRef.current.stop();
     };
   }, []);
 
-  // Ambient shimmer of the cipher glyphs while the seal is locked.
+  // Coin-spin loop — the compass rotates continuously on its vertical axis.
   useEffect(() => {
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(glyphAnim, { toValue: 1, duration: 2200, useNativeDriver: true }),
-        Animated.timing(glyphAnim, { toValue: 0, duration: 2200, useNativeDriver: true }),
-      ]),
+      Animated.timing(coinSpin, {
+        toValue: 1,
+        duration: 3200,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
     );
     loop.start();
     return () => loop.stop();
-  }, [glyphAnim]);
+  }, [coinSpin]);
 
   // Scrambled digit layout — randomised on every mount and app-foreground event
   const [digits, setDigits] = useState<string[]>(() => shuffleDigits());
@@ -190,20 +187,12 @@ export default function LockScreen() {
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") {
+        // Re-seal the keypad behind the entry gate when the app backgrounds.
         setDecryptRevealed(false);
-        if (holdTimerRef.current) {
-          clearTimeout(holdTimerRef.current);
-          holdTimerRef.current = null;
-        }
-        if (holdAnimRef.current) {
-          holdAnimRef.current.stop();
-          holdAnimRef.current = null;
-        }
-        holdAnim.setValue(0);
       }
     });
     return () => sub.remove();
-  }, [holdAnim]);
+  }, []);
 
   // Re-scramble when the app returns from background
   useEffect(() => {
@@ -400,38 +389,14 @@ export default function LockScreen() {
     setError(false);
   };
 
-  // ── Hold-to-decrypt reveal ─────────────────────────────────────────────────
-  // NOTE: the haptics here mark the *reveal* gesture, not a wipe. They are
+  // ── Tap-to-enter reveal ────────────────────────────────────────────────────
+  // NOTE: the haptic here marks the *reveal* gesture, not a wipe. It is
   // intentionally outside the panicWipe/duress paths, so the silence contract
   // (see scripts/check-panic-wipe-silence.js) is unaffected.
-  const cancelHold = () => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-    if (holdAnimRef.current) {
-      holdAnimRef.current.stop();
-      holdAnimRef.current = null;
-    }
-    Animated.timing(holdAnim, { toValue: 0, duration: 220, useNativeDriver: false }).start();
-  };
-
-  const startHold = () => {
+  const revealKeypad = () => {
     if (decryptRevealed || isVerifying || !failCountLoaded) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    holdAnim.setValue(0);
-    holdAnimRef.current = Animated.timing(holdAnim, {
-      toValue: 1,
-      duration: HOLD_DURATION,
-      useNativeDriver: false,
-    });
-    holdAnimRef.current.start();
-    holdTimerRef.current = setTimeout(() => {
-      holdTimerRef.current = null;
-      holdAnimRef.current = null;
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      setDecryptRevealed(true);
-    }, HOLD_DURATION);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setDecryptRevealed(true);
   };
 
   // Build 4-row grid:
@@ -564,6 +529,71 @@ export default function LockScreen() {
       letterSpacing: 2,
       marginTop: 16,
       textAlign: "center",
+    },
+
+    // ── Coin-spin entry gate ────────────────────────────────────────────────
+    compassWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 30,
+    },
+    compassImg: {
+      width: 244,
+      height: 244,
+    },
+    identityReady: {
+      fontFamily: MONO,
+      color: colors.primary,
+      fontSize: 11,
+      letterSpacing: 4,
+      marginTop: 6,
+      marginBottom: 18,
+    },
+    trialBadge: {
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: `${colors.primary}14`,
+      borderRadius: 999,
+      paddingHorizontal: 18,
+      paddingVertical: 6,
+      marginBottom: 28,
+    },
+    trialBadgeText: {
+      fontFamily: MONO,
+      color: colors.primary,
+      fontSize: 11,
+      letterSpacing: 3,
+      fontWeight: "700" as const,
+    },
+    enterBtn: {
+      backgroundColor: colors.primary,
+      paddingHorizontal: 64,
+      paddingVertical: 15,
+      borderRadius: colors.radius,
+      alignItems: "center",
+      shadowColor: colors.primary,
+      shadowOpacity: 0.4,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 4 },
+    },
+    enterBtnText: {
+      color: colors.primaryForeground,
+      fontSize: 15,
+      fontWeight: "800" as const,
+      letterSpacing: 6,
+    },
+    taglineRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+      marginTop: 30,
+    },
+    taglineText: {
+      fontFamily: MONO,
+      color: colors.mutedForeground,
+      fontSize: 11,
+      letterSpacing: 3,
+      fontWeight: "700" as const,
     },
 
     // ── Idle cipher seal (hold-to-decrypt) ──────────────────────────────────
@@ -708,89 +738,7 @@ export default function LockScreen() {
 
   return (
     <View style={styles.container}>
-      {hasPin && !decryptRevealed ? (
-        <>
-          <Pressable
-            onPressIn={startHold}
-            onPressOut={cancelHold}
-            style={styles.sealWrap}
-            testID="decrypt-seal"
-          >
-            <Animated.View
-              style={[
-                styles.sealRingOuter,
-                {
-                  borderColor: holdAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [colors.border, colors.primary],
-                  }),
-                  transform: [
-                    {
-                      scale: holdAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 1.04],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <View style={styles.sealRingInner}>
-                <View style={styles.sealLogo}>
-                  <GhostLogo size={84} color={colors.primary} />
-                </View>
-                <Animated.Text
-                  style={[
-                    styles.glyphRowA,
-                    {
-                      opacity: glyphAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.3, 0.7],
-                      }),
-                    },
-                  ]}
-                >
-                  {CIPHER_ROW_A}
-                </Animated.Text>
-                <Animated.Text
-                  style={[
-                    styles.glyphRowB,
-                    {
-                      opacity: glyphAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0.55, 0.25],
-                      }),
-                    },
-                  ]}
-                >
-                  {CIPHER_ROW_B}
-                </Animated.Text>
-              </View>
-            </Animated.View>
-            <Text style={styles.cipherLabel}>CIPHER · LOCKED</Text>
-          </Pressable>
-
-          <View style={styles.holdZone}>
-            <View style={styles.holdProgressTrack}>
-              <Animated.View
-                style={[
-                  styles.holdProgressFill,
-                  {
-                    width: holdAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ["0%", "100%"],
-                    }),
-                  },
-                ]}
-              />
-            </View>
-            <View style={styles.holdHintRow}>
-              <Ionicons name="lock-closed" size={12} color={colors.mutedForeground} />
-              <Text style={styles.holdHint}>HOLD · TO · DECRYPT</Text>
-            </View>
-          </View>
-        </>
-      ) : hasPin ? (
+      {hasPin && decryptRevealed ? (
         <>
           <View style={styles.logo}>
             <GhostLogo size={120} color={colors.primary} />
@@ -880,14 +828,47 @@ export default function LockScreen() {
         </>
       ) : (
         <>
-          <View style={styles.logo}>
-            <GhostLogo size={120} color={colors.primary} />
+          <Animated.View
+            style={[
+              styles.compassWrap,
+              {
+                transform: [
+                  { perspective: 900 },
+                  { rotateX: "14deg" },
+                  {
+                    rotateY: coinSpin.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ["0deg", "360deg"],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Image source={LOGIN_COMPASS} style={styles.compassImg} resizeMode="contain" />
+          </Animated.View>
+
+          <Text style={styles.appName}>GHOSTFACE</Text>
+          <Text style={styles.identityReady}>
+            {hasPin ? "IDENTITY KEY READY" : "NO PIN CONFIGURED"}
+          </Text>
+
+          <View style={styles.trialBadge}>
+            <Text style={styles.trialBadgeText}>7-DAY FREE TRIAL</Text>
           </View>
-          <Text style={styles.compactName}>GHOSTFACE</Text>
-          <Text style={styles.noPinHint}>NO PIN CONFIGURED</Text>
-          <Pressable style={styles.continueBtn} onPress={() => setLocked(false)} testID="no-pin-continue">
-            <Text style={styles.continueBtnText}>TAP TO CONTINUE</Text>
+
+          <Pressable
+            style={({ pressed }) => [styles.enterBtn, pressed && { opacity: 0.85 }]}
+            onPress={hasPin ? revealKeypad : () => setLocked(false)}
+            testID={hasPin ? "enter-btn" : "no-pin-continue"}
+          >
+            <Text style={styles.enterBtnText}>ENTER</Text>
           </Pressable>
+
+          <View style={styles.taglineRow}>
+            <Ionicons name="lock-closed" size={11} color={colors.mutedForeground} />
+            <Text style={styles.taglineText}>NO FACE. NO TRACE.</Text>
+          </View>
         </>
       )}
 
