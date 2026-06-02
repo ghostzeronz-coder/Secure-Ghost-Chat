@@ -199,9 +199,9 @@ export default function OnboardingScreen() {
     },
     promoBanner: {
       borderWidth: 1,
-      borderColor: "#00C8FF",
+      borderColor: "#d4af37",
       borderRadius: colors.radius,
-      backgroundColor: "rgba(0,200,255,0.07)",
+      backgroundColor: "rgba(212,175,55,0.07)",
       paddingHorizontal: 16,
       paddingVertical: 14,
       marginBottom: 20,
@@ -213,7 +213,7 @@ export default function OnboardingScreen() {
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: "rgba(0,200,255,0.15)",
+      backgroundColor: "rgba(212,175,55,0.15)",
       alignItems: "center",
       justifyContent: "center",
     },
@@ -221,7 +221,7 @@ export default function OnboardingScreen() {
       flex: 1,
     },
     promoLabel: {
-      color: "#00C8FF",
+      color: "#d4af37",
       fontSize: 10,
       fontWeight: "800" as const,
       letterSpacing: 3,
@@ -240,7 +240,7 @@ export default function OnboardingScreen() {
       marginTop: 2,
     },
     promoBadge: {
-      backgroundColor: "#00C8FF",
+      backgroundColor: "#d4af37",
       borderRadius: 4,
       paddingHorizontal: 8,
       paddingVertical: 3,
@@ -302,7 +302,7 @@ export default function OnboardingScreen() {
             {/* First Login Special — Free Ghost Number */}
             <View style={styles.promoBanner}>
               <View style={styles.promoIconWrap}>
-                <Ionicons name="call" size={18} color="#00C8FF" />
+                <Ionicons name="call" size={18} color="#d4af37" />
               </View>
               <View style={styles.promoTextWrap}>
                 <Text style={styles.promoLabel}>FIRST LOGIN SPECIAL</Text>

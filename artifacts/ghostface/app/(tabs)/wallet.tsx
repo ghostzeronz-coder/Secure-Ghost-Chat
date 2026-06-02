@@ -181,7 +181,7 @@ export default function WalletScreen() {
       backgroundColor: colors.card,
       borderRadius: colors.radius,
       borderWidth: 1,
-      borderColor: "#9945FF",
+      borderColor: "#8A8A8A",
       padding: 16,
     },
     linkedHeader: {
@@ -191,7 +191,7 @@ export default function WalletScreen() {
       marginBottom: 12,
     },
     linkedTitle: {
-      color: "#9945FF",
+      color: "#8A8A8A",
       fontSize: 10,
       letterSpacing: 3,
       fontWeight: "800" as const,
@@ -224,7 +224,7 @@ export default function WalletScreen() {
       letterSpacing: 1,
     },
     solLabel: {
-      color: "#9945FF",
+      color: "#8A8A8A",
       fontSize: 12,
       fontWeight: "700" as const,
       letterSpacing: 3,
@@ -274,7 +274,7 @@ export default function WalletScreen() {
       textAlign: "center",
     },
     connectBtn: {
-      backgroundColor: "#9945FF",
+      backgroundColor: "#8A8A8A",
       borderRadius: colors.radius,
       paddingVertical: 10,
       paddingHorizontal: 24,
@@ -506,7 +506,7 @@ export default function WalletScreen() {
       marginBottom: 12,
     },
     modalBtn: {
-      backgroundColor: "#9945FF",
+      backgroundColor: "#8A8A8A",
       borderRadius: colors.radius,
       paddingVertical: 14,
       alignItems: "center",
@@ -594,7 +594,7 @@ export default function WalletScreen() {
               <Text style={styles.solLabel}>SOL</Text>
             </View>
             <Pressable style={styles.linkedAddressRow} onPress={handleCopyConnected}>
-              <Ionicons name="wallet-outline" size={12} color="#9945FF" />
+              <Ionicons name="wallet-outline" size={12} color="#8A8A8A" />
               <Text style={styles.linkedAddress}>
                 {truncateAddress(connectedWalletAddress)}
               </Text>
@@ -680,7 +680,7 @@ export default function WalletScreen() {
           </Text>
           <Text style={styles.balanceToken}>{activeToken}</Text>
           <View style={styles.solBadge}>
-            <Ionicons name="radio-button-on" size={10} color="#9945FF" />
+            <Ionicons name="radio-button-on" size={10} color="#8A8A8A" />
             <Text style={styles.solText}>SOLANA NETWORK</Text>
           </View>
         </View>
@@ -728,12 +728,12 @@ export default function WalletScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.actionBtn,
-              { backgroundColor: pressed ? colors.muted : colors.card, borderColor: "#9945FF" },
+              { backgroundColor: pressed ? colors.muted : colors.card, borderColor: "#8A8A8A" },
             ]}
             onPress={handleBuy}
           >
-            <Ionicons name="card-outline" size={16} color="#9945FF" />
-            <Text style={[styles.actionBtnText, { color: "#9945FF" }]}>BUY</Text>
+            <Ionicons name="card-outline" size={16} color="#8A8A8A" />
+            <Text style={[styles.actionBtnText, { color: "#8A8A8A" }]}>BUY</Text>
           </Pressable>
         </View>
         <Text style={styles.buyHelp}>

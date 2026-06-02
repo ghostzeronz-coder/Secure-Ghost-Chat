@@ -664,7 +664,7 @@ export default function SettingsScreen() {
               <Text style={styles.settingLabel}>CURRENT PLAN</Text>
               <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, marginTop: 2 }}>GHOST — FREE  ·  ◎ USDC</Text>
             </View>
-            <View style={{ backgroundColor: "#9945FF", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <View style={{ backgroundColor: "#8A8A8A", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
               <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 2 }}>UPGRADE</Text>
             </View>
           </Pressable>
@@ -688,7 +688,7 @@ export default function SettingsScreen() {
               </Text>
             </View>
             {subscriptionStatus?.active && subscriptionStatus.plan ? (
-              <View style={{ backgroundColor: "#9945FF", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+              <View style={{ backgroundColor: "#8A8A8A", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
                 <Text style={{ color: "#fff", fontSize: 9, fontWeight: "800" as const, letterSpacing: 2 }}>{subscriptionStatus.plan.toUpperCase()}</Text>
               </View>
             ) : stripeEmail ? (
@@ -1119,11 +1119,11 @@ export default function SettingsScreen() {
                   />
                   <PinStrengthIndicator
                     pin={newPin}
-                    barColor={(level) => ["#ef4444", "#f59e0b", "#22c55e"][level]}
+                    barColor={(level) => ["#ef4444", "#d4af37", "#22c55e"][level]}
                     mutedColor={colors.border}
                   />
                   {pinSimilar && (
-                    <Text style={{ color: "#f59e0b", fontSize: 9, fontWeight: "800", letterSpacing: 2, marginTop: -8, marginBottom: 10 }}>
+                    <Text style={{ color: "#d4af37", fontSize: 9, fontWeight: "800", letterSpacing: 2, marginTop: -8, marginBottom: 10 }}>
                       TOO SIMILAR TO CURRENT PIN
                     </Text>
                   )}
@@ -1205,7 +1205,7 @@ export default function SettingsScreen() {
                   />
                   <PinStrengthIndicator
                     pin={duressPin}
-                    barColor={(level) => ["#ef4444", "#f59e0b", "#22c55e"][level]}
+                    barColor={(level) => ["#ef4444", "#d4af37", "#22c55e"][level]}
                     mutedColor={colors.border}
                   />
                   <TextInput

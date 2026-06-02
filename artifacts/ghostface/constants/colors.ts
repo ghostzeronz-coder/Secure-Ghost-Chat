@@ -1,68 +1,68 @@
 const colors = {
   dark: {
-    text: "#F0F0F0",
-    tint: "#00C8FF",
+    text: "#EDEDED",
+    tint: "#d4af37",
 
     background: "#000000",
-    foreground: "#F0F0F0",
+    foreground: "#EDEDED",
 
-    card: "#0D0D0D",
-    cardForeground: "#F0F0F0",
+    card: "#0A0A0A",
+    cardForeground: "#EDEDED",
 
-    primary: "#00C8FF",
+    primary: "#d4af37",
     primaryForeground: "#000000",
 
-    secondary: "#111111",
-    secondaryForeground: "#F0F0F0",
+    secondary: "#0F0F0F",
+    secondaryForeground: "#EDEDED",
 
-    muted: "#1A1A1A",
-    mutedForeground: "#666666",
+    muted: "#161616",
+    mutedForeground: "#6B6B6B",
 
-    accent: "#00C8FF",
+    accent: "#d4af37",
     accentForeground: "#000000",
 
     destructive: "#FF3B30",
     destructiveForeground: "#FFFFFF",
 
-    border: "#1E1E1E",
-    input: "#111111",
+    border: "#1C1C1C",
+    input: "#0F0F0F",
 
     success: "#00FF88",
-    warning: "#FFB800",
-    ghost: "#F0F0F0",
+    warning: "#d4af37",
+    ghost: "#EDEDED",
   },
 
   light: {
-    text: "#F0F0F0",
-    tint: "#00C8FF",
+    text: "#EDEDED",
+    tint: "#d4af37",
 
     background: "#000000",
-    foreground: "#F0F0F0",
+    foreground: "#EDEDED",
 
-    card: "#0D0D0D",
-    cardForeground: "#F0F0F0",
+    card: "#0A0A0A",
+    cardForeground: "#EDEDED",
 
-    primary: "#00C8FF",
+    primary: "#d4af37",
     primaryForeground: "#000000",
 
-    secondary: "#111111",
-    secondaryForeground: "#F0F0F0",
+    secondary: "#0F0F0F",
+    secondaryForeground: "#EDEDED",
 
-    muted: "#1A1A1A",
-    mutedForeground: "#666666",
+    muted: "#161616",
+    mutedForeground: "#6B6B6B",
 
-    accent: "#00C8FF",
+    accent: "#d4af37",
     accentForeground: "#000000",
 
     destructive: "#FF3B30",
     destructiveForeground: "#FFFFFF",
 
-    border: "#1E1E1E",
-    input: "#111111",
+    border: "#1C1C1C",
+    input: "#0F0F0F",
 
     success: "#00FF88",
-    warning: "#FFB800",
-    ghost: "#F0F0F0",
+    warning: "#d4af37",
+    ghost: "#EDEDED",
   },
 
   radius: 6,

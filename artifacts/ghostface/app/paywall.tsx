@@ -57,7 +57,7 @@ const PLANS: Plan[] = [
     badge: "POPULAR",
     priceUsdc: 9.99,
     priceNzd: 16.99,
-    color: "#00C8FF",
+    color: "#d4af37",
     recommended: true,
     features: [
       "Everything in GHOST",
@@ -225,7 +225,7 @@ export default function PaywallScreen() {
       paddingVertical: 8,
     },
     toggleBtnActive: {
-      backgroundColor: "#00C8FF",
+      backgroundColor: "#d4af37",
     },
     toggleTxt: { fontSize: 10, fontWeight: "800", letterSpacing: 2, color: colors.mutedForeground },
     toggleTxtActive: { color: "#000" },
@@ -236,11 +236,11 @@ export default function PaywallScreen() {
       borderRadius: 20,
       paddingHorizontal: 14,
       paddingVertical: 6,
-      backgroundColor: "rgba(153,69,255,0.12)",
+      backgroundColor: "rgba(138,138,138,0.12)",
       borderWidth: 1,
-      borderColor: "rgba(153,69,255,0.35)",
+      borderColor: "rgba(138,138,138,0.35)",
     },
-    networkTxt: { color: "#9945FF", fontSize: 10, fontWeight: "800", letterSpacing: 2 },
+    networkTxt: { color: "#8A8A8A", fontSize: 10, fontWeight: "800", letterSpacing: 2 },
     divider: { height: 1, backgroundColor: colors.border, marginHorizontal: 20 },
     scroll: { flex: 1 },
     plans: { padding: 16, gap: 14, paddingBottom: 40 },
@@ -384,21 +384,21 @@ export default function PaywallScreen() {
     },
     copyBtn: {
       flexDirection: "row", alignItems: "center", gap: 4,
-      backgroundColor: "#9945FF", borderRadius: 6,
+      backgroundColor: "#8A8A8A", borderRadius: 6,
       paddingHorizontal: 10, paddingVertical: 5,
     },
     copyTxt: { color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 1 },
     steps: {
-      width: "100%", backgroundColor: "rgba(153,69,255,0.07)",
+      width: "100%", backgroundColor: "rgba(138,138,138,0.07)",
       borderRadius: 12, padding: 14, gap: 10,
     },
     stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-    stepNum: { color: "#9945FF", fontSize: 11, fontWeight: "800", width: 18 },
+    stepNum: { color: "#8A8A8A", fontSize: 11, fontWeight: "800", width: 18 },
     stepTxt: { color: colors.mutedForeground, fontSize: 11, letterSpacing: 1, flex: 1 },
     sentBtn: {
       width: "100%", borderRadius: colors.radius,
       paddingVertical: 14, alignItems: "center",
-      backgroundColor: "#9945FF",
+      backgroundColor: "#8A8A8A",
     },
     sentBtnTxt: { color: "#fff", fontSize: 13, fontWeight: "800", letterSpacing: 3 },
     confirmedBox: {
@@ -528,12 +528,12 @@ export default function PaywallScreen() {
                       backgroundColor: plan.recommended
                         ? plan.color
                         : isPaid
-                        ? (payMethod === "card" ? "#00C8FF22" : "#9945FF22")
+                        ? (payMethod === "card" ? "#d4af3722" : "#8A8A8A22")
                         : "transparent",
                       borderWidth: isPaid && !plan.recommended ? 1 : plan.id === "ghost" ? 1 : 0,
                       borderColor: plan.id === "ghost"
                         ? plan.color
-                        : payMethod === "card" ? "#00C8FF" : "#9945FF",
+                        : payMethod === "card" ? "#d4af37" : "#8A8A8A",
                     },
                     pressed && { opacity: 0.8 },
                     loading !== null && { opacity: 0.6 },
@@ -544,13 +544,13 @@ export default function PaywallScreen() {
                   {isLoading ? (
                     <ActivityIndicator
                       size="small"
-                      color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : (payMethod === "card" ? "#00C8FF" : "#9945FF")}
+                      color={plan.recommended ? "#000" : plan.id === "ghost" ? plan.color : (payMethod === "card" ? "#d4af37" : "#8A8A8A")}
                     />
                   ) : (
                     <>
                       {isPaid ? (
                         payMethod === "card" ? (
-                          <Ionicons name="card" size={14} color={plan.recommended ? "#000" : "#00C8FF"} />
+                          <Ionicons name="card" size={14} color={plan.recommended ? "#000" : "#d4af37"} />
                         ) : (
                           <Text style={{ fontSize: 16 }}>◎</Text>
                         )
@@ -564,7 +564,7 @@ export default function PaywallScreen() {
                             color: plan.recommended
                               ? "#000"
                               : isPaid
-                              ? (payMethod === "card" ? "#00C8FF" : "#9945FF")
+                              ? (payMethod === "card" ? "#d4af37" : "#8A8A8A")
                               : plan.color,
                           },
                         ]}

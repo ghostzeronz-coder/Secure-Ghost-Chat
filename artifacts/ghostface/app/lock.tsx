@@ -25,6 +25,19 @@ const MAX_ATTEMPTS = 10;
 const WARN_FROM = 7;
 const FAIL_KEY = "ghostface_pin_fail_count";
 
+// ── Hold-to-decrypt reveal ────────────────────────────────────────────────────
+// The lock screen opens in an idle "CIPHER · LOCKED" state. Holding on the seal
+// for HOLD_DURATION ms decrypts it and reveals the secure PIN keypad. This is a
+// purely visual gate — all PIN / duress / wipe / biometric logic below is
+// untouched and only becomes reachable once the keypad is revealed.
+const HOLD_DURATION = 750;
+
+const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
+
+// Decorative cipher glyphs shown inside the locked seal.
+const CIPHER_ROW_A = "✛  ✕  ✕  ▢  ▢  ▦";
+const CIPHER_ROW_B = "⌗ ▢ ✕ ▮ ▸ ◂ ▮ ⌗ ▢ ◻ ⌗";
+
 // ── Secure storage helpers (web-safe) ─────────────────────────────────────────
 
 async function loadFailCount(): Promise<number> {
@@ -98,6 +111,15 @@ export default function LockScreen() {
   const failedAttemptsRef = useRef(0);
   const [failCountLoaded, setFailCountLoaded] = useState(false);
 
+  // Hold-to-decrypt reveal state. The keypad stays hidden behind the idle
+  // cipher seal until the user holds long enough to "decrypt" it.
+  const [decryptRevealed, setDecryptRevealed] = useState(false);
+  const holdAnim = useRef(new Animated.Value(0)).current;
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  // Subtle ambient shimmer of the cipher glyphs while locked.
+  const glyphAnim = useRef(new Animated.Value(0)).current;
+
   // Duress grace-period state
   const [duressCountdown, setDuressCountdown] = useState<number | null>(null);
   const duressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -111,8 +133,22 @@ export default function LockScreen() {
         duressAnimRef.current.stop();
         duressAnimRef.current = null;
       }
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      if (holdAnimRef.current) holdAnimRef.current.stop();
     };
   }, []);
+
+  // Ambient shimmer of the cipher glyphs while the seal is locked.
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glyphAnim, { toValue: 1, duration: 2200, useNativeDriver: true }),
+        Animated.timing(glyphAnim, { toValue: 0, duration: 2200, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [glyphAnim]);
 
   // Scrambled digit layout — randomised on every mount and app-foreground event
   const [digits, setDigits] = useState<string[]>(() => shuffleDigits());
@@ -147,6 +183,27 @@ export default function LockScreen() {
     setError(false);
     setBiometricError("");
   }, [scrambleAnim]);
+
+  // Re-seal the keypad behind the cipher screen whenever the app backgrounds.
+  // Also tear down any in-flight hold so an interrupted gesture can't complete
+  // and reveal the keypad after the app returns.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") {
+        setDecryptRevealed(false);
+        if (holdTimerRef.current) {
+          clearTimeout(holdTimerRef.current);
+          holdTimerRef.current = null;
+        }
+        if (holdAnimRef.current) {
+          holdAnimRef.current.stop();
+          holdAnimRef.current = null;
+        }
+        holdAnim.setValue(0);
+      }
+    });
+    return () => sub.remove();
+  }, [holdAnim]);
 
   // Re-scramble when the app returns from background
   useEffect(() => {
@@ -196,9 +253,12 @@ export default function LockScreen() {
     }
   };
 
+  // Only auto-prompt biometric once the user has decrypted the seal and the
+  // keypad is revealed — never on the idle cipher screen, so the hold-to-decrypt
+  // gesture stays the single entry point into the unlock flow.
   useEffect(() => {
-    if (biometricEnabled) tryBiometric();
-  }, []);
+    if (biometricEnabled && decryptRevealed) tryBiometric();
+  }, [decryptRevealed]);
 
   // ── PIN constants — supports 4–8 digit PINs ───────────────────────────────
   const MIN_PIN_LENGTH = 4;
@@ -340,6 +400,40 @@ export default function LockScreen() {
     setError(false);
   };
 
+  // ── Hold-to-decrypt reveal ─────────────────────────────────────────────────
+  // NOTE: the haptics here mark the *reveal* gesture, not a wipe. They are
+  // intentionally outside the panicWipe/duress paths, so the silence contract
+  // (see scripts/check-panic-wipe-silence.js) is unaffected.
+  const cancelHold = () => {
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    if (holdAnimRef.current) {
+      holdAnimRef.current.stop();
+      holdAnimRef.current = null;
+    }
+    Animated.timing(holdAnim, { toValue: 0, duration: 220, useNativeDriver: false }).start();
+  };
+
+  const startHold = () => {
+    if (decryptRevealed || isVerifying || !failCountLoaded) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    holdAnim.setValue(0);
+    holdAnimRef.current = Animated.timing(holdAnim, {
+      toValue: 1,
+      duration: HOLD_DURATION,
+      useNativeDriver: false,
+    });
+    holdAnimRef.current.start();
+    holdTimerRef.current = setTimeout(() => {
+      holdTimerRef.current = null;
+      holdAnimRef.current = null;
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      setDecryptRevealed(true);
+    }, HOLD_DURATION);
+  };
+
   // Build 4-row grid:
   // Row 0: digits[0..2]
   // Row 1: digits[3..5]
@@ -471,6 +565,90 @@ export default function LockScreen() {
       marginTop: 16,
       textAlign: "center",
     },
+
+    // ── Idle cipher seal (hold-to-decrypt) ──────────────────────────────────
+    sealWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sealRingOuter: {
+      width: 300,
+      height: 300,
+      borderRadius: 150,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+    },
+    sealRingInner: {
+      width: 230,
+      height: 230,
+      borderRadius: 115,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sealLogo: {
+      marginBottom: 18,
+    },
+    glyphRowA: {
+      fontFamily: MONO,
+      color: colors.mutedForeground,
+      fontSize: 15,
+      letterSpacing: 2,
+      marginBottom: 8,
+    },
+    glyphRowB: {
+      fontFamily: MONO,
+      color: colors.mutedForeground,
+      fontSize: 9,
+      letterSpacing: 3,
+      opacity: 0.7,
+    },
+    cipherLabel: {
+      fontFamily: MONO,
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 5,
+      marginTop: 40,
+    },
+    holdZone: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: insets.bottom + (Platform.OS === "web" ? 40 : 28),
+      alignItems: "center",
+    },
+    holdProgressTrack: {
+      width: 150,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: `${colors.mutedForeground}30`,
+      overflow: "hidden",
+      marginBottom: 14,
+    },
+    holdProgressFill: {
+      height: 2,
+      backgroundColor: colors.primary,
+    },
+    holdHintRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+    },
+    holdHint: {
+      fontFamily: MONO,
+      color: colors.mutedForeground,
+      fontSize: 10,
+      letterSpacing: 4,
+    },
+    compactName: {
+      color: colors.foreground,
+      fontSize: 16,
+      fontWeight: "800" as const,
+      letterSpacing: 5,
+      marginBottom: 24,
+    },
     duressBar: {
       position: "absolute",
       bottom: insets.bottom + (Platform.OS === "web" ? 34 : 16),
@@ -530,14 +708,94 @@ export default function LockScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.logo}>
-        <GhostLogo size={180} color="#FFB800" />
-      </View>
-      <Text style={styles.appName}>GHOSTFACE</Text>
-      <Text style={styles.tagline}>NO FACE. NO TRACE.</Text>
-
-      {hasPin ? (
+      {hasPin && !decryptRevealed ? (
         <>
+          <Pressable
+            onPressIn={startHold}
+            onPressOut={cancelHold}
+            style={styles.sealWrap}
+            testID="decrypt-seal"
+          >
+            <Animated.View
+              style={[
+                styles.sealRingOuter,
+                {
+                  borderColor: holdAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [colors.border, colors.primary],
+                  }),
+                  transform: [
+                    {
+                      scale: holdAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.04],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.sealRingInner}>
+                <View style={styles.sealLogo}>
+                  <GhostLogo size={84} color={colors.primary} />
+                </View>
+                <Animated.Text
+                  style={[
+                    styles.glyphRowA,
+                    {
+                      opacity: glyphAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.3, 0.7],
+                      }),
+                    },
+                  ]}
+                >
+                  {CIPHER_ROW_A}
+                </Animated.Text>
+                <Animated.Text
+                  style={[
+                    styles.glyphRowB,
+                    {
+                      opacity: glyphAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.55, 0.25],
+                      }),
+                    },
+                  ]}
+                >
+                  {CIPHER_ROW_B}
+                </Animated.Text>
+              </View>
+            </Animated.View>
+            <Text style={styles.cipherLabel}>CIPHER · LOCKED</Text>
+          </Pressable>
+
+          <View style={styles.holdZone}>
+            <View style={styles.holdProgressTrack}>
+              <Animated.View
+                style={[
+                  styles.holdProgressFill,
+                  {
+                    width: holdAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ["0%", "100%"],
+                    }),
+                  },
+                ]}
+              />
+            </View>
+            <View style={styles.holdHintRow}>
+              <Ionicons name="lock-closed" size={12} color={colors.mutedForeground} />
+              <Text style={styles.holdHint}>HOLD · TO · DECRYPT</Text>
+            </View>
+          </View>
+        </>
+      ) : hasPin ? (
+        <>
+          <View style={styles.logo}>
+            <GhostLogo size={120} color={colors.primary} />
+          </View>
+          <Text style={styles.compactName}>GHOSTFACE</Text>
           <Animated.View
             style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
           >
@@ -622,6 +880,10 @@ export default function LockScreen() {
         </>
       ) : (
         <>
+          <View style={styles.logo}>
+            <GhostLogo size={120} color={colors.primary} />
+          </View>
+          <Text style={styles.compactName}>GHOSTFACE</Text>
           <Text style={styles.noPinHint}>NO PIN CONFIGURED</Text>
           <Pressable style={styles.continueBtn} onPress={() => setLocked(false)} testID="no-pin-continue">
             <Text style={styles.continueBtnText}>TAP TO CONTINUE</Text>
@@ -629,7 +891,7 @@ export default function LockScreen() {
         </>
       )}
 
-      {biometricEnabled && hasPin && duressCountdown === null && (
+      {biometricEnabled && hasPin && decryptRevealed && duressCountdown === null && (
         <Pressable style={styles.biometricBtn} onPress={tryBiometric}>
           <Ionicons name="finger-print" size={22} color={colors.primary} />
           <Text style={styles.biometricText}>USE BIOMETRIC</Text>

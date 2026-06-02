@@ -1,0 +1,1 @@
+- [GHOSTFACE brand + lock screen](ghostface-brand-and-lock.md) — accent is gold #d4af37 (near-black monochrome); lock screen is an idle cipher seal that hold-to-decrypt reveals the secure keypad.
