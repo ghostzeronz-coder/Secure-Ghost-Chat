@@ -10,6 +10,7 @@ description: Durable design decisions for GHOSTFACE — accent color, lock-scree
 
 # Lock screen unlock model
 - Lock screen opens as an idle "CIPHER · LOCKED" seal; a hold-to-decrypt gesture reveals the secure PIN keypad. Backgrounding re-seals and cancels any in-flight hold. Biometric auto-prompt only fires after the seal is decrypted.
+- **Reveal is animated, re-seal is instant (deliberate asymmetry):** opening runs a short "decrypt" transition — keypad fades+scales in while the glyph rows rapidly re-shuffle (descramble) before settling. Re-sealing on background must stay immediate (no animation) and must cancel any pending descramble timers + reset the reveal value, so an interrupted reveal can't finish after the app returns.
 - **Silence contract (critical):** `panicWipe` and the duress `setInterval` callback must NEVER trigger Haptics/Audio/Toast/Alert — visual only. A repo guard script enforces this; run it after touching the lock screen or the app context. Hold-to-decrypt / navigation haptics are fine because they live outside those two paths.
 
 # Home screen = radial dial

@@ -153,6 +153,16 @@ export default function LockScreen() {
   // Animations
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const scrambleAnim = useRef(new Animated.Value(1)).current;
+  // Drives the "decrypt" transition when the seal opens into the keypad.
+  const revealAnim = useRef(new Animated.Value(0)).current;
+  const descrambleTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const clearDescramble = useCallback(() => {
+    descrambleTimers.current.forEach((t) => clearTimeout(t));
+    descrambleTimers.current = [];
+  }, []);
+
+  useEffect(() => clearDescramble, [clearDescramble]);
 
   // ── Load persisted fail count on mount ────────────────────────────────────
   useEffect(() => {
@@ -189,6 +199,8 @@ export default function LockScreen() {
       if (state !== "active") {
         // Re-seal the keypad behind the entry gate when the app backgrounds.
         setDecryptRevealed(false);
+        clearDescramble();
+        revealAnim.setValue(0);
       }
     });
     return () => sub.remove();
@@ -397,6 +409,21 @@ export default function LockScreen() {
     if (decryptRevealed || isVerifying || !failCountLoaded) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setDecryptRevealed(true);
+    // Decrypt transition: keypad fades/scales in while the glyph rows
+    // visibly descramble (rapid re-shuffles) before settling.
+    clearDescramble();
+    revealAnim.setValue(0);
+    Animated.timing(revealAnim, {
+      toValue: 1,
+      duration: 460,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+    for (let i = 1; i <= 5; i++) {
+      descrambleTimers.current.push(
+        setTimeout(() => setDigits(shuffleDigits()), i * 55),
+      );
+    }
   };
 
   // Build 4-row grid:
@@ -745,6 +772,21 @@ export default function LockScreen() {
           </View>
           <Text style={styles.compactName}>GHOSTFACE</Text>
           <Animated.View
+            style={{
+              width: "100%",
+              alignItems: "center",
+              opacity: revealAnim,
+              transform: [
+                {
+                  scale: revealAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.92, 1],
+                  }),
+                },
+              ],
+            }}
+          >
+          <Animated.View
             style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
           >
             {Array.from({ length: dotCount }).map((_, i) => (
@@ -810,6 +852,7 @@ export default function LockScreen() {
                 })}
               </View>
             ))}
+          </Animated.View>
           </Animated.View>
 
           {error && !showWipeWarning && (
