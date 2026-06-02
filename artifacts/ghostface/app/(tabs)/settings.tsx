@@ -1119,7 +1119,7 @@ export default function SettingsScreen() {
                   />
                   <PinStrengthIndicator
                     pin={newPin}
-                    barColor={(level) => ["#ef4444", "#d4af37", "#22c55e"][level]}
+                    barColor={(level) => ["#ef4444", "#d4af37", "#7dd3fc"][level]}
                     mutedColor={colors.border}
                   />
                   {pinSimilar && (
@@ -1205,7 +1205,7 @@ export default function SettingsScreen() {
                   />
                   <PinStrengthIndicator
                     pin={duressPin}
-                    barColor={(level) => ["#ef4444", "#d4af37", "#22c55e"][level]}
+                    barColor={(level) => ["#ef4444", "#d4af37", "#7dd3fc"][level]}
                     mutedColor={colors.border}
                   />
                   <TextInput

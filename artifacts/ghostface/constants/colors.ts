@@ -27,7 +27,7 @@ const colors = {
     border: "#1C1C1C",
     input: "#0F0F0F",
 
-    success: "#00FF88",
+    success: "#7dd3fc",
     warning: "#d4af37",
     ghost: "#EDEDED",
   },
@@ -60,7 +60,7 @@ const colors = {
     border: "#1C1C1C",
     input: "#0F0F0F",
 
-    success: "#00FF88",
+    success: "#7dd3fc",
     warning: "#d4af37",
     ghost: "#EDEDED",
   },

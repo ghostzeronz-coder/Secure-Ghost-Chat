@@ -535,11 +535,11 @@ export default function LockScreen() {
     compassWrap: {
       alignItems: "center",
       justifyContent: "center",
-      marginBottom: 30,
+      marginBottom: 14,
     },
     compassImg: {
-      width: 244,
-      height: 244,
+      width: 300,
+      height: 300,
     },
     identityReady: {
       fontFamily: MONO,
@@ -551,8 +551,8 @@ export default function LockScreen() {
     },
     trialBadge: {
       borderWidth: 1,
-      borderColor: colors.primary,
-      backgroundColor: `${colors.primary}14`,
+      borderColor: "#7dd3fc",
+      backgroundColor: "rgba(125,211,252,0.10)",
       borderRadius: 999,
       paddingHorizontal: 18,
       paddingVertical: 6,
@@ -560,7 +560,7 @@ export default function LockScreen() {
     },
     trialBadgeText: {
       fontFamily: MONO,
-      color: colors.primary,
+      color: "#7dd3fc",
       fontSize: 11,
       letterSpacing: 3,
       fontWeight: "700" as const,

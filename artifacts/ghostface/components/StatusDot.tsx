@@ -9,7 +9,7 @@ interface StatusDotProps {
 
 export function StatusDot({ active, size = 8, pulse = true }: StatusDotProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const color = active ? "#00FF88" : "#FF3B30";
+  const color = active ? "#7dd3fc" : "#FF3B30";
 
   useEffect(() => {
     if (!active || !pulse) {
