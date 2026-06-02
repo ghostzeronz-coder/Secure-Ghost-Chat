@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -279,28 +280,32 @@ export function PanicButton({ onWipe }: PanicButtonProps) {
           HOLD 3 SECONDS TO WIPE ALL DATA
         </Text>
         <Pressable
-          style={[
-            styles.btn,
-            { borderColor: colors.destructive, borderRadius: colors.radius },
-            panicHeld && styles.btnPressed,
+          style={({ pressed }) => [
+            styles.btnWrap,
+            { borderRadius: colors.radius },
+            pressed && { opacity: 0.9 },
           ]}
           onPressIn={startPanic}
           onPressOut={cancelPanic}
           testID="panic-btn"
         >
-          {panicHeld && (
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${panicProgress}%`, backgroundColor: `${colors.destructive}25` },
-              ]}
-            />
-          )}
-          <Ionicons name="nuclear-outline" size={28} color={colors.destructive} />
-          <Text style={[styles.btnText, { color: colors.destructive }]}>PANIC WIPE</Text>
-          <Text style={[styles.subText, { color: colors.destructive }]}>
-            {panicHeld ? "WIPING..." : "HOLD TO CLEAR ALL DATA"}
-          </Text>
+          <LinearGradient
+            colors={["#ff6b6b", "#ef4444", "#b91c1c", "#7f1d1d"]}
+            locations={[0, 0.45, 0.75, 1]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={[styles.btn, { borderRadius: colors.radius }]}
+          >
+            {panicHeld && (
+              <View
+                style={[styles.progressFill, { width: `${panicProgress}%` }]}
+              />
+            )}
+            <Ionicons name="nuclear-outline" size={22} color="#ffffff" />
+            <Text style={styles.btnText}>
+              {panicHeld ? "WIPING..." : "PANIC WIPE"}
+            </Text>
+          </LinearGradient>
         </Pressable>
       </View>
     </>
@@ -314,29 +319,33 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     textAlign: "center",
   },
+  btnWrap: {
+    borderWidth: 1,
+    borderColor: "#ffffff",
+    shadowColor: "#ef4444",
+    shadowOpacity: 0.45,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+  },
   btn: {
-    borderWidth: 2,
-    padding: 20,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 12,
+    paddingVertical: 17,
     overflow: "hidden",
   },
-  btnPressed: { backgroundColor: "transparent" },
   progressFill: {
     position: "absolute",
     left: 0,
     top: 0,
     bottom: 0,
+    backgroundColor: "rgba(255,255,255,0.22)",
   },
   btnText: {
-    fontSize: 14,
+    color: "#ffffff",
+    fontSize: 15,
     fontWeight: "800" as const,
-    letterSpacing: 4,
-  },
-  subText: {
-    fontSize: 10,
-    letterSpacing: 2,
-    marginTop: 4,
-    opacity: 0.7,
+    letterSpacing: 5,
   },
 });

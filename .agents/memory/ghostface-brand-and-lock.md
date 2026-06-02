@@ -21,4 +21,5 @@ description: Durable design decisions for GHOSTFACE — accent color, lock-scree
 # Home screen = radial dial
 - Home is a radial menu: a spinning, breathing-fade ghost-logo centerpiece with the nav destinations (messages, call, vpn, wallet, number, settings) arranged in a ring around it. The bottom tab bar is hidden on the home tab only (still present on the other tabs).
 - **Why:** user explicitly asked to drop the bottom menu on home and orbit the items around a rotating GF-logo circle.
-- **How to apply:** keep continuous animation loops gated by screen focus (start on focus, stop on blur) so they don't churn battery off-screen. Note the tradeoff: nav is always visible after unlock (the old hold-to-reveal gate was removed) — revisit if the threat model wants shoulder-surfing resistance.
+- The orbiting nav nodes are **hidden by default** behind a hold-to-reveal gesture (`menuOpen` state, toggled by long-pressing the center globe; `reveal` animation). Node **labels are white** (inactive `rgba(255,255,255,0.78)`, active `#ffffff`); node **icons stay gold**.
+- **How to apply:** keep continuous animation loops gated by screen focus (start on focus, stop on blur) so they don't churn battery off-screen. The center seal long-press is the reveal trigger — keep nav gated behind it for shoulder-surfing resistance.

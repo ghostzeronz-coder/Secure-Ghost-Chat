@@ -573,7 +573,7 @@ const styles = StyleSheet.create({
     fontFamily: FONT_MONO,
     fontSize: 9,
     letterSpacing: 2,
-    color: "rgba(191,155,48,0.65)",
+    color: "rgba(255,255,255,0.78)",
   },
-  nodeLabelActive: { color: GOLD },
+  nodeLabelActive: { color: "#ffffff" },
 });
