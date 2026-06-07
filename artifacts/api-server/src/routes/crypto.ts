@@ -1,51 +1,348 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { createHash } from "crypto";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { validateTransfer } from "@solana/pay";
+import BigNumber from "bignumber.js";
+import { eq, and } from "drizzle-orm";
+import {
+  db,
+  pool,
+  deviceTokensTable,
+  ghostPaymentsTable,
+  ghostEntitlementsTable,
+} from "@workspace/db";
+import { RateLimiter, getIpKey } from "../lib/rateLimiter";
+import { normalizeAlias } from "../utils/alias";
+import { logger } from "../lib/logger";
+import { toErrorMessage } from "../utils/error";
+import {
+  PLAN_PRICES,
+  USDC_MINT,
+  INTENT_TTL_MS,
+  TERM_DAYS,
+  isPlan,
+  getReceivingWallet,
+  isWalletConfigured,
+  getConnection,
+  buildSolanaPayUrl,
+  computeActiveUntil,
+} from "../lib/solanaPayments";
 
 const router: IRouter = Router();
 
-// Solana USDC mint address (mainnet)
-const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+// 10 payment intents per 10 minutes per IP.
+const intentLimiter = new RateLimiter({ windowMs: 10 * 60_000, max: 10 });
+// 60 status polls per minute per IP (client polls every few seconds).
+const statusLimiter = new RateLimiter({ windowMs: 60_000, max: 60 });
 
-// Receiving wallet — set GHOST_WALLET_ADDRESS env var to override
-const GHOST_WALLET =
-  process.env.GHOST_WALLET_ADDRESS || "GHosTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+async function runMigrations() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ghost_payments (
+      id            SERIAL PRIMARY KEY,
+      reference     TEXT NOT NULL UNIQUE,
+      user_id       TEXT NOT NULL,
+      plan          TEXT NOT NULL,
+      expected_usdc TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'pending',
+      signature     TEXT UNIQUE,
+      recipient     TEXT NOT NULL,
+      created_at    TIMESTAMP DEFAULT NOW(),
+      expires_at    TIMESTAMP NOT NULL,
+      confirmed_at  TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_ghost_payments_user ON ghost_payments(user_id);
+    CREATE TABLE IF NOT EXISTS ghost_entitlements (
+      user_id      TEXT PRIMARY KEY,
+      plan         TEXT NOT NULL,
+      active_until TIMESTAMP NOT NULL,
+      updated_at   TIMESTAMP DEFAULT NOW()
+    );
+  `);
+}
 
-const PLAN_PRICES: Record<string, { usdc: number; label: string }> = {
-  specter: { usdc: 9.99, label: "GHOSTFACE SPECTER" },
-  phantom: { usdc: 19.99, label: "GHOSTFACE PHANTOM" },
-};
+runMigrations().catch((err: unknown) => logger.error({ err }, "Crypto DB migration failed"));
 
-// GET /api/crypto/payment-info?plan=specter
-router.get("/crypto/payment-info", (req, res) => {
-  const plan = (req.query.plan as string)?.toLowerCase();
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
-  if (!plan || !PLAN_PRICES[plan]) {
-    return res.status(400).json({
-      error: "Invalid plan. Use ?plan=specter or ?plan=phantom",
-    });
+/** Resolve the authenticated alias from a Bearer device token + ?alias=. */
+async function getAuthedAlias(req: Request): Promise<string | null> {
+  const auth = req.headers.authorization ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!token) return null;
+  const alias = (req.query.alias as string | undefined) ?? (req.body?.alias as string | undefined);
+  if (!alias) return null;
+  const hash = hashToken(token);
+  const [row] = await db
+    .select()
+    .from(deviceTokensTable)
+    .where(
+      and(
+        eq(deviceTokensTable.userId, normalizeAlias(alias)),
+        eq(deviceTokensTable.tokenHash, hash),
+      ),
+    );
+  return row ? normalizeAlias(alias) : null;
+}
+
+/** True for a Postgres unique-constraint violation (replay), not a generic fault. */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: string }).code === "23505"
+  );
+}
+
+/**
+ * Repair a missing/expired entitlement without ever downgrading an active one.
+ * Used when reading an already-confirmed payment whose entitlement write may
+ * have been lost. Never overwrites a longer-lived entitlement.
+ */
+async function ensureEntitlement(userId: string, plan: string, activeUntil: Date): Promise<void> {
+  const [row] = await db
+    .select()
+    .from(ghostEntitlementsTable)
+    .where(eq(ghostEntitlementsTable.userId, userId));
+  if (!row || row.activeUntil.getTime() < activeUntil.getTime()) {
+    await db
+      .insert(ghostEntitlementsTable)
+      .values({ userId, plan, activeUntil, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: ghostEntitlementsTable.userId,
+        set: { plan, activeUntil, updatedAt: new Date() },
+      });
   }
+}
 
-  const { usdc, label } = PLAN_PRICES[plan];
-  const wallet = GHOST_WALLET;
+function entitlementPayload(plan: string, activeUntil: Date) {
+  return {
+    plan,
+    activeUntil: activeUntil.toISOString(),
+    active: activeUntil.getTime() > Date.now(),
+  };
+}
 
-  // Solana Pay URL — https://docs.solanapay.com/spec
-  const solanaPayUrl = [
-    `solana:${wallet}`,
-    `?amount=${usdc}`,
-    `&spl-token=${USDC_MINT}`,
-    `&label=${encodeURIComponent(label)}`,
-    `&memo=${encodeURIComponent(plan.toUpperCase())}`,
-    `&reference=${encodeURIComponent(wallet)}`,
-  ].join("");
+// ── POST /api/crypto/payment-intent ──────────────────────────────────────────
+// Authenticated. Creates a unique payment request and returns the Solana Pay
+// URL (with a per-payment reference), amount, wallet, and expiry.
+router.post("/crypto/payment-intent", async (req: Request, res: Response) => {
+  try {
+    if (!intentLimiter.check(getIpKey(req))) {
+      return res.status(429).json({ error: "Too many payment requests. Try again shortly." });
+    }
+    if (!isWalletConfigured()) {
+      return res
+        .status(503)
+        .json({ error: "Payments are not configured. Set GHOST_WALLET_ADDRESS." });
+    }
+    const alias = await getAuthedAlias(req);
+    if (!alias) return res.status(401).json({ error: "Unauthorized" });
 
-  return res.json({
-    wallet,
-    usdc,
-    currency: "USDC",
-    network: "Solana",
-    usdcMint: USDC_MINT,
-    label,
-    solanaPayUrl,
-  });
+    const plan = (req.body?.plan as string | undefined)?.toLowerCase();
+    if (!isPlan(plan)) {
+      return res.status(400).json({ error: "Invalid plan. Use specter or phantom." });
+    }
+
+    const wallet = getReceivingWallet() as string;
+    const { usdc, label } = PLAN_PRICES[plan];
+
+    // Unique per-payment reference — a throwaway Solana public key.
+    const reference = Keypair.generate().publicKey.toBase58();
+    const expiresAt = new Date(Date.now() + INTENT_TTL_MS);
+
+    await db.insert(ghostPaymentsTable).values({
+      reference,
+      userId: alias,
+      plan,
+      expectedUsdc: String(usdc),
+      status: "pending",
+      recipient: wallet,
+      expiresAt,
+    });
+
+    const solanaPayUrl = buildSolanaPayUrl({
+      recipient: wallet,
+      amountUsdc: usdc,
+      reference,
+      label,
+      memo: plan.toUpperCase(),
+    });
+
+    return res.json({
+      reference,
+      wallet,
+      usdc,
+      currency: "USDC",
+      network: "Solana",
+      usdcMint: USDC_MINT,
+      label,
+      solanaPayUrl,
+      expiresAt: expiresAt.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "payment-intent failed");
+    return res.status(500).json({ error: toErrorMessage(err) });
+  }
+});
+
+// ── GET /api/crypto/payment-status?alias=&reference= ─────────────────────────
+// Authenticated. Locates the transaction on-chain by reference, validates
+// recipient / USDC mint / exact amount, then marks confirmed + records the
+// entitlement. Returns pending | confirmed | expired.
+router.get("/crypto/payment-status", async (req: Request, res: Response) => {
+  try {
+    if (!statusLimiter.check(getIpKey(req))) {
+      return res.status(429).json({ error: "Too many status checks. Slow down." });
+    }
+    const alias = await getAuthedAlias(req);
+    if (!alias) return res.status(401).json({ error: "Unauthorized" });
+
+    const reference = (req.query.reference as string | undefined)?.trim();
+    if (!reference) return res.status(400).json({ error: "reference required" });
+
+    const [payment] = await db
+      .select()
+      .from(ghostPaymentsTable)
+      .where(
+        and(eq(ghostPaymentsTable.reference, reference), eq(ghostPaymentsTable.userId, alias)),
+      );
+
+    if (!payment) return res.status(404).json({ error: "Payment request not found" });
+
+    // Already confirmed — repair the entitlement if a prior write was lost,
+    // then return it. ensureEntitlement never downgrades a longer entitlement.
+    if (payment.status === "confirmed") {
+      const activeUntil = computeActiveUntil(payment.confirmedAt ?? new Date());
+      await ensureEntitlement(payment.userId, payment.plan, activeUntil);
+      return res.json({
+        status: "confirmed",
+        signature: payment.signature,
+        entitlement: entitlementPayload(payment.plan, activeUntil),
+      });
+    }
+
+    // Expire stale pending requests before hitting the chain.
+    if (payment.status === "expired" || payment.expiresAt.getTime() < Date.now()) {
+      if (payment.status !== "expired") {
+        await db
+          .update(ghostPaymentsTable)
+          .set({ status: "expired" })
+          .where(eq(ghostPaymentsTable.id, payment.id));
+      }
+      return res.json({ status: "expired" });
+    }
+
+    // Locate every candidate transaction carrying this reference and validate
+    // each one (recipient / USDC mint / exact amount) at `finalized` commitment.
+    // A single reference normally has one transfer, but scanning all candidates
+    // means one failed/invalid tx can't permanently block a valid one.
+    const connection = getConnection();
+    const referencePubkey = new PublicKey(reference);
+    const candidates = await connection.getSignaturesForAddress(
+      referencePubkey,
+      { limit: 20 },
+      "finalized",
+    );
+
+    let validSignature: string | null = null;
+    for (const candidate of candidates) {
+      if (candidate.err) continue; // tx failed on-chain
+      try {
+        await validateTransfer(
+          connection,
+          candidate.signature,
+          {
+            recipient: new PublicKey(payment.recipient),
+            amount: new BigNumber(payment.expectedUsdc),
+            splToken: new PublicKey(USDC_MINT),
+            reference: referencePubkey,
+          },
+          { commitment: "finalized" },
+        );
+        validSignature = candidate.signature;
+        break;
+      } catch (err) {
+        // This candidate doesn't satisfy the payment requirements; keep looking.
+        logger.warn(
+          { err: toErrorMessage(err), reference, signature: candidate.signature },
+          "candidate transfer validation failed",
+        );
+      }
+    }
+
+    // No finalized, valid transfer yet — a correct one may still arrive.
+    if (!validSignature) {
+      return res.json({ status: "pending" });
+    }
+
+    // Confirmed. Mark the payment and grant the entitlement in a single
+    // transaction so a paid user can never be left without an entitlement. The
+    // UNIQUE signature constraint enforces one redemption per on-chain
+    // transaction (replay protection).
+    const confirmedAt = new Date();
+    const activeUntil = computeActiveUntil(confirmedAt);
+    try {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(ghostPaymentsTable)
+          .set({ status: "confirmed", signature: validSignature, confirmedAt })
+          .where(eq(ghostPaymentsTable.id, payment.id));
+        await tx
+          .insert(ghostEntitlementsTable)
+          .values({ userId: alias, plan: payment.plan, activeUntil, updatedAt: new Date() })
+          .onConflictDoUpdate({
+            target: ghostEntitlementsTable.userId,
+            set: { plan: payment.plan, activeUntil, updatedAt: new Date() },
+          });
+      });
+    } catch (err) {
+      // Signature already redeemed (UNIQUE violation) → reject the replay.
+      if (isUniqueViolation(err)) {
+        logger.warn({ err: toErrorMessage(err), reference }, "duplicate signature redemption");
+        return res.json({ status: "pending" });
+      }
+      // Any other DB failure is a real fault — surface it.
+      throw err;
+    }
+
+    return res.json({
+      status: "confirmed",
+      signature: validSignature,
+      entitlement: entitlementPayload(payment.plan, activeUntil),
+    });
+  } catch (err) {
+    logger.error({ err }, "payment-status failed");
+    return res.status(500).json({ error: toErrorMessage(err) });
+  }
+});
+
+// ── GET /api/crypto/entitlement?alias= ───────────────────────────────────────
+// Authenticated. Returns the user's current active plan (or null).
+router.get("/crypto/entitlement", async (req: Request, res: Response) => {
+  try {
+    const alias = await getAuthedAlias(req);
+    if (!alias) return res.status(401).json({ error: "Unauthorized" });
+
+    const [row] = await db
+      .select()
+      .from(ghostEntitlementsTable)
+      .where(eq(ghostEntitlementsTable.userId, alias));
+
+    if (!row || row.activeUntil.getTime() <= Date.now()) {
+      return res.json({ entitlement: null, termDays: TERM_DAYS });
+    }
+
+    return res.json({
+      entitlement: entitlementPayload(row.plan, row.activeUntil),
+      termDays: TERM_DAYS,
+    });
+  } catch (err) {
+    logger.error({ err }, "entitlement failed");
+    return res.status(500).json({ error: toErrorMessage(err) });
+  }
 });
 
 export default router;

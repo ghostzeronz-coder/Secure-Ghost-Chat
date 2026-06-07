@@ -383,6 +383,11 @@ export interface IncomingCall {
 interface AppState {
   alias: string | null;
   deviceToken: string | null;
+  /**
+   * Active paid-plan entitlement, verified on-chain (Task #133). `null` while
+   * on the free tier or once a paid term has lapsed. `activeUntil` is epoch ms.
+   */
+  activePlan: { plan: string; activeUntil: number } | null;
   biometricEnabled: boolean;
   isLocked: boolean;
   isOnboarded: boolean;
@@ -456,6 +461,8 @@ interface AppContextType extends AppState {
   setLowBandwidthMode: (mode: LowBandwidthMode) => Promise<void>;
   setSmsFallbackNumbers: (numbers: string[]) => Promise<void>;
   setSmsFallbackMessage: (message: string) => Promise<void>;
+  /** Re-fetch the on-chain-verified plan entitlement from the server. */
+  refreshEntitlement: () => Promise<void>;
   sendCallSignal: (msg: object) => void;
   registerCallListener: (fn: ((s: CallSignal) => void) | null) => void;
   dismissIncomingCall: () => void;
@@ -902,6 +909,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>({
     alias: null,
     deviceToken: null,
+    activePlan: null,
     biometricEnabled: false,
     isLocked: true,
     isOnboarded: false,
@@ -1508,6 +1516,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       throw err;
     }
   }, []);
+
+  const refreshEntitlement = useCallback(async () => {
+    const apiBase = getApiBase();
+    const { alias, deviceToken } = state;
+    if (!apiBase || !alias || !deviceToken) return;
+    try {
+      const res = await fetch(
+        `${apiBase}/crypto/entitlement?alias=${encodeURIComponent(alias)}`,
+        { headers: { Authorization: `Bearer ${deviceToken}` } },
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        entitlement: { plan: string; activeUntil: string; active: boolean } | null;
+      };
+      const ent = data.entitlement;
+      const activePlan =
+        ent && ent.active
+          ? { plan: ent.plan, activeUntil: new Date(ent.activeUntil).getTime() }
+          : null;
+      setState((prev) => ({ ...prev, activePlan }));
+    } catch (err) {
+      console.warn("[AppContext] Failed to refresh entitlement:", err);
+    }
+  }, [state.alias, state.deviceToken]);
+
+  // Load the on-chain-verified plan entitlement once the device is authed.
+  useEffect(() => {
+    if (state.alias && state.deviceToken) {
+      void refreshEntitlement();
+    }
+  }, [state.alias, state.deviceToken, refreshEntitlement]);
 
   const setDuressGracePeriod = useCallback(async (seconds: number) => {
     const VALID_GRACE = [1, 2, 3, 5];
@@ -2164,6 +2203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState({
       alias: null,
       deviceToken: null,
+      activePlan: null,
       biometricEnabled: false,
       isLocked: false,
       isOnboarded: false,
@@ -3053,6 +3093,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLowBandwidthMode,
         setSmsFallbackNumbers,
         setSmsFallbackMessage,
+        refreshEntitlement,
         wsConnected,
         loaded,
         vpnAutoReconnecting,

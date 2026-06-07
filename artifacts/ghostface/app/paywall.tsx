@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -17,6 +17,7 @@ import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GhostLogo } from "@/components/GhostLogo";
 import { GoldGradient } from "@/components/GoldGradient";
+import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 
 const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
@@ -80,12 +81,14 @@ const PLANS: Plan[] = [
 ];
 
 interface CryptoInfo {
+  reference: string;
   wallet: string;
   usdc: number;
   currency: string;
   network: string;
   solanaPayUrl: string;
   label: string;
+  expiresAt: string;
 }
 
 interface ActivePayment {
@@ -93,20 +96,26 @@ interface ActivePayment {
   info: CryptoInfo;
 }
 
+type PaymentStatus = "waiting" | "confirmed" | "expired";
+
+const POLL_INTERVAL_MS = 5000;
+
 export default function PaywallScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+
+  const { alias, deviceToken, refreshEntitlement } = useApp();
 
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activePayment, setActivePayment] = useState<ActivePayment | null>(null);
   const [copied, setCopied] = useState(false);
-  const [paymentSent, setPaymentSent] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("waiting");
   const slideAnim = useRef(new Animated.Value(600)).current;
 
   const openPayment = useCallback((ap: ActivePayment) => {
     setActivePayment(ap);
-    setPaymentSent(false);
+    setPaymentStatus("waiting");
     setCopied(false);
     Animated.spring(slideAnim, {
       toValue: 0,
@@ -136,20 +145,70 @@ export default function PaywallScreen() {
       router.back();
       return;
     }
+    if (!alias || !deviceToken) {
+      setError("Set up your identity before purchasing a plan.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return;
+    }
     try {
       setLoading(plan.id);
       setError(null);
-      const res = await fetch(`${API_BASE}/crypto/payment-info?plan=${plan.id}`);
+      const res = await fetch(`${API_BASE}/crypto/payment-intent`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${deviceToken}`,
+        },
+        body: JSON.stringify({ plan: plan.id, alias }),
+      });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not load payment info");
+      if (!res.ok) throw new Error(data.error || "Could not start payment");
       openPayment({ plan, info: data });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Payment info unavailable. Try again.");
+      setError(err instanceof Error ? err.message : "Payment unavailable. Try again.");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(null);
     }
   };
+
+  // Poll on-chain payment status while the sheet is open and still waiting.
+  useEffect(() => {
+    if (!activePayment || paymentStatus !== "waiting") return;
+    if (!alias || !deviceToken) return;
+
+    let cancelled = false;
+    const { reference } = activePayment.info;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/crypto/payment-status?alias=${encodeURIComponent(alias)}&reference=${encodeURIComponent(reference)}`,
+          { headers: { Authorization: `Bearer ${deviceToken}` } },
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { status: PaymentStatus };
+        if (cancelled) return;
+        if (data.status === "confirmed") {
+          setPaymentStatus("confirmed");
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          void refreshEntitlement();
+        } else if (data.status === "expired") {
+          setPaymentStatus("expired");
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+        }
+      } catch {
+        // Network hiccup — keep polling.
+      }
+    };
+
+    void poll();
+    const id = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [activePayment, paymentStatus, alias, deviceToken, refreshEntitlement]);
 
   const copyAddress = useCallback(async (addr: string) => {
     await Clipboard.setStringAsync(addr);
@@ -326,6 +385,20 @@ export default function PaywallScreen() {
     },
     confirmedTxt: { color: colors.success, fontSize: 13, fontWeight: "800", letterSpacing: 3 },
     confirmedSub: { color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, textAlign: "center" },
+    waitingBox: {
+      width: "100%", borderRadius: colors.radius, padding: 16,
+      backgroundColor: "rgba(138,138,138,0.07)",
+      borderWidth: 1, borderColor: colors.border,
+      alignItems: "center", gap: 6,
+    },
+    waitingTxt: { color: "#8A8A8A", fontSize: 13, fontWeight: "800", letterSpacing: 3 },
+    expiredBox: {
+      width: "100%", borderRadius: colors.radius, padding: 16,
+      backgroundColor: "rgba(255,59,48,0.07)",
+      borderWidth: 1, borderColor: colors.destructive,
+      alignItems: "center", gap: 6,
+    },
+    expiredTxt: { color: colors.destructive, fontSize: 13, fontWeight: "800", letterSpacing: 3 },
   });
 
   return (
@@ -509,7 +582,7 @@ export default function PaywallScreen() {
                     "Open Phantom, Backpack, or any Solana wallet",
                     `Send exactly ${activePayment.info.usdc} USDC to the address above`,
                     "Scan the QR code or paste the address manually",
-                    "Your plan activates within 1–3 minutes after confirmation",
+                    "Verification is automatic — no need to confirm manually",
                   ].map((step, i) => (
                     <View key={i} style={s.stepRow}>
                       <Text style={s.stepNum}>{i + 1}.</Text>
@@ -518,26 +591,49 @@ export default function PaywallScreen() {
                   ))}
                 </View>
 
-                {/* Confirm */}
-                {paymentSent ? (
+                {/* Live verification status */}
+                {paymentStatus === "confirmed" ? (
                   <View style={s.confirmedBox}>
                     <Ionicons name="checkmark-circle" size={28} color={colors.success} />
-                    <Text style={s.confirmedTxt}>PAYMENT SENT</Text>
+                    <Text style={s.confirmedTxt}>PAYMENT CONFIRMED</Text>
                     <Text style={s.confirmedSub}>
-                      ACTIVATING {activePayment.plan.name}…{"\n"}
-                      CHECKING SOLANA NETWORK (1–3 MIN)
+                      {activePayment.plan.name} UNLOCKED{"\n"}
+                      VERIFIED ON SOLANA
                     </Text>
+                    <Pressable
+                      style={({ pressed }) => [s.sentBtn, pressed && { opacity: 0.8 }]}
+                      onPress={() => {
+                        closePayment();
+                        router.back();
+                      }}
+                    >
+                      <Text style={s.sentBtnTxt}>DONE</Text>
+                    </Pressable>
+                  </View>
+                ) : paymentStatus === "expired" ? (
+                  <View style={s.expiredBox}>
+                    <Ionicons name="time-outline" size={26} color={colors.destructive} />
+                    <Text style={s.expiredTxt}>PAYMENT NOT DETECTED</Text>
+                    <Text style={s.confirmedSub}>
+                      THIS REQUEST EXPIRED{"\n"}
+                      START A NEW PAYMENT TO TRY AGAIN
+                    </Text>
+                    <Pressable
+                      style={({ pressed }) => [s.sentBtn, pressed && { opacity: 0.8 }]}
+                      onPress={closePayment}
+                    >
+                      <Text style={s.sentBtnTxt}>CLOSE</Text>
+                    </Pressable>
                   </View>
                 ) : (
-                  <Pressable
-                    style={({ pressed }) => [s.sentBtn, pressed && { opacity: 0.8 }]}
-                    onPress={() => {
-                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                      setPaymentSent(true);
-                    }}
-                  >
-                    <Text style={s.sentBtnTxt}>I'VE SENT THE PAYMENT</Text>
-                  </Pressable>
+                  <View style={s.waitingBox}>
+                    <ActivityIndicator size="small" color="#8A8A8A" />
+                    <Text style={s.waitingTxt}>WAITING FOR PAYMENT</Text>
+                    <Text style={s.confirmedSub}>
+                      CHECKING SOLANA NETWORK…{"\n"}
+                      THIS UNLOCKS AUTOMATICALLY ONCE CONFIRMED
+                    </Text>
+                  </View>
                 )}
               </View>
             </ScrollView>
