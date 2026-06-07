@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -156,8 +156,8 @@ export default function GhostNumberScreen() {
       if (!res.ok) throw new Error(json.error ?? "Provisioning failed");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await fetchNumbers();
-    } catch (err: any) {
-      Alert.alert("ERROR", err.message);
+    } catch (err) {
+      Alert.alert("ERROR", err instanceof Error ? err.message : "Something went wrong");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setProvisioning(false);
@@ -184,8 +184,8 @@ export default function GhostNumberScreen() {
               if (!res.ok) throw new Error(json.error ?? "Release failed");
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               await fetchNumbers();
-            } catch (err: any) {
-              Alert.alert("ERROR", err.message);
+            } catch (err) {
+              Alert.alert("ERROR", err instanceof Error ? err.message : "Something went wrong");
             } finally {
               setReleasing(null);
             }
@@ -214,8 +214,8 @@ export default function GhostNumberScreen() {
       setNumbers((prev) =>
         prev.map((n) => (n.id === number.id ? { ...n, ...json.data } : n))
       );
-    } catch (err: any) {
-      Alert.alert("ERROR", err.message);
+    } catch (err) {
+      Alert.alert("ERROR", err instanceof Error ? err.message : "Something went wrong");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setSavingRotation(null);
@@ -243,8 +243,8 @@ export default function GhostNumberScreen() {
               setNumbers((prev) =>
                 prev.map((n) => (n.id === number.id ? { ...n, ...json.data } : n))
               );
-            } catch (err: any) {
-              Alert.alert("ERROR", err.message);
+            } catch (err) {
+              Alert.alert("ERROR", err instanceof Error ? err.message : "Something went wrong");
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             } finally {
               setRotatingNow(null);

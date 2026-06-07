@@ -3,12 +3,10 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as Clipboard from "expo-clipboard";
 import * as WebBrowser from "expo-web-browser";
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
-  Linking,
   Modal,
   Platform,
   Pressable,

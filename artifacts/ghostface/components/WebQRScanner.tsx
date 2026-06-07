@@ -73,13 +73,14 @@ export function WebQRScanner({ visible, onClose, onDecoded, flash }: Props) {
           rafRef.current = requestAnimationFrame(tick);
         };
         rafRef.current = requestAnimationFrame(tick);
-      } catch (err: any) {
+      } catch (err) {
         if (cancelled) return;
-        const msg = err?.name === "NotAllowedError"
+        const isDenied = err instanceof Error && err.name === "NotAllowedError";
+        const msg = isDenied
           ? "Camera permission denied. Allow access in your browser to scan."
-          : err?.message ?? "Could not start camera";
+          : (err instanceof Error ? err.message : undefined) ?? "Could not start camera";
         setError(msg);
-        setPermState(err?.name === "NotAllowedError" ? "denied" : "idle");
+        setPermState(isDenied ? "denied" : "idle");
       }
     };
 

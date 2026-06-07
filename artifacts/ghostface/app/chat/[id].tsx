@@ -256,7 +256,6 @@ export default function ChatScreen() {
     if (!conv?.disappearAfterSec) return;
     const timer = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conv?.id, conv?.disappearAfterSec]);
 
   if (!conv) {

@@ -143,8 +143,8 @@ export default function PaywallScreen() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not load payment info");
       openPayment({ plan, info: data });
-    } catch (err: any) {
-      setError(err.message || "Payment info unavailable. Try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Payment info unavailable. Try again.");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setLoading(null);

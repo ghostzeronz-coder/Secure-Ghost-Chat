@@ -130,7 +130,7 @@ export default function GhostInvite() {
   const handleRedeemChange = (text: string) => {
     setRedeemState("idle");
     const upper = text.toUpperCase().replace(/[^A-Z2-9-]/g, "");
-    let formatted = upper;
+    let formatted: string;
     const raw = upper.replace(/-/g, "");
     if (raw.length <= 2) {
       formatted = raw;

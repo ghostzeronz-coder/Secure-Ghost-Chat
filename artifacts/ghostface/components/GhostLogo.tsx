@@ -7,7 +7,7 @@ interface GhostLogoProps {
   color?: string;
 }
 
-export function GhostLogo({ size = 64, color }: GhostLogoProps) {
+export function GhostLogo({ size = 64 }: GhostLogoProps) {
   const opacity = useRef(new Animated.Value(1)).current;
   const scale = useRef(new Animated.Value(1)).current;
   const loopRef = useRef<Animated.CompositeAnimation | null>(null);

@@ -2,12 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 import {
   ActionSheetIOS,
   Alert,
-  Animated,
   Modal,
   Platform,
   Pressable,
@@ -859,7 +858,7 @@ export default function SettingsScreen() {
               { icon: "moon-outline", label: "THEME", value: "DARK" },
               { icon: "glasses-outline", label: "GHOST MODE", value: "ENABLED" },
             ] as Array<{ icon: React.ComponentProps<typeof Ionicons>["name"]; label: string; value: string }>
-          ).map((item, idx) => (
+          ).map((item) => (
             <View key={item.label}>
               <View style={styles.settingRow}>
                 <View style={styles.settingIcon}>

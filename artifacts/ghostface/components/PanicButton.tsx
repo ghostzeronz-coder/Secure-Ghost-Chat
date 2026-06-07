@@ -6,7 +6,6 @@ import {
   Animated,
   Dimensions,
   Easing,
-  Image,
   Modal,
   Pressable,
   StyleSheet,

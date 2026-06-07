@@ -17,6 +17,9 @@ export default tseslint.config(
         },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
+      // React Native loads static assets and platform-specific native modules
+      // via require(); this is idiomatic and not a code-quality concern.
+      "@typescript-eslint/no-require-imports": "off",
       // console.warn / console.error are legitimate diagnostics in this app;
       // flag stray console.log/debug/info so they don't accumulate.
       "no-console": ["warn", { allow: ["warn", "error"] }],

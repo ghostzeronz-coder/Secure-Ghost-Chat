@@ -638,7 +638,6 @@ async function registerWithServer(
     }
 
     const data = await res.json() as { token: string; userId: string };
-    console.log(`[REGISTER] Registered ${userId} with server (SPK + ML-KEM prekey signed with Ed25519 IK)`);
     return {
       token:        data.token,
       ikPriv:       ik.priv,
@@ -700,7 +699,6 @@ async function rekeyWithServer(
       console.warn("[REKEY] Server rekey failed:", res.status);
       return null;
     }
-    console.log("[REKEY] Identity keys rotated for", userId);
     return { ikPriv: ik.priv, ikPub: ik.pub, spkPriv: spk.priv, spkPub: spk.pub, ikSignPriv: ikSign.priv, ikSignPub: ikSign.pub, spkSignature: spkSig, pqkemPriv: pqkem.priv, pqkemPub: pqkem.pub };
   } catch (e) {
     console.warn("[REKEY] Failed:", e);
@@ -731,9 +729,7 @@ async function generateAndUploadOPKs(userId: string, deviceToken: string): Promi
       },
       body: JSON.stringify({ keys: opks.map((k) => k.pub) }),
     });
-    if (res.ok) {
-      console.log(`[OPK] Uploaded ${opks.length} OPKs for ${userId}`);
-    } else {
+    if (!res.ok) {
       console.warn(`[OPK] Upload returned ${res.status} for ${userId}`);
     }
   } catch (err) {
@@ -810,14 +806,6 @@ async function fetchContactBundle(
       pqkemSignature:  data.pqkemSignature,
       deliveryId:      data.deliveryId,
     };
-
-    const sigStatus = data.spkSignature ? "✓ SPK signature present" : "⚠ no SPK signature (legacy)";
-    const pqStatus = data.pqkemPublicKey ? " · ⚛ ML-KEM prekey present" : " · no PQ prekey (classical)";
-    console.log(
-      opkPublicKey
-        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias} — ${sigStatus}${pqStatus}`
-        : `[BUNDLE] 3-DH bundle fetched for ${contactAlias} — ${sigStatus} (no OPKs remaining on server)${pqStatus}`,
-    );
 
     return bundle;
   } catch (err) {
@@ -1117,7 +1105,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   await secureSet(MY_PQKEM_PUB_KEY,  reg.pqkemPub);
                   setState((prev) => ({ ...prev, deviceToken: reg.token }));
                   await generateAndUploadOPKs(alias, reg.token);
-                  console.log("[AppContext] Re-registration recovered identity for", alias);
                 }
                 return;
               }
@@ -1134,7 +1121,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   await secureSet(MY_PQKEM_PRIV_KEY, rekey.pqkemPriv);
                   await secureSet(MY_PQKEM_PUB_KEY,  rekey.pqkemPub);
                   await generateAndUploadOPKs(alias, token);
-                  console.log("[AppContext] Rekey recovered identity for", alias);
                 }
                 return;
               }
@@ -1890,7 +1876,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Step 1: The contact MUST exist on the server as a real, registered user.
       // There is no simulated/demo contact path — if they are not registered we
       // cannot run a real X3DH handshake, so we refuse to create the channel.
-      let userExistsOnServer = false;
+      let userExistsOnServer: boolean;
       try {
         const checkRes = await fetch(`${apiBase}/users/exists/${encodeURIComponent(aliasUpper)}`);
         userExistsOnServer = checkRes.ok;
@@ -1966,7 +1952,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         drSession = session;
         usedOPK = !!bundle.opkPublicKey;
         pendingX3DHHeader = JSON.stringify(x3dhHeader);
-        console.log(`[X3DH] Real ${usedOPK ? "4-DH" : "3-DH"} session initiated with ${aliasUpper}`);
       } catch (e) {
         console.error("[X3DH] Real session init failed for", aliasUpper, e);
         return { ok: false, error: "x3dh_failed" };
@@ -2410,7 +2395,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           });
           outboxRef.current = outboxRef.current.filter((i) => i.id !== item.id);
           persistOutbox(outboxRef.current);
-          console.log("[Outbox] Drained queued message:", item.id);
         } catch (e) {
           console.error("[Outbox] Failed to drain item:", item.id, e);
           // Feed the low-bandwidth classifier so repeated drain failures
@@ -2830,7 +2814,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, conversations: updated };
       });
 
-      console.log(`[X3DH] Bob session established with ${senderAlias} — first message decrypted`);
     } catch (e) {
       console.error("[X3DH] Failed to init Bob session or decrypt first message", e);
       // Under sealed-sender we may fail before recovering the sender; with no
@@ -2919,7 +2902,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         ws.onopen = () => {
           ws.send(JSON.stringify({ type: "auth", alias, token: deviceToken }));
-          console.log("[WS] Connection opened, authenticating as", alias);
           schedulePing();
         };
 
@@ -2946,7 +2928,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
 
         ws.onclose = (event) => {
-          console.log("[WS] Connection closed", event.code);
           setWsConnected(false);
           if (pingTimer) { clearTimeout(pingTimer); pingTimer = null; }
           // Feed the LBW classifier: count this disconnect, and start the

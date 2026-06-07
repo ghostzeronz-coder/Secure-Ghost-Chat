@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- WebRTC interop: the native
+   module (react-native-webrtc) and the browser RTC globals are loaded dynamically
+   and are not statically typed uniformly across web/native platforms. */
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
@@ -122,7 +125,7 @@ export default function CallScreen() {
 
   const isCaller = (role ?? "caller") === "caller";
   // useMemo so Date.now() is only called once on mount even if callId is undefined
-  const effectiveCallId = useMemo(() => callId ?? Date.now().toString(), []);  // eslint-disable-line react-hooks/exhaustive-deps
+  const effectiveCallId = useMemo(() => callId ?? Date.now().toString(), []);
   const isVideo = mode === "video";
 
   const [callState, setCallState]     = useState<CallState>(isCaller ? "ringing" : "connecting");
@@ -170,7 +173,7 @@ export default function CallScreen() {
     el.autoplay = true;
     (el as any).playsInline = true;
     document.body.appendChild(el);
-    return () => { try { el.remove(); } catch {} };
+    return () => { try { el.remove(); } catch { /* element already removed */ } };
   }, []);
 
   // ── WebRTC helpers ────────────────────────────────────────────────────────
@@ -229,7 +232,7 @@ export default function CallScreen() {
   const handleEndInternal = useCallback(() => {
     if (!mountedRef.current) return;
     if (timerRef.current) clearInterval(timerRef.current);
-    if (pcRef.current) { try { pcRef.current.close(); } catch {} pcRef.current = null; }
+    if (pcRef.current) { try { pcRef.current.close(); } catch { /* ignore close errors */ } pcRef.current = null; }
     if (localStreamRef.current) { localStreamRef.current.getTracks().forEach((t: MediaStreamTrack) => t.stop()); localStreamRef.current = null; }
     setCallState("ended");
     setTimeout(() => { if (mountedRef.current) router.back(); }, 1200);
@@ -262,7 +265,6 @@ export default function CallScreen() {
     // the handler falls back to setCallState("active") gracefully.
     sendCallSignal({ type: "call-accept", to: alias, callId: effectiveCallId });
     return () => { mountedRef.current = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Call signal listener ──────────────────────────────────────────────────
@@ -319,7 +321,7 @@ export default function CallScreen() {
       if (signal.type === "call-ice" && signal.payload && pcRef.current) {
         const ICE = Platform.OS === "web" ? (window as any).RTCIceCandidate : NativeRTCIceCandidate;
         if (ICE) {
-          try { await pcRef.current.addIceCandidate(new ICE(JSON.parse(signal.payload))); } catch {}
+          try { await pcRef.current.addIceCandidate(new ICE(JSON.parse(signal.payload))); } catch { /* ignore malformed ICE candidate */ }
         }
         return;
       }
