@@ -482,6 +482,54 @@ function deserializeState(s: SerializedRatchetState): RatchetState {
 
 // ── Ratchet Encrypt ───────────────────────────────────────────────────────────
 
+// ── Length-hiding padding ─────────────────────────────────────────────────────
+//
+// Plaintext length leaks content size even under AEAD: a one-word reply and a
+// long paragraph produce visibly different ciphertext lengths, and an
+// attachment dwarfs a text line. To make on-the-wire and at-rest ciphertext
+// length blind to the actual content, every plaintext is framed and padded to a
+// fixed-size bucket BEFORE encryption and stripped exactly after decryption.
+//
+// Framing: [4-byte big-endian body length] [body bytes] [zero filler]. The
+// total is padded up to the smallest bucket that fits. Beyond the largest fixed
+// bucket (e.g. large attachments) we round up to the next 64 KiB multiple so the
+// leak is bounded to bucket granularity rather than exact size.
+const PAD_PREFIX_BYTES = 4;
+const PAD_BUCKETS = [256, 1024, 4096, 16384, 65536];
+const PAD_MAX_BUCKET = PAD_BUCKETS[PAD_BUCKETS.length - 1];
+
+function paddedBucketSize(framedLen: number): number {
+  for (const b of PAD_BUCKETS) if (framedLen <= b) return b;
+  return Math.ceil(framedLen / PAD_MAX_BUCKET) * PAD_MAX_BUCKET;
+}
+
+/** Frame `plaintext` and pad to a fixed bucket. Returns the bytes to encrypt. */
+function padPlaintext(plaintext: string): Uint8Array {
+  const body = strToBytes(plaintext);
+  const total = paddedBucketSize(body.length + PAD_PREFIX_BYTES);
+  const out = new Uint8Array(total);
+  out[0] = (body.length >>> 24) & 0xff;
+  out[1] = (body.length >>> 16) & 0xff;
+  out[2] = (body.length >>> 8) & 0xff;
+  out[3] = body.length & 0xff;
+  out.set(body, PAD_PREFIX_BYTES);
+  return out;
+}
+
+/**
+ * Reverse padPlaintext. Defensive against legacy un-padded ciphertext: a
+ * plaintext that was encrypted before padding existed has its first 4 bytes
+ * interpreted as a length prefix; for any printable/JSON payload that yields a
+ * value far larger than the buffer, so we fall back to decoding the whole thing.
+ */
+function unpadPlaintext(padded: Uint8Array): string {
+  if (padded.length < PAD_PREFIX_BYTES) return bytesToStr(padded);
+  const len =
+    ((padded[0] << 24) | (padded[1] << 16) | (padded[2] << 8) | padded[3]) >>> 0;
+  if (len + PAD_PREFIX_BYTES > padded.length) return bytesToStr(padded);
+  return bytesToStr(padded.subarray(PAD_PREFIX_BYTES, PAD_PREFIX_BYTES + len));
+}
+
 /**
  * Encrypt `plaintext` with the given ratchet state.
  * Advances the sending chain key (forward secrecy).
@@ -509,7 +557,7 @@ export function ratchetEncrypt(
   if (s.pq && s.pendingPqCt) header.pqCt = s.pendingPqCt;
 
   const ad         = strToBytes(JSON.stringify(header));
-  const ciphertext = aeadEncrypt(mk, strToBytes(plaintext), ad);
+  const ciphertext = aeadEncrypt(mk, padPlaintext(plaintext), ad);
 
   s.CKs = newCKs;
   s.Ns  += 1;
@@ -527,12 +575,12 @@ function trySkippedKey(
   header: RatchetHeader,
   ct: Uint8Array,
   ad: Uint8Array,
-): string | null {
+): Uint8Array | null {
   const k  = `${header.dh}:${header.n}`;
   const mk = s.MKSKIPPED.get(k);
   if (!mk) return null;
   s.MKSKIPPED.delete(k);
-  return bytesToStr(aeadDecrypt(mk, ct, ad));
+  return aeadDecrypt(mk, ct, ad);
 }
 
 function skipChainKeys(s: RatchetState, until: number): void {
@@ -606,7 +654,7 @@ export function ratchetDecrypt(
   // 1. Try a cached skipped-message key
   const fromSkip = trySkippedKey(s, header, ct, ad);
   if (fromSkip !== null) {
-    return { state: serializeState(s), plaintext: fromSkip };
+    return { state: serializeState(s), plaintext: unpadPlaintext(fromSkip) };
   }
 
   // 2. If new DH key in header → perform DH ratchet step
@@ -625,7 +673,7 @@ export function ratchetDecrypt(
   s.CKr = ck;
   s.Nr  += 1;
 
-  const plaintext = bytesToStr(aeadDecrypt(mk, ct, ad));
+  const plaintext = unpadPlaintext(aeadDecrypt(mk, ct, ad));
   return { state: serializeState(s), plaintext };
 }
 

@@ -74,6 +74,33 @@ function collectStrings(value, acc = []) {
   return acc;
 }
 
+/**
+ * Build a fresh classical Alice↔Bob session pair via a real X3DH handshake.
+ * Returns the two serialized ratchet states (Alice's sender state and Bob's
+ * receiver state). ratchetEncrypt/Decrypt are pure, so each returned state can
+ * be used as an independent, deterministic starting chain.
+ */
+function freshClassicalPair(DR) {
+  const ikSign = DR.generateSigningKeyPair();
+  const ik = DR.generateOneTimePreKeys(1)[0];
+  const spk = DR.generateOneTimePreKeys(1)[0];
+  const opk = DR.generateOneTimePreKeys(1)[0];
+  const bundle = {
+    ikPublicKey: ik.pub,
+    spkPublicKey: spk.pub,
+    opkPublicKey: opk.pub,
+    spkSignature: DR.signSPK(spk.pub, ikSign.priv),
+    ikSignPublicKey: ikSign.pub,
+  };
+  const aIK = DR.generateOneTimePreKeys(1)[0];
+  const { session: aSess, x3dhHeader: hdr } =
+    DR.initSessionAliceWithHeader(bundle, aIK.priv, aIK.pub);
+  const bSess = DR.initSessionBobFromHeader(
+    hdr, ik.priv, ik.pub, spk.priv, spk.pub, opk.priv,
+  );
+  return { alice: aSess.alice, bob: bSess.alice };
+}
+
 async function main() {
   console.log("X3DH / Double Ratchet two-party handshake");
 
@@ -342,6 +369,165 @@ async function main() {
       DR.isValidRatchetState(aliceState),
       "legacy classical ratchet state (no PQ fields) still validates",
     );
+
+    // ── 11. Length-hiding padding: fixed buckets + exact round-trip ───────────
+    // Every plaintext is framed and padded to a fixed bucket BEFORE encryption,
+    // so the wire ciphertext length reveals only which bucket it fell in — never
+    // the true content size. AEAD overhead is constant, so equal padded sizes
+    // produce equal ciphertext (hex) lengths.
+    {
+      const pair = freshClassicalPair(DR);
+      let a = pair.alice;
+
+      // Two short messages of very different sizes share the smallest bucket →
+      // identical ciphertext length (content size hidden).
+      const e1 = DR.ratchetEncrypt(a, "x"); a = e1.state;
+      const e2 = DR.ratchetEncrypt(a, "x".repeat(100)); a = e2.state;
+      assert(
+        e1.message.ciphertext.length === e2.message.ciphertext.length,
+        "padding: differently-sized short messages share one bucket (equal ciphertext length)",
+      );
+
+      // Overflowing the bucket bumps to the next one → strictly longer, and two
+      // messages within that larger bucket match each other again.
+      const big1 = DR.ratchetEncrypt(a, "y".repeat(300)); a = big1.state;
+      const big2 = DR.ratchetEncrypt(a, "y".repeat(900)); a = big2.state;
+      assert(
+        big1.message.ciphertext.length > e1.message.ciphertext.length,
+        "padding: crossing a bucket boundary increases ciphertext length",
+      );
+      assert(
+        big1.message.ciphertext.length === big2.message.ciphertext.length,
+        "padding: two messages in the larger bucket share one bucket length",
+      );
+
+      // Exact round-trip across tricky payloads: empty, unicode, embedded NUL,
+      // a JSON sealed-sender envelope, and lengths sitting exactly on / just over
+      // bucket boundaries. Decryption must return the byte-exact original.
+      let as = pair.alice; // fresh send chain (pure: pair.alice untouched above)
+      let bs = pair.bob;
+      const samples = [
+        "",
+        "héllo 👻 \u0000 end",
+        JSON.stringify({ _gf: 2, f: "X", t: "hi" }),
+        "z".repeat(255),
+        "z".repeat(256),
+        "z".repeat(4097),
+      ];
+      let exact = true;
+      for (const s of samples) {
+        const enc = DR.ratchetEncrypt(as, s); as = enc.state;
+        const dec = DR.ratchetDecrypt(bs, enc.message); bs = dec.state;
+        if (dec.plaintext !== s) exact = false;
+      }
+      assert(
+        exact,
+        "padding: exact round-trip across unicode, NUL, JSON, and bucket-boundary lengths",
+      );
+    }
+
+    // ── 12. Trial-decrypt safety (sealed-sender session selection) ───────────
+    // The receiver no longer learns the sender from the wire; for an established
+    // session it trial-decrypts across every live session. This is safe ONLY
+    // because ratchetDecrypt is pure and AEAD-authenticated: the wrong session
+    // throws WITHOUT mutating its state, so iterating cannot corrupt anything.
+    {
+      const right = freshClassicalPair(DR);
+      const wrong = freshClassicalPair(DR);
+      const { message } = DR.ratchetEncrypt(right.alice, "sealed payload");
+
+      const wrongBefore = JSON.stringify(wrong.bob);
+      let wrongThrew = false;
+      try {
+        DR.ratchetDecrypt(wrong.bob, message);
+      } catch {
+        wrongThrew = true;
+      }
+      const wrongAfter = JSON.stringify(wrong.bob);
+      assert(wrongThrew, "trial-decrypt: the wrong session rejects the ciphertext (AEAD auth)");
+      assert(
+        wrongBefore === wrongAfter,
+        "trial-decrypt: a failed attempt does NOT mutate the wrong session (pure → safe to try next)",
+      );
+
+      const dec = DR.ratchetDecrypt(right.bob, message);
+      assert(
+        dec.plaintext === "sealed payload",
+        "trial-decrypt: the correct session recovers the plaintext",
+      );
+    }
+
+    // ── 13. Sealed sender: identity rides INSIDE the ciphertext, never on wire ─
+    // The sender alias is embedded in the encrypted payload (wrapPayload's `f`
+    // field) and recovered only after decryption. It must never appear in clear
+    // on the wire frame (header + ciphertext).
+    {
+      const pair = freshClassicalPair(DR);
+      const SENDER = "GHOST_ZULU_7777";
+      const sealed = JSON.stringify({ _gf: 2, f: SENDER, t: "see you at dawn" });
+      const { message } = DR.ratchetEncrypt(pair.alice, sealed);
+
+      const wire = JSON.stringify(message);
+      assert(
+        !wire.includes(SENDER),
+        "sealed sender: the sender alias does NOT appear in cleartext on the wire frame",
+      );
+
+      const dec = DR.ratchetDecrypt(pair.bob, message);
+      const recovered = JSON.parse(dec.plaintext);
+      assert(
+        recovered.f === SENDER,
+        "sealed sender: the recipient recovers the sender alias from inside the decrypted payload",
+      );
+    }
+
+    // ── 14. Anti-spoof: claimed alias is bound to its registered identity key ──
+    // Sealed sender means the alias is self-asserted inside the payload, so the
+    // recipient binds it to the sender's X3DH identity (header.ikA) by comparing
+    // against the key the server registered for that alias. This invariant is
+    // what makes that check sound: each initiator's header carries ITS OWN ikA,
+    // so a spoofer who claims someone else's alias presents a non-matching ikA
+    // and is rejected. (The network comparison lives in the client receive path;
+    // here we prove the crypto-level invariant it depends on.)
+    {
+      const ikSign = DR.generateSigningKeyPair();
+      const ik = DR.generateOneTimePreKeys(1)[0];
+      const spk = DR.generateOneTimePreKeys(1)[0];
+      const opk = DR.generateOneTimePreKeys(1)[0];
+      const bobBundle = {
+        ikPublicKey: ik.pub,
+        spkPublicKey: spk.pub,
+        opkPublicKey: opk.pub,
+        spkSignature: DR.signSPK(spk.pub, ikSign.priv),
+        ikSignPublicKey: ikSign.pub,
+      };
+
+      // ALICE's registered identity (what the server would return for "ALICE").
+      const aliceIK = DR.generateOneTimePreKeys(1)[0];
+      const { x3dhHeader: aliceHdr } = DR.initSessionAliceWithHeader(
+        bobBundle,
+        aliceIK.priv,
+        aliceIK.pub,
+      );
+      assert(
+        aliceHdr.ikA === aliceIK.pub,
+        "anti-spoof: a sender's X3DH header carries its own registered identity key",
+      );
+
+      // EVE forges a session to Bob but will claim to be ALICE in the payload.
+      const eveIK = DR.generateOneTimePreKeys(1)[0];
+      const { x3dhHeader: eveHdr } = DR.initSessionAliceWithHeader(
+        bobBundle,
+        eveIK.priv,
+        eveIK.pub,
+      );
+      // The recipient's binding check is: header.ikA === registeredIk(claimedAlias).
+      // For Eve impersonating ALICE that is eveHdr.ikA vs aliceIK.pub → must differ.
+      assert(
+        eveHdr.ikA !== aliceIK.pub,
+        "anti-spoof: a spoofer claiming another alias presents a non-matching ikA (binding rejects it)",
+      );
+    }
   } finally {
     fs.unlinkSync(tmp);
   }

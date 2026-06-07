@@ -17,6 +17,11 @@ import { pgTable, serial, text, boolean, timestamp } from "drizzle-orm/pg-core";
 export const identityKeysTable = pgTable("identity_keys", {
   id:              serial("id").primaryKey(),
   userId:          text("user_id").notNull().unique(),
+  // Opaque per-user routing token (random hex). Messages are addressed to this
+  // delivery id instead of the human alias so stored rows + wire frames never
+  // expose the recipient's identity. Generated at registration, preserved on
+  // rekey. Nullable for rows created before task #128 → backfilled lazily.
+  deliveryId:      text("delivery_id").unique(),
   ikPublicKey:     text("ik_public_key").notNull(),
   spkPublicKey:    text("spk_public_key").notNull(),
   ikSignPublicKey: text("ik_sign_public_key"),

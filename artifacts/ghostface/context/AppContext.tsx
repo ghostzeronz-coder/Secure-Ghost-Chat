@@ -154,20 +154,42 @@ export interface OutboxItem {
   nextAttemptAt?: number;
 }
 
+// Legacy attachment envelope (v1) — carried no sender. Still parsed on receive
+// for backward compatibility, but never emitted anymore.
 const ATTACHMENT_ENVELOPE_VERSION = 1;
 const ATTACHMENT_ENVELOPE_PREFIX = `{"_gfa":${ATTACHMENT_ENVELOPE_VERSION}`;
 
-function wrapPayload(text: string, attachment?: Attachment): string {
-  if (!attachment) return text;
+// Sealed-sender envelope (v2). Every outgoing message is now wrapped in this
+// envelope BEFORE encryption so the sender's alias travels only inside the
+// ciphertext — never as a plaintext wire field or stored column. The receiver
+// recovers the sender after a successful decrypt (`f`). `t` is the text body,
+// `a` an optional attachment.
+const SEALED_ENVELOPE_VERSION = 2;
+const SEALED_ENVELOPE_PREFIX = `{"_gf":${SEALED_ENVELOPE_VERSION}`;
+
+interface SealedEnvelope {
+  _gf: number;
+  f: string;
+  t: string;
+  a?: Attachment;
+}
+
+function wrapPayload(from: string, text: string, attachment?: Attachment): string {
   // image-ref carries a local-only `uri` for the sender's own preview that
   // must NOT be sent over the wire — strip it so the recipient only ever
   // sees the blob reference + key.
-  let wireAttachment: Attachment = attachment;
-  if (attachment.kind === "image-ref") {
-    const { kind, blobId, key, mimeType, width, height } = attachment;
-    wireAttachment = { kind, blobId, key, mimeType, width, height };
+  let wireAttachment: Attachment | undefined;
+  if (attachment) {
+    if (attachment.kind === "image-ref") {
+      const { kind, blobId, key, mimeType, width, height } = attachment;
+      wireAttachment = { kind, blobId, key, mimeType, width, height };
+    } else {
+      wireAttachment = attachment;
+    }
   }
-  return JSON.stringify({ _gfa: ATTACHMENT_ENVELOPE_VERSION, t: text, a: wireAttachment });
+  const env: SealedEnvelope = { _gf: SEALED_ENVELOPE_VERSION, f: from, t: text };
+  if (wireAttachment) env.a = wireAttachment;
+  return JSON.stringify(env);
 }
 
 // Only allow inline base64 data URIs as attachment payloads. This is the
@@ -239,21 +261,45 @@ function isValidAttachment(a: unknown): a is Attachment {
   return false;
 }
 
-function unwrapPayload(plaintext: string): { text: string; attachment?: Attachment } {
-  if (!plaintext.startsWith(ATTACHMENT_ENVELOPE_PREFIX)) return { text: plaintext };
-  try {
-    const parsed = JSON.parse(plaintext) as { _gfa?: unknown; t?: unknown; a?: unknown };
-    // Strict schema: any deviation falls back to plain text so legitimate
-    // user-typed JSON cannot be reinterpreted as an attachment envelope.
-    if (
-      parsed._gfa === ATTACHMENT_ENVELOPE_VERSION &&
-      typeof parsed.t === "string" &&
-      isValidAttachment(parsed.a)
-    ) {
-      return { text: parsed.t, attachment: parsed.a };
+function unwrapPayload(plaintext: string): { text: string; attachment?: Attachment; from?: string } {
+  // v2 sealed-sender envelope — recovers the sender alias (`f`) plus body and
+  // optional attachment. This is the only format emitted now.
+  if (plaintext.startsWith(SEALED_ENVELOPE_PREFIX)) {
+    try {
+      const parsed = JSON.parse(plaintext) as { _gf?: unknown; f?: unknown; t?: unknown; a?: unknown };
+      if (
+        parsed._gf === SEALED_ENVELOPE_VERSION &&
+        typeof parsed.f === "string" &&
+        typeof parsed.t === "string" &&
+        (parsed.a === undefined || isValidAttachment(parsed.a))
+      ) {
+        return {
+          text: parsed.t,
+          from: parsed.f,
+          ...(parsed.a !== undefined ? { attachment: parsed.a as Attachment } : {}),
+        };
+      }
+    } catch {
+      // fall through — treat as plain text
     }
-  } catch {
-    // fall through — treat as plain text
+    return { text: plaintext };
+  }
+  // v1 legacy attachment envelope (no sender). Retained for back-compat.
+  if (plaintext.startsWith(ATTACHMENT_ENVELOPE_PREFIX)) {
+    try {
+      const parsed = JSON.parse(plaintext) as { _gfa?: unknown; t?: unknown; a?: unknown };
+      // Strict schema: any deviation falls back to plain text so legitimate
+      // user-typed JSON cannot be reinterpreted as an attachment envelope.
+      if (
+        parsed._gfa === ATTACHMENT_ENVELOPE_VERSION &&
+        typeof parsed.t === "string" &&
+        isValidAttachment(parsed.a)
+      ) {
+        return { text: parsed.t, attachment: parsed.a };
+      }
+    } catch {
+      // fall through — treat as plain text
+    }
   }
   return { text: plaintext };
 }
@@ -280,6 +326,13 @@ export interface Conversation {
   pendingX3DHHeader?: string;
   isRealContact?: boolean;
   verified?: boolean;
+  /**
+   * Opaque per-recipient routing token (task #128). Messages are addressed to
+   * this instead of the human alias so the server never sees who is talking to
+   * whom. Captured from the prekey bundle when we initiate, or lazily resolved
+   * via /users/exists when we're the replying side of an inbound session.
+   */
+  recipientDeliveryId?: string;
   /**
    * Set when the peer self-destructed (broadcast a "departed" notice via the
    * server before wiping locally) or their invite/key material has expired
@@ -719,7 +772,9 @@ async function replenishOPKsIfNeeded(userId: string, deviceToken: string): Promi
  *   keys locally and stored both halves, so we can compute both sides of the X3DH
  *   handshake to verify correctness.
  */
-async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | null> {
+async function fetchContactBundle(
+  contactAlias: string,
+): Promise<(PreKeyBundle & { deliveryId?: string }) | null> {
   const apiBase = getApiBase();
   if (!apiBase) return null;
   try {
@@ -729,6 +784,7 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
       return null;
     }
     const data = await bundleRes.json() as {
+      deliveryId?:     string;
       ikPublicKey:     string;
       spkPublicKey:    string;
       opk:             string | null;
@@ -744,7 +800,7 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
     // 3-DH fallback only when server returns opk: null (Bob exhausted his OPK supply).
     const opkPublicKey = data.opk ?? null;
 
-    const bundle: PreKeyBundle = {
+    const bundle: PreKeyBundle & { deliveryId?: string } = {
       ikPublicKey:     data.ikPublicKey,
       spkPublicKey:    data.spkPublicKey,
       opkPublicKey,
@@ -752,6 +808,7 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
       spkSignature:    data.spkSignature,
       pqkemPublicKey:  data.pqkemPublicKey,
       pqkemSignature:  data.pqkemSignature,
+      deliveryId:      data.deliveryId,
     };
 
     const sigStatus = data.spkSignature ? "✓ SPK signature present" : "⚠ no SPK signature (legacy)";
@@ -765,6 +822,47 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
     return bundle;
   } catch (err) {
     console.warn("[BUNDLE] Failed to fetch bundle for contact:", contactAlias, err);
+    return null;
+  }
+}
+
+/**
+ * Resolve a contact's opaque delivery token (task #128) without consuming a
+ * one-time prekey. Used by the replying side of an inbound session, whose
+ * conversation was created from a received message and therefore never captured
+ * the token from a prekey bundle. Returns null if the user is unknown or the
+ * server is unreachable.
+ */
+async function resolveDeliveryId(contactAlias: string): Promise<string | null> {
+  const apiBase = getApiBase();
+  if (!apiBase) return null;
+  try {
+    const res = await fetch(`${apiBase}/users/exists/${encodeURIComponent(contactAlias)}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { exists?: boolean; deliveryId?: string };
+    return data.deliveryId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch the identity public key (X3DH ikA) the server has on record for an
+ * alias. Used on receive to bind a sealed-sender message's *claimed* sender
+ * alias to its cryptographic identity: under sealed sender the alias is
+ * self-asserted from inside the decrypted payload, so without this check any
+ * authenticated peer could embed someone else's alias and be displayed as
+ * them. Returns null if the user is unknown or the lookup fails (fail-closed).
+ */
+async function resolveIdentityKey(contactAlias: string): Promise<string | null> {
+  const apiBase = getApiBase();
+  if (!apiBase) return null;
+  try {
+    const res = await fetch(`${apiBase}/users/exists/${encodeURIComponent(contactAlias)}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { exists?: boolean; ikPublicKey?: string };
+    return data.ikPublicKey ?? null;
+  } catch {
     return null;
   }
 }
@@ -1604,7 +1702,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       {
         const drSession = conv.drSession;
-        const wireText = wrapPayload(text, attachment);
+        const wireText = wrapPayload(myAlias.toUpperCase(), text, attachment);
         try {
           const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, wireText);
           updatedDRSession = { ...drSession, alice: newAlice, lastAliceHeader: msg.header };
@@ -1649,7 +1747,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // which is the "batch outgoing ciphertexts" line item from the task.
       // We DO NOT advance the ratchet here in that path — drainOutbox
       // encrypts at delivery time so ordering still matches the receiver.
-      if (isRealContact && aliceMsg && latestStateRef.current.lowBandwidthActive) {
+      //
+      // We also divert to the outbox when we don't yet know the recipient's
+      // opaque delivery token (task #128). This happens on the replying side of
+      // an inbound session, whose conversation was created from a received
+      // message and never captured the token. drainOutbox is async and resolves
+      // + persists the token before sending; routing through it keeps this
+      // synchronous send path from having to block on a network round-trip.
+      if (
+        isRealContact &&
+        aliceMsg &&
+        (latestStateRef.current.lowBandwidthActive || !conv.recipientDeliveryId)
+      ) {
         const now = Date.now();
         const pendingId = `pending-${now}${Math.random().toString(36).substr(2, 9)}`;
         const outboxItem: OutboxItem = { id: pendingId, conversationId, text, attempts: 0, attachment, createdAt: now };
@@ -1683,9 +1792,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const ws = wsRef.current;
         if (ws && ws.readyState === 1) {
           try {
+            // `to` is the recipient's opaque delivery token, never their alias —
+            // guaranteed present here because a missing token diverts to the
+            // outbox above. The sender's identity rides only inside the
+            // encrypted payload (wrapPayload), never on the wire.
             ws.send(JSON.stringify({
               type: "msg",
-              to: conv.alias,
+              to: conv.recipientDeliveryId,
               payload: JSON.stringify(aliceMsg),
               x3dhHeader: headerToSend,
             }));
@@ -1872,6 +1985,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           drSession,
           isRealContact: true,
           pendingX3DHHeader,
+          recipientDeliveryId: bundle.deliveryId,
           messages: [
             buildSystemMessage(
               usedOPK
@@ -2214,6 +2328,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           markMessageFailed(item.conversationId, item.id);
           continue;
         }
+        // Resolve the recipient's opaque delivery token (task #128) if we don't
+        // have it yet. The replying side of an inbound session creates its
+        // conversation from a received message and so never captured the token
+        // from a prekey bundle. We resolve it here (drain is async), persist it
+        // onto the conversation for future immediate sends, and address the wire
+        // to it. If the server is unreachable, defer the whole drain — like any
+        // other send failure, ordering forbids skipping ahead.
+        let toDeliveryId = conv.recipientDeliveryId;
+        if (!toDeliveryId) {
+          toDeliveryId = (await resolveDeliveryId(conv.alias)) ?? undefined;
+          if (!toDeliveryId) {
+            console.warn("[Outbox] No delivery token yet for conversation — deferring drain");
+            break;
+          }
+          const resolvedDeliveryId = toDeliveryId;
+          setState((prev) => {
+            const updated = prev.conversations.map((c) =>
+              c.id === item.conversationId
+                ? { ...c, recipientDeliveryId: resolvedDeliveryId }
+                : c
+            );
+            persistConversations(updated);
+            return { ...prev, conversations: updated };
+          });
+        }
         const nextAttempts = (item.attempts ?? 0) + 1;
         // Persist the attempt counter before we try to send. If send
         // throws and we break, the next drain sees the bumped count
@@ -2227,7 +2366,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // message for this conversation in this drain; otherwise fall
           // back to the committed session.
           const aliceForEncrypt = aliceCursor.get(item.conversationId) ?? conv.drSession.alice;
-          const wireText = wrapPayload(item.text, item.attachment);
+          const myAlias = (latestStateRef.current.alias ?? "GHOST_USER").toUpperCase();
+          const wireText = wrapPayload(myAlias, item.text, item.attachment);
           const { state: newAlice, message: aliceMsg } = ratchetEncrypt(aliceForEncrypt, wireText);
           // pendingX3DHHeader bootstraps the receiver's Bob session and is
           // only required on the very first ciphertext per conversation.
@@ -2241,7 +2381,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // compressed if it's actually smaller" guard.
           const frame = {
             type: "msg",
-            to: conv.alias,
+            to: toDeliveryId,
             payload: JSON.stringify(aliceMsg),
             x3dhHeader,
           };
@@ -2459,7 +2599,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (wsMsg.type !== "msg" || !wsMsg.from || !wsMsg.payload) return;
+    if (wsMsg.type !== "msg" || !wsMsg.payload) return;
 
     let ratchetMsg: RatchetMessage;
     try {
@@ -2469,104 +2609,77 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const senderAlias = wsMsg.from.toUpperCase();
-    const currentConversations = latestStateRef.current.conversations;
-    const existing = currentConversations.find((c) => c.alias === senderAlias);
-
     const myAlias = (latestStateRef.current.alias ?? "").toUpperCase();
+    const currentConversations = latestStateRef.current.conversations;
 
-    if (existing && existing.drSession) {
+    // ── Established session: trial-decrypt (task #128 sealed sender) ──────────
+    // The wire no longer carries the sender's alias, and an established session
+    // has no X3DH header to identify it by either. So we trial-decrypt against
+    // every conversation that holds a live Double Ratchet session. ratchetDecrypt
+    // is pure and AEAD-authenticated: a wrong session fails the auth tag and
+    // throws with NO state mutation, making trial-decrypt completely side-effect
+    // free. The first session that decrypts is, by construction, the sender.
+    for (const conv of currentConversations) {
+      if (!conv.drSession) continue;
+      let decrypted: ReturnType<typeof ratchetDecrypt> | undefined;
       try {
-        const { state: newAlice, plaintext } = ratchetDecrypt(existing.drSession.alice, ratchetMsg);
-        const unwrapped = unwrapPayload(plaintext);
-        const preview = previewForMessage(unwrapped.text, unwrapped.attachment);
-        const newMsgObj: Message = {
-          id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-          text: unwrapped.text,
-          fromMe: false,
-          timestamp: Date.now(),
-          encrypted: true,
-          sealed: true,
-          fingerprint: `DR:${ratchetMsg.ciphertext.slice(0, 8).toUpperCase()}`,
-          ...(unwrapped.attachment ? { attachment: unwrapped.attachment } : {}),
-          ...(existing.disappearAfterSec
-            ? { expiresAt: Date.now() + existing.disappearAfterSec * 1000 }
-            : {}),
-        };
-        setState((prev) => {
-          const updated = prev.conversations.map((c) =>
-            c.id === existing.id
-              ? {
-                  ...c,
-                  messages: [...c.messages, newMsgObj],
-                  lastMessage: preview,
-                  timestamp: Date.now(),
-                  unread: c.unread + 1,
-                  drSession: { ...c.drSession!, alice: newAlice },
-                }
-              : c
-          );
-          persistConversations(updated);
-          return { ...prev, conversations: updated };
-        });
-        return;
-      } catch (e) {
-        // Decryption failed with current session. If the sender included a fresh
-        // X3DH header, the two sides have diverged sessions (typical "glare":
-        // both initiated X3DH simultaneously after a reset). To converge, both
-        // sides apply the same deterministic tiebreaker — the lexicographically
-        // smaller alias's session wins. This guarantees both ends pick the same
-        // session without further round-trips.
-        if (!wsMsg.x3dhHeader) {
-          console.error("[DR] Failed to decrypt incoming message from", senderAlias, e);
-          const decryptFailMsg: Message = {
-            id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-            text: "⚠ Message could not be decrypted",
-            fromMe: false,
-            timestamp: Date.now(),
-            encrypted: true,
-            sealed: true,
-          };
-          setState((prev) => {
-            const updated = prev.conversations.map((c) =>
-              c.id === existing.id
-                ? { ...c, messages: [...c.messages, decryptFailMsg], lastMessage: "⚠ Message could not be decrypted", timestamp: Date.now(), unread: c.unread + 1 }
-                : c
-            );
-            persistConversations(updated);
-            return { ...prev, conversations: updated };
-          });
-          return;
-        }
-        const senderWins = senderAlias < myAlias;
-        if (!senderWins) {
-          // We "own" the session — drop this message and keep our session intact.
-          // Our next outgoing message will reach the sender, who will rebuild
-          // their Bob session from our X3DH header.
-          console.warn("[DR] Glare detected with", senderAlias, "— our alias wins tiebreaker, keeping local session and dropping incoming message");
-          return;
-        }
-        console.warn("[DR] Glare detected with", senderAlias, "— sender wins tiebreaker, rebuilding Bob session from incoming X3DH header");
+        decrypted = ratchetDecrypt(conv.drSession.alice, ratchetMsg);
+      } catch {
+        continue; // wrong session — keep trying
       }
-    }
-
-    if (existing && !existing.drSession && !wsMsg.x3dhHeader) {
-      console.warn("[WS] Existing conversation has no DR session and no X3DH header on incoming message", senderAlias);
+      const { state: newAlice, plaintext } = decrypted;
+      const unwrapped = unwrapPayload(plaintext);
+      const preview = previewForMessage(unwrapped.text, unwrapped.attachment);
+      const newMsgObj: Message = {
+        id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+        text: unwrapped.text,
+        fromMe: false,
+        timestamp: Date.now(),
+        encrypted: true,
+        sealed: true,
+        fingerprint: `DR:${ratchetMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+        ...(unwrapped.attachment ? { attachment: unwrapped.attachment } : {}),
+        ...(conv.disappearAfterSec
+          ? { expiresAt: Date.now() + conv.disappearAfterSec * 1000 }
+          : {}),
+      };
+      setState((prev) => {
+        const updated = prev.conversations.map((c) =>
+          c.id === conv.id
+            ? {
+                ...c,
+                messages: [...c.messages, newMsgObj],
+                lastMessage: preview,
+                timestamp: Date.now(),
+                unread: c.unread + 1,
+                drSession: { ...c.drSession!, alice: newAlice },
+              }
+            : c
+        );
+        persistConversations(updated);
+        return { ...prev, conversations: updated };
+      });
       return;
     }
 
+    // No live session decrypted it. Without an X3DH header we cannot bootstrap a
+    // new one — and under sealed-sender we don't know who sent it, so there is
+    // nothing to pin a failure bubble to. Drop silently.
     if (!wsMsg.x3dhHeader) {
-      console.warn("[WS] Received message from unknown sender without X3DH header — cannot decrypt", senderAlias);
+      console.warn("[WS] No established session could decrypt headerless message — dropping");
       return;
     }
 
+    // ── New or glare session: bootstrap Bob from the X3DH header ─────────────
     let x3dhHeader: X3DHHeader;
     try {
       x3dhHeader = JSON.parse(wsMsg.x3dhHeader) as X3DHHeader;
     } catch {
-      console.warn("[WS] Failed to parse X3DH header from", senderAlias);
+      console.warn("[WS] Failed to parse X3DH header on incoming message");
       return;
     }
+
+    let senderAlias = "";
 
     try {
       const [myIKPriv, myIKPub, mySpkPriv, mySpkPub, myPqkemPriv] = await Promise.all([
@@ -2606,6 +2719,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const { state: newAlice, plaintext } = ratchetDecrypt(bobSession.alice, ratchetMsg);
       const unwrappedFirst = unwrapPayload(plaintext);
+
+      // Sender identity is recovered from INSIDE the authenticated payload — the
+      // only place it travels under sealed-sender. Fall back to a wire field only
+      // if an older peer still sends one; otherwise the message is unattributable.
+      senderAlias = (unwrappedFirst.from ?? wsMsg.from ?? "").toUpperCase();
+      if (!senderAlias) {
+        console.warn("[X3DH] Decrypted first message has no recoverable sender — dropping");
+        return;
+      }
+
+      // Sender authentication: bind the claimed alias to its registered identity
+      // key. Under sealed sender the alias is self-asserted from inside the
+      // payload, so without this any authenticated peer could embed someone
+      // else's alias (e.g. send with their own ikA but claim "ALICE") and be
+      // shown as that contact. We require the X3DH header's ikA to match the
+      // identity key the server holds for the claimed alias. Fail-closed: an
+      // unknown alias or unreachable lookup drops the message rather than
+      // trusting an unverifiable identity.
+      const registeredIk = await resolveIdentityKey(senderAlias);
+      if (!registeredIk || registeredIk.toLowerCase() !== x3dhHeader.ikA.toLowerCase()) {
+        console.warn(
+          "[X3DH] Sender identity key does not match claimed alias — dropping suspected spoof:",
+          senderAlias,
+        );
+        return;
+      }
+
+      // Glare: we already hold a live session with this sender (both sides re-ran
+      // X3DH at once). Apply the same deterministic tiebreaker on both ends — the
+      // lexicographically smaller alias's session wins — so we converge without
+      // another round-trip. This necessarily runs AFTER decrypt because the
+      // sender's alias now lives inside the ciphertext, not on the wire.
+      const priorConv = latestStateRef.current.conversations.find(
+        (c) => c.alias === senderAlias,
+      );
+      if (priorConv?.drSession) {
+        const senderWins = senderAlias < myAlias;
+        if (!senderWins) {
+          console.warn("[DR] Glare with", senderAlias, "— our alias wins; keeping local session, dropping incoming");
+          return;
+        }
+        console.warn("[DR] Glare with", senderAlias, "— sender wins; adopting rebuilt Bob session");
+      }
+
       const firstPreview = previewForMessage(unwrappedFirst.text, unwrappedFirst.attachment);
       const safetyNumber = generateSafetyNumber(latestStateRef.current.alias ?? "GHOST_USER", senderAlias);
 
@@ -2675,7 +2832,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       console.log(`[X3DH] Bob session established with ${senderAlias} — first message decrypted`);
     } catch (e) {
-      console.error("[X3DH] Failed to init Bob session or decrypt first message from", senderAlias, e);
+      console.error("[X3DH] Failed to init Bob session or decrypt first message", e);
+      // Under sealed-sender we may fail before recovering the sender; with no
+      // alias there is nothing to attribute a failure bubble to, so drop.
+      if (!senderAlias) return;
       setState((prev) => {
         const placeholder: Message = {
           id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,

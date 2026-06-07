@@ -1,11 +1,18 @@
 import { WebSocket, WebSocketServer } from "ws";
 import { IncomingMessage } from "http";
-import { db, messagesTable, deviceTokensTable, departuresTable } from "@workspace/db";
+import {
+  db,
+  messagesTable,
+  identityKeysTable,
+  deviceTokensTable,
+  departuresTable,
+} from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
 import { inflateRawSync } from "zlib";
 import { logger } from "../lib/logger";
 import { normalizeAlias } from "../utils/alias";
+import { ensureDeliveryId } from "../utils/delivery";
 
 // ── msg-z (compressed frame) safety limits ──────────────────────────────
 // Compressed frames are an untrusted, attacker-controllable input even
@@ -60,6 +67,26 @@ interface AuthedSocket {
 
 const connectedClients = new Map<string, AuthedSocket>();
 
+// Resolve an opaque delivery token → the alias whose socket is in
+// connectedClients. This is an in-memory routing cache only — it is never
+// stored or put on the wire, so keying live sockets by alias (which the call
+// signalling path needs) does not weaken the metadata-blind guarantee. The
+// mapping is stable for a user's lifetime, so entries are kept warm across
+// reconnects rather than evicted on close.
+const deliveryIdToAlias = new Map<string, string>();
+
+async function aliasForDeliveryId(deliveryId: string): Promise<string | null> {
+  const cached = deliveryIdToAlias.get(deliveryId);
+  if (cached) return cached;
+  const [row] = await db
+    .select({ userId: identityKeysTable.userId })
+    .from(identityKeysTable)
+    .where(eq(identityKeysTable.deliveryId, deliveryId));
+  if (!row) return null;
+  deliveryIdToAlias.set(deliveryId, row.userId);
+  return row.userId;
+}
+
 const CALL_SIGNAL_TYPES = new Set([
   "call-ring",
   "call-accept",
@@ -86,18 +113,19 @@ async function validateToken(alias: string, token: string): Promise<boolean> {
   }
 }
 
-async function deliverPending(alias: string, ws: WebSocket): Promise<void> {
+async function deliverPending(deliveryId: string, ws: WebSocket): Promise<void> {
   try {
     const pending = await db
       .select()
       .from(messagesTable)
-      .where(and(eq(messagesTable.toAlias, alias), eq(messagesTable.delivered, false)));
+      .where(and(eq(messagesTable.toDeliveryId, deliveryId), eq(messagesTable.delivered, false)));
 
     for (const msg of pending) {
+      // No `from` on the wire — the recipient recovers the sender from inside
+      // the decrypted payload.
       const wire: WireMessage = {
         type: "msg",
         msgId: msg.id,
-        from: msg.fromAlias,
         payload: msg.payload,
         x3dhHeader: msg.x3dhHeader ?? undefined,
       };
@@ -111,10 +139,10 @@ async function deliverPending(alias: string, ws: WebSocket): Promise<void> {
           db.update(messagesTable).set({ delivered: true }).where(eq(messagesTable.id, id)),
         ),
       );
-      logger.info({ alias, count: pending.length }, "Delivered pending messages");
+      logger.info({ count: pending.length }, "Delivered pending messages");
     }
   } catch (err) {
-    logger.error({ err, alias }, "Failed to deliver pending messages");
+    logger.error({ err }, "Failed to deliver pending messages");
   }
 }
 
@@ -177,6 +205,7 @@ export function createWsServer(wss: WebSocketServer): void {
     ws.on("pong", heartbeat);
 
     let authedAlias: string | null = null;
+    let authedDeliveryId: string | null = null;
 
     const cleanup = () => {
       if (authedAlias) connectedClients.delete(authedAlias);
@@ -216,10 +245,14 @@ export function createWsServer(wss: WebSocketServer): void {
 
         authedAlias = normalizeAlias(msg.alias);
         connectedClients.set(authedAlias, { ws, alias: authedAlias });
+        // Resolve (and warm the cache for) this user's opaque delivery token so
+        // pending messages addressed to it can be routed back to this socket.
+        authedDeliveryId = await ensureDeliveryId(authedAlias);
+        if (authedDeliveryId) deliveryIdToAlias.set(authedDeliveryId, authedAlias);
         ws.send(JSON.stringify({ type: "ack", alias: authedAlias }));
         logger.info({ alias: authedAlias }, "WS client authenticated");
 
-        await deliverPending(authedAlias, ws);
+        if (authedDeliveryId) await deliverPending(authedDeliveryId, ws);
         await deliverPendingDepartures(authedAlias, ws);
         return;
       }
@@ -308,31 +341,34 @@ export function createWsServer(wss: WebSocketServer): void {
       }
 
       // ── Text messages ─────────────────────────────────────────────────────
+      // Metadata-blind: `msg.to` is the recipient's opaque delivery token (NOT
+      // an alias), and the sender is never recorded — neither in the stored row
+      // nor on the wire. The recipient recovers the sender from the decrypted
+      // payload. We deliberately do not log either party's identity here.
       if (msg.type === "msg") {
         if (!msg.to || !msg.payload) {
           ws.send(JSON.stringify({ type: "error", message: "msg requires to + payload" }));
           return;
         }
 
-        const toAlias = normalizeAlias(msg.to);
+        const toDeliveryId = msg.to;
 
         const [stored] = await db
           .insert(messagesTable)
           .values({
-            fromAlias: authedAlias,
-            toAlias,
+            toDeliveryId,
             payload: msg.payload,
             x3dhHeader: msg.x3dhHeader ?? null,
             delivered: false,
           })
           .returning();
 
-        const recipient = connectedClients.get(toAlias);
+        const recipientAlias = await aliasForDeliveryId(toDeliveryId);
+        const recipient = recipientAlias ? connectedClients.get(recipientAlias) : undefined;
         if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
           const wire: WireMessage = {
             type: "msg",
             msgId: stored.id,
-            from: authedAlias,
             payload: msg.payload,
             x3dhHeader: msg.x3dhHeader ?? undefined,
           };
@@ -341,9 +377,9 @@ export function createWsServer(wss: WebSocketServer): void {
             .update(messagesTable)
             .set({ delivered: true })
             .where(eq(messagesTable.id, stored.id));
-          logger.debug({ from: authedAlias, to: toAlias }, "Message delivered live");
+          logger.debug({ msgId: stored.id }, "Message delivered live");
         } else {
-          logger.debug({ from: authedAlias, to: toAlias }, "Message queued for offline delivery");
+          logger.debug({ msgId: stored.id }, "Message queued for offline delivery");
         }
 
         ws.send(JSON.stringify({ type: "ack", msgId: stored.id }));

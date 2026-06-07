@@ -4,6 +4,7 @@ import { eq, and, count as drizzleCount } from "drizzle-orm";
 import { createHash, randomBytes } from "crypto";
 import { normalizeAlias } from "../utils/alias";
 import { toErrorMessage } from "../utils/error";
+import { ensureDeliveryId, generateDeliveryId } from "../utils/delivery";
 
 const router: IRouter = Router();
 
@@ -191,13 +192,18 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
           })
           .where(eq(identityKeysTable.userId, normalizedUserId));
       });
-      return res.status(200).json({ token, userId: normalizedUserId, reissued: true });
+      // Preserve the existing delivery id across a re-issue (it's a stable
+      // routing handle); only mint one if the row predates task #128.
+      const deliveryId = await ensureDeliveryId(normalizedUserId);
+      return res.status(200).json({ token, userId: normalizedUserId, deliveryId, reissued: true });
     }
 
+    const deliveryId = generateDeliveryId();
     await db.transaction(async (tx) => {
       await tx.insert(deviceTokensTable).values({ userId: normalizedUserId, tokenHash });
       await tx.insert(identityKeysTable).values({
         userId: normalizedUserId,
+        deliveryId,
         ikPublicKey,
         spkPublicKey,
         ikSignPublicKey: ikSignPublicKey ?? null,
@@ -208,7 +214,7 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
     });
 
     // Return the plain-text token — client must store this securely
-    return res.status(201).json({ token, userId: normalizedUserId });
+    return res.status(201).json({ token, userId: normalizedUserId, deliveryId });
   } catch (err) {
     return res.status(500).json({ error: toErrorMessage(err) });
   }
@@ -342,6 +348,10 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "User not registered or no identity keys found" });
     }
 
+    // Opaque routing token Alice will address her messages to (instead of Bob's
+    // alias). Backfill lazily for rows that predate task #128.
+    const deliveryId = identityKey.deliveryId ?? (await ensureDeliveryId(userId));
+
     // Atomic: pick the lowest-id unconsumed OPK and mark it consumed in one statement.
     // SKIP LOCKED ensures concurrent requests don't race on the same row.
     const result = await pool.query<{ public_key: string }>(
@@ -367,6 +377,7 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
 
     const remainingNum = Number(remaining);
     return res.json({
+      deliveryId,
       ikPublicKey: identityKey.ikPublicKey,
       spkPublicKey: identityKey.spkPublicKey,
       ikSignPublicKey: identityKey.ikSignPublicKey ?? undefined,

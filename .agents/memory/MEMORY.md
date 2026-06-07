@@ -1,3 +1,4 @@
 - [GHOSTFACE brand + lock screen](ghostface-brand-and-lock.md) — accent is antique gold #bf9b30 (near-black monochrome); lock screen is an idle cipher seal that hold-to-decrypt reveals the secure keypad.
 - [GHOSTFACE payments](ghostface-payments.md) — crypto-only (USDC on Solana); Stripe was fully removed. Do not reintroduce a card/fiat path.
 - [GHOSTFACE real E2E encryption](ghostface-encryption.md) — real X3DH+Double Ratchet only, no sim/demo key path; public-only bundles, send hard-fails when not a real session; no JS test runner (use scripts/check-*.mjs).
+- [Sealed-sender binding](sealed-sender-binding.md) — when the sender alias rides inside the encrypted payload, the X3DH bootstrap path must bind it to the alias's registered identity key (ikA) or any peer can impersonate any alias.
