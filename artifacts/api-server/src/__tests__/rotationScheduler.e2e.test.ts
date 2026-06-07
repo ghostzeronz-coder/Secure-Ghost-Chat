@@ -11,8 +11,22 @@
  * Skipped automatically when DATABASE_URL is absent.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import pg from "pg";
+
+// Force the deterministic demo-number path regardless of whether Vonage
+// credentials happen to be present in the environment. Otherwise, when Vonage
+// is configured, tick() hits the real provider — which returns no usable test
+// number — so the rotation is skipped and the msisdn never changes. We only
+// stub the external SMS provider here; the database round-trip stays real.
+vi.mock("../lib/vonage", () => ({
+  vonageClient: {
+    configured: () => false,
+    searchNumbers: async () => [],
+    rentNumber: async () => {},
+    releaseNumber: async () => {},
+  },
+}));
 
 const DB_URL = process.env.DATABASE_URL;
 const SKIP = !DB_URL;
@@ -27,8 +41,8 @@ describe.skipIf(SKIP)("rotationScheduler — E2E (real DB)", () => {
     client = new pg.Client({ connectionString: DB_URL });
     await client.connect();
 
-    // Ensure the table and columns exist (mirrors the runMigrations() call in
-    // numbers.ts so this test can run independently against a fresh schema).
+    // Ensure the table and columns exist so this test can run independently
+    // against a fresh schema (the app provisions these via the Drizzle schema).
     await client.query(`
       CREATE TABLE IF NOT EXISTS ghost_numbers (
         id           SERIAL PRIMARY KEY,

@@ -135,9 +135,11 @@ describe("rotateOne", () => {
 
     expect(mockDbUpdate).not.toHaveBeenCalled();
     expect(mockVonageRent).not.toHaveBeenCalled();
+    // performRotation throws ("No Vonage numbers available"); rotateOne catches
+    // it and logs a single generic warning rather than re-throwing.
     expect(mockLoggerWarn).toHaveBeenCalledWith(
       expect.objectContaining({ id: 1 }),
-      expect.stringContaining("No Vonage numbers available"),
+      expect.stringContaining("Could not obtain replacement number"),
     );
   });
 
@@ -227,10 +229,11 @@ describe("tick", () => {
 
     await tick();
 
-    // Error logged for the failing row.
-    expect(mockLoggerError).toHaveBeenCalledWith(
+    // rotateOne swallows the per-row failure and logs a warning (it never
+    // re-throws), so the failing row is reported via logger.warn.
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
       expect.objectContaining({ id: 1 }),
-      expect.stringContaining("Failed"),
+      expect.stringContaining("Could not obtain replacement number"),
     );
     // Remaining rows were still attempted (calls 2 + 3).
     expect(mockDbUpdate.mock.calls.length).toBeGreaterThanOrEqual(2);

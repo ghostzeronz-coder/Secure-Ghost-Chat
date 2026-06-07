@@ -26,6 +26,7 @@ const mockLoggerDebug = vi.fn();
 const TABLE_DEPARTURES = Symbol("departures");
 const TABLE_MESSAGES = Symbol("messages");
 const TABLE_DEVICE_TOKENS = Symbol("deviceTokens");
+const TABLE_IDENTITY_KEYS = Symbol("identityKeys");
 
 function whereable(rows: () => unknown[]) {
   return {
@@ -48,6 +49,12 @@ vi.mock("@workspace/db", () => {
         }
         if (tbl === TABLE_DEPARTURES) {
           return whereable(() => departureRows.filter((r) => !r.delivered));
+        }
+        if (tbl === TABLE_IDENTITY_KEYS) {
+          // No identity row for these test users → ensureDeliveryId returns
+          // null, which the auth flow handles gracefully (delivery-id routing
+          // is skipped and deliverPendingDepartures still runs).
+          return whereable(() => []);
         }
         return whereable(() => []);
       },
@@ -88,6 +95,7 @@ vi.mock("@workspace/db", () => {
     departuresTable: TABLE_DEPARTURES,
     messagesTable: TABLE_MESSAGES,
     deviceTokensTable: TABLE_DEVICE_TOKENS,
+    identityKeysTable: TABLE_IDENTITY_KEYS,
   };
 });
 
