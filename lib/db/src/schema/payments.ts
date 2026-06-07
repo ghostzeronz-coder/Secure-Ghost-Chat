@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, timestamp, index } from "drizzle-orm/pg-core";
 
 /**
  * On-chain USDC/Solana payment requests (Task #133).
@@ -31,7 +31,7 @@ export const ghostPaymentsTable = pgTable("ghost_payments", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   confirmedAt: timestamp("confirmed_at"),
-});
+}, (table) => [index("idx_ghost_payments_user").on(table.userId)]);
 
 /**
  * Active plan entitlement per user. Crypto cannot auto-renew, so this is a

@@ -4,13 +4,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 import { validateTransfer } from "@solana/pay";
 import BigNumber from "bignumber.js";
 import { eq, and } from "drizzle-orm";
-import {
-  db,
-  pool,
-  deviceTokensTable,
-  ghostPaymentsTable,
-  ghostEntitlementsTable,
-} from "@workspace/db";
+import { db, deviceTokensTable, ghostPaymentsTable, ghostEntitlementsTable } from "@workspace/db";
 import { RateLimiter, getIpKey } from "../lib/rateLimiter";
 import { normalizeAlias } from "../utils/alias";
 import { logger } from "../lib/logger";
@@ -35,32 +29,10 @@ const intentLimiter = new RateLimiter({ windowMs: 10 * 60_000, max: 10 });
 // 60 status polls per minute per IP (client polls every few seconds).
 const statusLimiter = new RateLimiter({ windowMs: 60_000, max: 60 });
 
-async function runMigrations() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ghost_payments (
-      id            SERIAL PRIMARY KEY,
-      reference     TEXT NOT NULL UNIQUE,
-      user_id       TEXT NOT NULL,
-      plan          TEXT NOT NULL,
-      expected_usdc TEXT NOT NULL,
-      status        TEXT NOT NULL DEFAULT 'pending',
-      signature     TEXT UNIQUE,
-      recipient     TEXT NOT NULL,
-      created_at    TIMESTAMP DEFAULT NOW(),
-      expires_at    TIMESTAMP NOT NULL,
-      confirmed_at  TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_ghost_payments_user ON ghost_payments(user_id);
-    CREATE TABLE IF NOT EXISTS ghost_entitlements (
-      user_id      TEXT PRIMARY KEY,
-      plan         TEXT NOT NULL,
-      active_until TIMESTAMP NOT NULL,
-      updated_at   TIMESTAMP DEFAULT NOW()
-    );
-  `);
-}
-
-runMigrations().catch((err: unknown) => logger.error({ err }, "Crypto DB migration failed"));
+// The ghost_payments and ghost_entitlements tables are provisioned through the
+// standard Drizzle schema (lib/db/src/schema/payments.ts) and applied via
+// `pnpm --filter db push` (see scripts/post-merge.sh) — the single source of
+// truth for the database schema.
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
