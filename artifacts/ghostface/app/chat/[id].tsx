@@ -1766,7 +1766,7 @@ export default function ChatScreen() {
               </View>
               <View style={styles.sheetBody}>
                 <Text style={styles.safetyNote}>
-                  Messages auto-delete after the set time. Both sides can still screenshot.
+                  Messages auto-delete after the set time. Screenshots are blocked on both sides.
                 </Text>
                 <View style={styles.disappearOptions}>
                   {DISAPPEAR_OPTIONS.map((opt) => {
