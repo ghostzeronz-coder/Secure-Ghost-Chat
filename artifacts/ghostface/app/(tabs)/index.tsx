@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 import { useApp } from "@/context/AppContext";
+import { boxShadow } from "@/lib/shadow";
 
 const BG = "#000";
 const GOLD = "#bf9b30";
@@ -272,7 +273,7 @@ export default function HomeScreen() {
                       }),
                     },
                   ],
-                  shadowOpacity: wipeArmed || isWiping ? 0.95 : 0.5,
+                  boxShadow: boxShadow(RED, wipeArmed || isWiping ? 0.95 : 0.5, 10),
                 },
               ]}
             >
@@ -432,9 +433,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: "rgba(220,38,38,0.7)",
-    shadowColor: RED,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 0 },
   },
   wipeLabel: {
     position: "absolute",
@@ -523,10 +521,7 @@ const styles = StyleSheet.create({
     left: (184 - 250) / 2,
     borderRadius: 125,
     backgroundColor: "rgba(191,155,48,0.07)",
-    shadowColor: GOLD,
-    shadowOpacity: 0.6,
-    shadowRadius: 55,
-    shadowOffset: { width: 0, height: 0 },
+    boxShadow: boxShadow(GOLD, 0.6, 55),
   },
   globeGlowInner: {
     position: "absolute",

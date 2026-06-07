@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useColors } from "@/hooks/useColors";
 import { GoldGradient } from "@/components/GoldGradient";
+import { boxShadow } from "@/lib/shadow";
 
 export type ErrorFallbackProps = {
   error: Error;
@@ -214,13 +215,7 @@ const styles = StyleSheet.create({
   button: {
     borderRadius: 8,
     minWidth: 200,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    boxShadow: boxShadow("#000", 0.1, 4, 0, 2),
     elevation: 3,
   },
   buttonInner: {

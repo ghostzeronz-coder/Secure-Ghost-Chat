@@ -22,6 +22,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { boxShadow } from "@/lib/shadow";
 import LockScreen from "@/app/lock";
 import OnboardingScreen from "@/app/onboarding";
 
@@ -78,10 +79,7 @@ function IncomingCallOverlay() {
       borderWidth: 1,
       borderColor: colors.primary,
       padding: 16,
-      shadowColor: colors.primary,
-      shadowOpacity: 0.3,
-      shadowRadius: 20,
-      shadowOffset: { width: 0, height: 4 },
+      boxShadow: boxShadow(colors.primary, 0.3, 20, 0, 4),
     },
     row: { flexDirection: "row", alignItems: "center", gap: 14 },
     avatarWrap: {

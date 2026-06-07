@@ -21,6 +21,7 @@ import { GhostLogo } from "@/components/GhostLogo";
 import { GoldGradient } from "@/components/GoldGradient";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { boxShadow } from "@/lib/shadow";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -607,10 +608,7 @@ export default function LockScreen() {
       borderRadius: colors.radius,
       borderWidth: 1,
       borderColor: "#ffffff",
-      shadowColor: colors.primary,
-      shadowOpacity: 0.4,
-      shadowRadius: 16,
-      shadowOffset: { width: 0, height: 4 },
+      boxShadow: boxShadow(colors.primary, 0.4, 16, 0, 4),
     },
     enterBtn: {
       paddingHorizontal: 64,

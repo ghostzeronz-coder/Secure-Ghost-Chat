@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { boxShadow } from "@/lib/shadow";
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -322,10 +323,7 @@ const styles = StyleSheet.create({
   btnWrap: {
     borderWidth: 1,
     borderColor: "#ffffff",
-    shadowColor: "#ef4444",
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 4 },
+    boxShadow: boxShadow("#ef4444", 0.45, 16, 0, 4),
   },
   btn: {
     flexDirection: "row",
