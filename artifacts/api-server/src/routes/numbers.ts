@@ -19,48 +19,12 @@ const provisionLimiter = new RateLimiter({ windowMs: 60 * 60_000, max: 3 });
 // 30 SMS inbox fetches per minute per IP
 const smsInboxLimiter = new RateLimiter({ windowMs: 60_000, max: 30 });
 
-async function runMigrations() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS ghost_numbers (
-      id          SERIAL PRIMARY KEY,
-      user_id     TEXT NOT NULL,
-      provider    TEXT NOT NULL DEFAULT 'vonage',
-      phone_number TEXT NOT NULL,
-      country     TEXT NOT NULL,
-      capabilities JSONB NOT NULL DEFAULT '["SMS"]',
-      status      TEXT NOT NULL DEFAULT 'active',
-      plan        TEXT NOT NULL DEFAULT 'basic',
-      msisdn      TEXT NOT NULL,
-      created_at  TIMESTAMP DEFAULT NOW()
-    );
-    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS rotate_every_days INTEGER;
-    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS next_rotation_at TIMESTAMP;
-    ALTER TABLE ghost_numbers ADD COLUMN IF NOT EXISTS archived_msisdns JSONB NOT NULL DEFAULT '[]'::jsonb;
-    CREATE INDEX IF NOT EXISTS idx_ghost_numbers_next_rotation
-      ON ghost_numbers(next_rotation_at)
-      WHERE next_rotation_at IS NOT NULL;
-    CREATE TABLE IF NOT EXISTS ghost_sms (
-      id               SERIAL PRIMARY KEY,
-      number_id        TEXT NOT NULL,
-      to_user_id       TEXT NOT NULL,
-      from_number      TEXT NOT NULL,
-      to_number        TEXT NOT NULL,
-      body             TEXT NOT NULL,
-      direction        TEXT NOT NULL DEFAULT 'inbound',
-      provider_metadata JSONB,
-      created_at       TIMESTAMP DEFAULT NOW()
-    );
-    -- Per-user on-demand rotation rate-limit table (1 rotation per user per 24 hours)
-    CREATE TABLE IF NOT EXISTS user_rotation_limits (
-      user_id      TEXT PRIMARY KEY,
-      last_rotate_at TIMESTAMP NOT NULL
-    );
-  `);
-}
+// The ghost_numbers, ghost_sms and user_rotation_limits tables are provisioned
+// through the standard Drizzle schema (lib/db/src/schema/ghostNumbers.ts) and
+// applied via `pnpm --filter db push` (see scripts/post-merge.sh) — the single
+// source of truth for the database schema.
 
 const ALLOWED_ROTATION_DAYS = new Set([0, 7, 30, 90]);
-
-runMigrations().catch((err: unknown) => logger.error({ err }, "DB migration failed"));
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
