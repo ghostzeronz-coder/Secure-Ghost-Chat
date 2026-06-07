@@ -29,6 +29,7 @@ import { hkdf } from "@noble/hashes/hkdf.js";
 import { hmac } from "@noble/hashes/hmac.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { randomBytes } from "@noble/hashes/utils.js";
+import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
 
 const MAX_SKIP = 1000;
 
@@ -153,12 +154,119 @@ function x3dhShared(
   return hkdf(sha256, raw, new Uint8Array(32), strToBytes("GHOSTFACE_X3DH_v1"), 32);
 }
 
+// ── Post-quantum KEM (ML-KEM-768 hybrid layer) ─────────────────────────────────
+//
+// GHOSTFACE mixes an ML-KEM (Kyber) encapsulated secret into BOTH the X3DH
+// handshake (PQXDH-style) and the ongoing Double Ratchet root key (PQ3-style
+// continuous rekey).  The KEM secret is always COMBINED with the classical
+// X25519 output through a KDF, never used alone — so the hybrid construction is
+// at least as strong as the existing X25519 design and additionally resists a
+// future quantum adversary ("harvest-now, decrypt-later").
+//
+// ML-KEM-768 (NIST level 3) sizes, in bytes:
+//   public key 1184, secret key 2400, ciphertext 1088, shared secret 32.
+// The parameter set is centralised here so it can be changed in one place.
+const MLKEM = ml_kem768;
+export const PQKEM_PUBLIC_BYTES = 1184;
+export const PQKEM_SECRET_BYTES = 2400;
+export const PQKEM_CIPHERTEXT_BYTES = 1088;
+
+export interface KemKeyPair {
+  pub: string; // ML-KEM public key, hex
+  priv: string; // ML-KEM secret key, hex
+}
+
+/** Generate a fresh ML-KEM-768 keypair (hex-encoded). */
+export function generateKemKeyPair(): KemKeyPair {
+  const { publicKey, secretKey } = MLKEM.keygen();
+  return { pub: toHex(publicKey), priv: toHex(secretKey) };
+}
+
+/** Encapsulate to an ML-KEM public key → (ciphertext, shared secret). */
+function kemEncapsulate(pubHex: string): { ct: Uint8Array; ss: Uint8Array } {
+  const { cipherText, sharedSecret } = MLKEM.encapsulate(fromHex(pubHex));
+  return { ct: cipherText, ss: sharedSecret };
+}
+
+/** Decapsulate an ML-KEM ciphertext with our secret key → shared secret. */
+function kemDecapsulate(ctHex: string, privHex: string): Uint8Array {
+  return MLKEM.decapsulate(fromHex(ctHex), fromHex(privHex));
+}
+
+/**
+ * Sign an ML-KEM public prekey with the IK Ed25519 signing key — the SAME key
+ * that signs the SPK.  Lets the recipient bind the PQ prekey to the verified
+ * identity and reject a server-substituted KEM key (PQ MITM defence).
+ */
+export function signKemPreKey(kemPubHex: string, ikSignPrivHex: string): string {
+  return toHex(ed25519.sign(fromHex(kemPubHex), fromHex(ikSignPrivHex)));
+}
+
+/** Verify an ML-KEM prekey signature. Never throws (returns false on error). */
+export function verifyKemPreKey(
+  kemPubHex: string,
+  sigHex: string,
+  ikSignPublicHex: string,
+): boolean {
+  try {
+    return ed25519.verify(fromHex(sigHex), fromHex(kemPubHex), fromHex(ikSignPublicHex));
+  } catch {
+    return false;
+  }
+}
+
+const X3DH_PQ_INFO = strToBytes("GHOSTFACE_X3DH_PQ_v1");
+const ROOT_INFO_PQ = strToBytes("GHOSTFACE_RATCHET_ROOT_PQ_v1");
+
+/**
+ * Fold an ML-KEM shared secret into the classical X3DH shared secret.
+ * SK_hybrid = HKDF(ikm = classicalSK || kemSS).  Domain-separated from the
+ * classical X3DH KDF so the two transcripts never collide.
+ */
+function hybridMixSK(classicalSK: Uint8Array, kemSS: Uint8Array): Uint8Array {
+  const ikm = new Uint8Array(classicalSK.length + kemSS.length);
+  ikm.set(classicalSK, 0);
+  ikm.set(kemSS, classicalSK.length);
+  return hkdf(sha256, ikm, new Uint8Array(32), X3DH_PQ_INFO, 32);
+}
+
+/**
+ * KDF_RK variant that folds an ML-KEM shared secret into the root step
+ * alongside the DH output: (new_rk, ck) = HKDF(ikm = dhOut || kemSS, salt = rk).
+ * Domain-separated from the classical kdfRk via ROOT_INFO_PQ.  Both parties run
+ * this identically on the matching ratchet step so their chains stay in sync.
+ */
+function kdfRkPQ(
+  rk: Uint8Array,
+  dhOut: Uint8Array,
+  kemSS: Uint8Array,
+): { rk: Uint8Array; ck: Uint8Array } {
+  const ikm = new Uint8Array(dhOut.length + kemSS.length);
+  ikm.set(dhOut, 0);
+  ikm.set(kemSS, dhOut.length);
+  const out = hkdf(sha256, ikm, rk, ROOT_INFO_PQ, 64);
+  return { rk: out.slice(0, 32), ck: out.slice(32) };
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface RatchetHeader {
   dh: string;  // hex X25519 public key
   n:  number;  // message index in this chain
   pn: number;  // previous sending chain length
+  /**
+   * Post-quantum continuous rekey (PQ3-style). Present only when the session is
+   * PQ-enabled:
+   *   pqPub — our CURRENT ML-KEM public key, advertised so the peer can
+   *           encapsulate to us on its next DH ratchet step.
+   *   pqCt  — an ML-KEM ciphertext encapsulated to the peer's last-advertised
+   *           pqPub, set on every message of a sending chain that begins with a
+   *           DH ratchet step. Folded into the root key by both parties.
+   * Both fields are part of the AEAD associated data (the serialised header), so
+   * tampering with the PQ material breaks decryption.
+   */
+  pqPub?: string;
+  pqCt?:  string;
 }
 
 export interface RatchetMessage {
@@ -177,6 +285,11 @@ interface RatchetState {
   PN:        number;
   MKSKIPPED: Map<string, Uint8Array>;
   step:      number;
+  // ── Post-quantum continuous-rekey state ──
+  pq:          boolean;          // PQ rekey enabled for this session
+  PQs:         KemKeyPair | null; // our current ML-KEM keypair (we advertise PQs.pub)
+  PQr:         string | null;     // peer's last-advertised ML-KEM public key (hex)
+  pendingPqCt: string | null;     // ct attached to outgoing headers in the current sending chain
 }
 
 /** Serialised form for AsyncStorage (all byte arrays as hex strings). */
@@ -191,6 +304,12 @@ export interface SerializedRatchetState {
   PN:        number;
   MKSKIPPED: Record<string, string>;
   step:      number;
+  // PQ fields are optional for backward compatibility with pre-PQ sessions —
+  // an absent/false `pq` means the session runs classical-only.
+  pq?:          boolean;
+  PQs?:         { priv: string; pub: string } | null;
+  PQr?:         string | null;
+  pendingPqCt?: string | null;
 }
 
 /** Both sides of a DR session stored per conversation. */
@@ -308,6 +427,14 @@ export interface PreKeyBundle {
    * Separate from the X25519 ikPublicKey used for DH operations.
    */
   ikSignPublicKey?: string;
+  /**
+   * Bob's signed ML-KEM (Kyber) public prekey, enabling the post-quantum hybrid
+   * handshake. Public-only. When present it MUST be accompanied by
+   * pqkemSignature (Ed25519 over the KEM pub bytes, signed by ikSign) — Alice
+   * verifies it before encapsulating. Absent → classical-only fallback.
+   */
+  pqkemPublicKey?: string;
+  pqkemSignature?: string;
 }
 
 
@@ -325,6 +452,10 @@ function serializeState(s: RatchetState): SerializedRatchetState {
     Ns: s.Ns, Nr: s.Nr, PN: s.PN,
     MKSKIPPED,
     step: s.step,
+    pq:          s.pq,
+    PQs:         s.PQs ? { priv: s.PQs.priv, pub: s.PQs.pub } : null,
+    PQr:         s.PQr,
+    pendingPqCt: s.pendingPqCt,
   };
 }
 
@@ -340,6 +471,11 @@ function deserializeState(s: SerializedRatchetState): RatchetState {
     Ns: s.Ns, Nr: s.Nr, PN: s.PN,
     MKSKIPPED,
     step: s.step,
+    // Legacy (pre-PQ) states have no PQ fields → default to classical-only.
+    pq:          s.pq ?? false,
+    PQs:         s.PQs ? { priv: s.PQs.priv, pub: s.PQs.pub } : null,
+    PQr:         s.PQr ?? null,
+    pendingPqCt: s.pendingPqCt ?? null,
   };
 }
 
@@ -365,6 +501,12 @@ export function ratchetEncrypt(
     n:  s.Ns,
     pn: s.PN,
   };
+
+  // Post-quantum: advertise our current ML-KEM public key on every message and
+  // attach the ciphertext for the peer (set when this sending chain began with a
+  // DH ratchet). Both ride inside the AEAD associated data via the serialised header.
+  if (s.pq && s.PQs) header.pqPub = s.PQs.pub;
+  if (s.pq && s.pendingPqCt) header.pqCt = s.pendingPqCt;
 
   const ad         = strToBytes(JSON.stringify(header));
   const ciphertext = aeadEncrypt(mk, strToBytes(plaintext), ad);
@@ -404,22 +546,47 @@ function skipChainKeys(s: RatchetState, until: number): void {
   }
 }
 
-function performDHRatchet(s: RatchetState, newDHr: Uint8Array): void {
+function performDHRatchet(s: RatchetState, header: RatchetHeader): void {
+  const newDHr = fromHex(header.dh);
   s.PN  = s.Ns;
   s.Ns  = 0;
   s.Nr  = 0;
   s.DHr = newDHr;
 
-  // Receiving chain: DH(our_current_DHs, their_new_DHr)
-  const { rk: rk1, ck: ck1 } = kdfRk(s.RK, dhCompute(s.DHs, newDHr));
-  s.RK  = rk1;
-  s.CKr = ck1;
+  // ── Receiving chain: DH(our_current_DHs, their_new_DHr) ──
+  // PQ3 continuous rekey: if the peer attached a KEM ciphertext, decapsulate it
+  // with our CURRENT (not-yet-rotated) KEM private key and fold the secret in.
+  // This MUST happen before we rotate PQs below.
+  const dhOutR = dhCompute(s.DHs, newDHr);
+  if (s.pq && header.pqCt && s.PQs) {
+    const ssIn = kemDecapsulate(header.pqCt, s.PQs.priv);
+    const { rk, ck } = kdfRkPQ(s.RK, dhOutR, ssIn);
+    s.RK = rk; s.CKr = ck;
+  } else {
+    const { rk, ck } = kdfRk(s.RK, dhOutR);
+    s.RK = rk; s.CKr = ck;
+  }
 
-  // Generate fresh sending keypair then advance root chain again
+  // Record the peer's latest advertised KEM public key, then rotate our own
+  // KEM keypair (forward secrecy — the old private key is discarded).
+  if (s.pq && header.pqPub) s.PQr = header.pqPub;
+  if (s.pq) s.PQs = generateKemKeyPair();
+
+  // ── Sending chain: generate fresh DH keypair, advance root again ──
   s.DHs = generateDH();
-  const { rk: rk2, ck: ck2 } = kdfRk(s.RK, dhCompute(s.DHs, newDHr));
-  s.RK  = rk2;
-  s.CKs = ck2;
+  const dhOutS = dhCompute(s.DHs, newDHr);
+  if (s.pq && s.PQr) {
+    // Encapsulate to the peer's latest KEM key; the ciphertext travels on every
+    // message of this new sending chain, the secret folds into our sending root.
+    const { ct, ss } = kemEncapsulate(s.PQr);
+    s.pendingPqCt = toHex(ct);
+    const { rk, ck } = kdfRkPQ(s.RK, dhOutS, ss);
+    s.RK = rk; s.CKs = ck;
+  } else {
+    s.pendingPqCt = null;
+    const { rk, ck } = kdfRk(s.RK, dhOutS);
+    s.RK = rk; s.CKs = ck;
+  }
   s.step += 1;
 }
 
@@ -446,7 +613,7 @@ export function ratchetDecrypt(
   const isNewDH = !s.DHr || toHex(s.DHr) !== header.dh;
   if (isNewDH) {
     skipChainKeys(s, header.pn);          // cache any skipped keys from previous chain
-    performDHRatchet(s, fromHex(header.dh));
+    performDHRatchet(s, header);
   }
 
   // 3. Skip to the right message index in the current receiving chain
@@ -486,6 +653,19 @@ export function isValidRatchetState(s: unknown): s is SerializedRatchetState {
   const r = s as Record<string, unknown>;
   if (!r.DHs || typeof r.DHs !== "object") return false;
   const dhs = r.DHs as Record<string, unknown>;
+  // PQ fields are OPTIONAL — legacy (pre-PQ) states omit them and run classical.
+  const pqs = r.PQs as Record<string, unknown> | null | undefined;
+  const pqsValidPair =
+    typeof pqs === "object" && pqs !== null &&
+    isHex(pqs.pub,  PQKEM_PUBLIC_BYTES) &&
+    isHex(pqs.priv, PQKEM_SECRET_BYTES);
+  // A post-quantum session (pq===true) MUST carry a valid rotating ML-KEM
+  // keypair (PQs); without it the next DH ratchet step cannot encapsulate and
+  // the session would silently de-sync. Reject such broken states so the app
+  // rebuilds a fresh (classical or hybrid) session instead of losing messages.
+  const pqsOk = r.pq === true
+    ? pqsValidPair
+    : (pqs === null || pqs === undefined || pqsValidPair);
   return (
     isHex(dhs.priv, 32) &&
     isHex(dhs.pub,  32) &&
@@ -496,7 +676,12 @@ export function isValidRatchetState(s: unknown): s is SerializedRatchetState {
     typeof r.Ns === "number" &&
     typeof r.Nr === "number" &&
     typeof r.PN === "number" &&
-    typeof r.step === "number"
+    typeof r.step === "number" &&
+    (r.pq === undefined || typeof r.pq === "boolean") &&
+    pqsOk &&
+    (r.PQr === undefined || r.PQr === null || isHex(r.PQr, PQKEM_PUBLIC_BYTES)) &&
+    (r.pendingPqCt === undefined || r.pendingPqCt === null ||
+      isHex(r.pendingPqCt, PQKEM_CIPHERTEXT_BYTES))
   );
 }
 
@@ -526,6 +711,12 @@ export interface X3DHHeader {
   ikA:   string;  // Alice's IK public key (hex, 64 chars)
   ekA:   string;  // Alice's ephemeral public key for this session (hex, 64 chars)
   opkId?: string; // Bob's OPK public key that was consumed (hex, 64 chars). Null → 3-DH.
+  /**
+   * PQXDH: ML-KEM ciphertext encapsulated to Bob's signed KEM prekey. Present
+   * only when the bundle carried a (verified) ML-KEM prekey. Bob decapsulates it
+   * with his stored KEM secret key and folds the result into the shared secret.
+   */
+  pqkemCt?: string;
 }
 
 /**
@@ -570,12 +761,33 @@ export function initSessionAliceWithHeader(
     ? fromHex(bundle.opkPublicKey)
     : undefined;
 
-  const SK = x3dhShared(
+  let SK = x3dhShared(
     dhCompute(IK_A, spkBPub),
     dhCompute(EK_A, ikBPub),
     dhCompute(EK_A, spkBPub),
     opkBPub ? dhCompute(EK_A, opkBPub) : undefined,
   );
+
+  // ── PQXDH: hybrid post-quantum handshake ──────────────────────────────────
+  // If Bob published a signed ML-KEM prekey, verify it with the SAME Ed25519 IK
+  // signing key that signs the SPK, encapsulate to it, and fold the KEM secret
+  // into SK. Strict: a KEM prekey WITHOUT a valid signature is rejected (never
+  // silently downgraded), preventing a server-substituted KEM key.
+  let pqEnabled = false;
+  let pqkemCt: string | undefined;
+  if (bundle.pqkemPublicKey) {
+    if (!bundle.pqkemSignature || !bundle.ikSignPublicKey) {
+      throw new Error("[PQXDH] ML-KEM prekey present without a signature — bundle rejected");
+    }
+    const okPq = verifyKemPreKey(bundle.pqkemPublicKey, bundle.pqkemSignature, bundle.ikSignPublicKey);
+    if (!okPq) {
+      throw new Error("[PQXDH] ML-KEM prekey signature verification FAILED — bundle rejected (possible MITM)");
+    }
+    const { ct, ss } = kemEncapsulate(bundle.pqkemPublicKey);
+    SK = hybridMixSK(SK, ss);
+    pqkemCt = toHex(ct);
+    pqEnabled = true;
+  }
 
   const aliceDHs = generateDH();
   const { rk: aliceRK, ck: aliceCKs } = kdfRk(SK, dhCompute(aliceDHs, spkBPub));
@@ -589,6 +801,12 @@ export function initSessionAliceWithHeader(
     Ns: 0, Nr: 0, PN: 0,
     MKSKIPPED: new Map(),
     step: 0,
+    // PQ continuous rekey: start advertising a fresh KEM key; we learn the
+    // peer's pub from their first reply (PQr stays null until then).
+    pq:          pqEnabled,
+    PQs:         pqEnabled ? generateKemKeyPair() : null,
+    PQr:         null,
+    pendingPqCt: null,
   };
 
   const bobStub: RatchetState = {
@@ -600,6 +818,10 @@ export function initSessionAliceWithHeader(
     Ns: 0, Nr: 0, PN: 0,
     MKSKIPPED: new Map(),
     step: 0,
+    pq:          false,
+    PQs:         null,
+    PQr:         null,
+    pendingPqCt: null,
   };
 
   const session: DRSession = {
@@ -613,6 +835,7 @@ export function initSessionAliceWithHeader(
     ikA:   myIKPub,
     ekA:   toHex(EK_A.pub),
     opkId: bundle.opkPublicKey ?? undefined,
+    pqkemCt,
   };
 
   return { session, x3dhHeader };
@@ -636,6 +859,7 @@ export function initSessionBobFromHeader(
   bobSPKPriv: string,
   bobSPKPub:  string,
   opkPriv?:   string,
+  bobKemPriv?: string,
 ): DRSession {
   const IK_B:  DHKeyPair = { priv: fromHex(bobIKPriv),  pub: fromHex(bobIKPub)  };
   const SPK_B: DHKeyPair = { priv: fromHex(bobSPKPriv), pub: fromHex(bobSPKPub) };
@@ -649,12 +873,26 @@ export function initSessionBobFromHeader(
     ? { priv: fromHex(opkPriv), pub: opkPub }
     : undefined;
 
-  const SK = x3dhShared(
+  let SK = x3dhShared(
     dhCompute(SPK_B, ikAPub),
     dhCompute(IK_B,  ekAPub),
     dhCompute(SPK_B, ekAPub),
     opkKP ? dhCompute(opkKP, ekAPub) : undefined,
   );
+
+  // ── PQXDH: decapsulate Alice's ML-KEM ciphertext (if present) ──────────────
+  // Bob folds the same KEM secret into SK. If the handshake carried a KEM
+  // ciphertext but Bob has no stored KEM private key, fail loudly rather than
+  // silently deriving a mismatched (classical-only) key.
+  let pqEnabled = false;
+  if (x3dhHeader.pqkemCt) {
+    if (!bobKemPriv) {
+      throw new Error("[PQXDH] handshake carries an ML-KEM ciphertext but no KEM private key is available");
+    }
+    const ss = kemDecapsulate(x3dhHeader.pqkemCt, bobKemPriv);
+    SK = hybridMixSK(SK, ss);
+    pqEnabled = true;
+  }
 
   const bobState: RatchetState = {
     DHs: SPK_B,
@@ -665,6 +903,12 @@ export function initSessionBobFromHeader(
     Ns: 0, Nr: 0, PN: 0,
     MKSKIPPED: new Map(),
     step: 0,
+    // Bob starts advertising a fresh KEM key; learns Alice's pub from her first
+    // DR message (header.pqPub) during the first DH ratchet.
+    pq:          pqEnabled,
+    PQs:         pqEnabled ? generateKemKeyPair() : null,
+    PQr:         null,
+    pendingPqCt: null,
   };
 
   const aliceStub: RatchetState = {
@@ -676,6 +920,10 @@ export function initSessionBobFromHeader(
     Ns: 0, Nr: 0, PN: 0,
     MKSKIPPED: new Map(),
     step: 0,
+    pq:          false,
+    PQs:         null,
+    PQr:         null,
+    pendingPqCt: null,
   };
 
   return {

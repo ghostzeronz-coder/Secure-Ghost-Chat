@@ -172,6 +172,176 @@ async function main() {
       eveBlocked = true;
     }
     assert(eveBlocked, "a third party with a different session cannot decrypt Alice's message");
+
+    // ── 6. Classical fallback: bundle with NO pqkem → sessions are classical ──
+    assert(aliceSession.alice.pq === false, "classical bundle → Alice session pq=false (fallback)");
+    assert(bobSession.alice.pq === false, "classical bundle → Bob session pq=false (fallback)");
+
+    // ── 7. Hybrid PQXDH handshake (bundle carries signed ML-KEM prekey) ───────
+    const pqBobIkSign = DR.generateSigningKeyPair();
+    const pqBobIK = DR.generateOneTimePreKeys(1)[0];
+    const pqBobSPK = DR.generateOneTimePreKeys(1)[0];
+    const pqBobOPK = DR.generateOneTimePreKeys(1)[0];
+    const pqBobKem = DR.generateKemKeyPair();
+    const pqSpkSig = DR.signSPK(pqBobSPK.pub, pqBobIkSign.priv);
+    const pqKemSig = DR.signKemPreKey(pqBobKem.pub, pqBobIkSign.priv);
+
+    const pqBundle = {
+      ikPublicKey: pqBobIK.pub,
+      spkPublicKey: pqBobSPK.pub,
+      opkPublicKey: pqBobOPK.pub,
+      spkSignature: pqSpkSig,
+      ikSignPublicKey: pqBobIkSign.pub,
+      pqkemPublicKey: pqBobKem.pub,
+      pqkemSignature: pqKemSig,
+    };
+
+    // Bob's KEM private key must never leak into the bundle.
+    assert(
+      !collectStrings(pqBundle).includes(pqBobKem.priv),
+      "PQ bundle contains NO ML-KEM private key",
+    );
+
+    const pqAliceIK = DR.generateOneTimePreKeys(1)[0];
+    const { session: pqAliceSession, x3dhHeader: pqHeader } =
+      DR.initSessionAliceWithHeader(pqBundle, pqAliceIK.priv, pqAliceIK.pub);
+
+    assert(pqAliceSession.alice.pq === true, "PQ bundle → Alice session pq=true (hybrid)");
+    assert(typeof pqHeader.pqkemCt === "string" && pqHeader.pqkemCt.length > 0,
+      "X3DH header carries ML-KEM encapsulation ciphertext (pqkemCt)");
+    assert(!collectStrings(pqHeader).includes(pqBobKem.priv),
+      "X3DH header does NOT contain Bob's ML-KEM private key");
+
+    const pqBobSession = DR.initSessionBobFromHeader(
+      pqHeader,
+      pqBobIK.priv,
+      pqBobIK.pub,
+      pqBobSPK.priv,
+      pqBobSPK.pub,
+      pqBobOPK.priv,
+      pqBobKem.priv,
+    );
+    assert(pqBobSession.alice.pq === true, "PQ header + KEM priv → Bob session pq=true (hybrid)");
+
+    // Hybrid agreement: Alice's first message decrypts under Bob. Because Alice
+    // ratchets immediately on init her RK diverges from Bob's by design, so the
+    // meaningful invariant is that the SHARED hybrid SK (X25519 ‖ ML-KEM) yields
+    // a matching chain — i.e. the message actually decrypts.
+    const { state: pqAlice1, message: pqMsg1 } =
+      DR.ratchetEncrypt(pqAliceSession.alice, "hybrid hello");
+    const { state: pqBob1, plaintext: pqPlain1 } =
+      DR.ratchetDecrypt(pqBobSession.alice, pqMsg1);
+    assert(
+      pqPlain1 === "hybrid hello",
+      "hybrid PQXDH: Alice's first message decrypts under Bob (shared X25519 ‖ ML-KEM SK)",
+    );
+
+    // ── 8. PQ-ct tamper rejection: corrupt pqkemCt → Bob can't decrypt ───────
+    const tamperedHeader = { ...pqHeader };
+    // Flip a hex nibble in the middle of the KEM ciphertext.
+    const ctMid = Math.floor(tamperedHeader.pqkemCt.length / 2);
+    const flip = tamperedHeader.pqkemCt[ctMid] === "a" ? "b" : "a";
+    tamperedHeader.pqkemCt =
+      tamperedHeader.pqkemCt.slice(0, ctMid) + flip + tamperedHeader.pqkemCt.slice(ctMid + 1);
+    const tamperedBob = DR.initSessionBobFromHeader(
+      tamperedHeader,
+      pqBobIK.priv,
+      pqBobIK.pub,
+      pqBobSPK.priv,
+      pqBobSPK.pub,
+      pqBobOPK.priv,
+      pqBobKem.priv,
+    );
+    let pqTamperBlocked = false;
+    try {
+      DR.ratchetDecrypt(tamperedBob.alice, pqMsg1);
+    } catch {
+      pqTamperBlocked = true;
+    }
+    assert(
+      pqTamperBlocked,
+      "tampered pqkemCt → Bob CANNOT decrypt Alice's message (KEM secret bound into hybrid SK)",
+    );
+
+    // ── 9. Continuous PQ rekey: multi-turn, reorder, and bursts ──────────────
+    let pqAlice = pqAlice1;
+    let pqBob = pqBob1;
+
+    // (a) In-order ping/pong forces DH+KEM ratchet steps in both directions.
+    const pqRounds = [
+      ["alice", "pq ping 1"],
+      ["bob", "pq pong 1"],
+      ["alice", "pq ping 2"],
+      ["bob", "pq pong 2"],
+      ["alice", "pq ping 3"],
+    ];
+    let pqInOrderOk = true;
+    for (const [sender, text] of pqRounds) {
+      if (sender === "alice") {
+        const { state: ns, message } = DR.ratchetEncrypt(pqAlice, text);
+        pqAlice = ns;
+        const { state: nr, plaintext } = DR.ratchetDecrypt(pqBob, message);
+        pqBob = nr;
+        if (plaintext !== text) pqInOrderOk = false;
+      } else {
+        const { state: ns, message } = DR.ratchetEncrypt(pqBob, text);
+        pqBob = ns;
+        const { state: nr, plaintext } = DR.ratchetDecrypt(pqAlice, message);
+        pqAlice = nr;
+        if (plaintext !== text) pqInOrderOk = false;
+      }
+    }
+    assert(pqInOrderOk, "continuous PQ rekey: in-order bidirectional messages all decrypt");
+    assert(pqAlice.pq === true && pqBob.pq === true, "PQ flag persists across continuous rekey");
+
+    // (b) Burst: Alice sends several consecutive messages (same sending chain).
+    const burst = ["burst a", "burst b", "burst c", "burst d"];
+    const burstMsgs = [];
+    let burstOk = true;
+    for (const text of burst) {
+      const { state: ns, message } = DR.ratchetEncrypt(pqAlice, text);
+      pqAlice = ns;
+      burstMsgs.push({ text, message });
+    }
+    for (const { text, message } of burstMsgs) {
+      const { state: nr, plaintext } = DR.ratchetDecrypt(pqBob, message);
+      pqBob = nr;
+      if (plaintext !== text) burstOk = false;
+    }
+    assert(burstOk, "continuous PQ rekey: a 4-message burst decrypts in order");
+
+    // (c) Reorder: encrypt three, deliver out of order (2,0,1) — skipped keys.
+    const reorderTexts = ["reorder 0", "reorder 1", "reorder 2"];
+    const reorderMsgs = [];
+    for (const text of reorderTexts) {
+      const { state: ns, message } = DR.ratchetEncrypt(pqAlice, text);
+      pqAlice = ns;
+      reorderMsgs.push({ text, message });
+    }
+    let reorderOk = true;
+    for (const idx of [2, 0, 1]) {
+      const { state: nr, plaintext } = DR.ratchetDecrypt(pqBob, reorderMsgs[idx].message);
+      pqBob = nr;
+      if (plaintext !== reorderTexts[idx]) reorderOk = false;
+    }
+    assert(reorderOk, "continuous PQ rekey: out-of-order delivery decrypts via skipped keys");
+
+    // ── 10. State validation: pq=true MUST carry a valid PQs keypair ─────────
+    assert(
+      DR.isValidRatchetState(pqBob),
+      "valid hybrid ratchet state passes isValidRatchetState",
+    );
+    // Corrupt a hybrid state by stripping PQs while keeping pq=true → reject.
+    const brokenPq = { ...pqBob, PQs: undefined };
+    assert(
+      DR.isValidRatchetState(brokenPq) === false,
+      "pq=true with missing PQs is REJECTED (prevents silent de-sync)",
+    );
+    // Legacy classical state (no PQ fields, pq=false) still validates.
+    assert(
+      DR.isValidRatchetState(aliceState),
+      "legacy classical ratchet state (no PQ fields) still validates",
+    );
   } finally {
     fs.unlinkSync(tmp);
   }

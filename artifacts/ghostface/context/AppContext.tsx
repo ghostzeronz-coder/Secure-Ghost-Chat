@@ -41,6 +41,8 @@ import {
   initSessionAliceWithHeader,
   initSessionBobFromHeader,
   generateOneTimePreKeys,
+  generateKemKeyPair,
+  signKemPreKey,
   ratchetEncrypt,
   ratchetDecrypt,
   isValidDRSession,
@@ -479,6 +481,11 @@ const MY_IK_PRIV_KEY = "ghostface_my_ik_priv";
 const MY_IK_PUB_KEY = "ghostface_my_ik_pub";
 const MY_SPK_PRIV_KEY = "ghostface_my_spk_priv";
 const MY_SPK_PUB_KEY = "ghostface_my_spk_pub";
+// Post-quantum ML-KEM (Kyber) secret prekey, stored device-side only. The
+// public half + its signature are published to the server; Bob decapsulates
+// Alice's handshake ciphertext with this private key.
+const MY_PQKEM_PRIV_KEY = "ghostface_my_pqkem_priv";
+const MY_PQKEM_PUB_KEY = "ghostface_my_pqkem_pub";
 const APP_STORAGE_KEYS = [
   "alias",
   "isOnboarded",
@@ -543,6 +550,8 @@ async function registerWithServer(
   ikSignPriv:   string;
   ikSignPub:    string;
   spkSignature: string;
+  pqkemPriv:    string;
+  pqkemPub:     string;
 } | null> {
   const apiBase = getApiBase();
   if (!apiBase) return null;
@@ -551,6 +560,9 @@ async function registerWithServer(
     const spk    = generateHexKeypair();
     const ikSign = generateEd25519Keypair();
     const spkSig = signSPKLocal(spk.pub, ikSign.priv);
+    // Post-quantum: generate a signed ML-KEM prekey alongside the classical keys.
+    const pqkem    = generateKemKeyPair();
+    const pqkemSig = signKemPreKey(pqkem.pub, ikSign.priv);
 
     const res = await fetch(`${apiBase}/prekeys/register`, {
       method: "POST",
@@ -561,6 +573,8 @@ async function registerWithServer(
         spkPublicKey:    spk.pub,
         ikSignPublicKey: ikSign.pub,
         spkSignature:    spkSig,
+        pqkemPublicKey:  pqkem.pub,
+        pqkemSignature:  pqkemSig,
       }),
     });
 
@@ -571,7 +585,7 @@ async function registerWithServer(
     }
 
     const data = await res.json() as { token: string; userId: string };
-    console.log(`[REGISTER] Registered ${userId} with server (SPK signed with Ed25519 IK)`);
+    console.log(`[REGISTER] Registered ${userId} with server (SPK + ML-KEM prekey signed with Ed25519 IK)`);
     return {
       token:        data.token,
       ikPriv:       ik.priv,
@@ -581,6 +595,8 @@ async function registerWithServer(
       ikSignPriv:   ikSign.priv,
       ikSignPub:    ikSign.pub,
       spkSignature: spkSig,
+      pqkemPriv:    pqkem.priv,
+      pqkemPub:     pqkem.pub,
     };
   } catch (err) {
     console.warn("[REGISTER] Failed to register with server:", err);
@@ -603,6 +619,7 @@ async function rekeyWithServer(
   spkPriv: string; spkPub: string;
   ikSignPriv: string; ikSignPub: string;
   spkSignature: string;
+  pqkemPriv: string; pqkemPub: string;
 } | null> {
   const apiBase = getApiBase();
   if (!apiBase) return null;
@@ -611,6 +628,8 @@ async function rekeyWithServer(
     const spk    = generateHexKeypair();
     const ikSign = generateEd25519Keypair();
     const spkSig = signSPKLocal(spk.pub, ikSign.priv);
+    const pqkem    = generateKemKeyPair();
+    const pqkemSig = signKemPreKey(pqkem.pub, ikSign.priv);
 
     const res = await fetch(`${apiBase}/prekeys/${encodeURIComponent(userId)}/rekey`, {
       method: "PUT",
@@ -620,6 +639,8 @@ async function rekeyWithServer(
         spkPublicKey:    spk.pub,
         ikSignPublicKey: ikSign.pub,
         spkSignature:    spkSig,
+        pqkemPublicKey:  pqkem.pub,
+        pqkemSignature:  pqkemSig,
       }),
     });
     if (!res.ok) {
@@ -627,7 +648,7 @@ async function rekeyWithServer(
       return null;
     }
     console.log("[REKEY] Identity keys rotated for", userId);
-    return { ikPriv: ik.priv, ikPub: ik.pub, spkPriv: spk.priv, spkPub: spk.pub, ikSignPriv: ikSign.priv, ikSignPub: ikSign.pub, spkSignature: spkSig };
+    return { ikPriv: ik.priv, ikPub: ik.pub, spkPriv: spk.priv, spkPub: spk.pub, ikSignPriv: ikSign.priv, ikSignPub: ikSign.pub, spkSignature: spkSig, pqkemPriv: pqkem.priv, pqkemPub: pqkem.pub };
   } catch (e) {
     console.warn("[REKEY] Failed:", e);
     return null;
@@ -715,6 +736,8 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
       lowSupply:       boolean;
       ikSignPublicKey?: string;
       spkSignature?:   string;
+      pqkemPublicKey?: string;
+      pqkemSignature?: string;
     };
 
     // Alice uses the OPK public key for her DH4 computation — no private key needed.
@@ -727,13 +750,16 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
       opkPublicKey,
       ikSignPublicKey: data.ikSignPublicKey,
       spkSignature:    data.spkSignature,
+      pqkemPublicKey:  data.pqkemPublicKey,
+      pqkemSignature:  data.pqkemSignature,
     };
 
     const sigStatus = data.spkSignature ? "✓ SPK signature present" : "⚠ no SPK signature (legacy)";
+    const pqStatus = data.pqkemPublicKey ? " · ⚛ ML-KEM prekey present" : " · no PQ prekey (classical)";
     console.log(
       opkPublicKey
-        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias} — ${sigStatus}`
-        : `[BUNDLE] 3-DH bundle fetched for ${contactAlias} — ${sigStatus} (no OPKs remaining on server)`,
+        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias} — ${sigStatus}${pqStatus}`
+        : `[BUNDLE] 3-DH bundle fetched for ${contactAlias} — ${sigStatus} (no OPKs remaining on server)${pqStatus}`,
     );
 
     return bundle;
@@ -989,6 +1015,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   await secureSet(MY_IK_PUB_KEY,   reg.ikPub);
                   await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
                   await secureSet(MY_SPK_PUB_KEY,  reg.spkPub);
+                  await secureSet(MY_PQKEM_PRIV_KEY, reg.pqkemPriv);
+                  await secureSet(MY_PQKEM_PUB_KEY,  reg.pqkemPub);
                   setState((prev) => ({ ...prev, deviceToken: reg.token }));
                   await generateAndUploadOPKs(alias, reg.token);
                   console.log("[AppContext] Re-registration recovered identity for", alias);
@@ -996,14 +1024,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 return;
               }
               const ikPriv = await secureGet(MY_IK_PRIV_KEY);
-              if (!ikPriv) {
-                console.warn("[AppContext] Token present but own IK missing on mount — rekeying", alias);
+              const pqPriv = await secureGet(MY_PQKEM_PRIV_KEY);
+              if (!ikPriv || !pqPriv) {
+                console.warn("[AppContext] Token present but own IK/ML-KEM key missing on mount — rekeying", alias);
                 const rekey = await rekeyWithServer(alias, token);
                 if (rekey) {
                   await secureSet(MY_IK_PRIV_KEY,  rekey.ikPriv);
                   await secureSet(MY_IK_PUB_KEY,   rekey.ikPub);
                   await secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv);
                   await secureSet(MY_SPK_PUB_KEY,  rekey.spkPub);
+                  await secureSet(MY_PQKEM_PRIV_KEY, rekey.pqkemPriv);
+                  await secureSet(MY_PQKEM_PUB_KEY,  rekey.pqkemPub);
                   await generateAndUploadOPKs(alias, token);
                   console.log("[AppContext] Rekey recovered identity for", alias);
                 }
@@ -1124,6 +1155,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               await secureSet(MY_IK_PUB_KEY, reg.ikPub);
               await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
               await secureSet(MY_SPK_PUB_KEY, reg.spkPub);
+              await secureSet(MY_PQKEM_PRIV_KEY, reg.pqkemPriv);
+              await secureSet(MY_PQKEM_PUB_KEY, reg.pqkemPub);
               setState((prev) => ({ ...prev, deviceToken: reg.token }));
               await generateAndUploadOPKs(alias, reg.token);
             }
@@ -1137,14 +1170,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             // previous registration), rotate keys on the server so this
             // device can resume real X3DH sessions.
             const ikPriv = await secureGet(MY_IK_PRIV_KEY);
-            if (!ikPriv) {
-              console.warn("[AppContext] Device token found but own IK missing — rekeying");
+            const pqPriv = await secureGet(MY_PQKEM_PRIV_KEY);
+            if (!ikPriv || !pqPriv) {
+              console.warn("[AppContext] Device token found but own IK/ML-KEM key missing — rekeying");
               const rekey = await rekeyWithServer(alias, existing);
               if (rekey) {
                 await secureSet(MY_IK_PRIV_KEY, rekey.ikPriv);
                 await secureSet(MY_IK_PUB_KEY, rekey.ikPub);
                 await secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv);
                 await secureSet(MY_SPK_PUB_KEY, rekey.spkPub);
+                await secureSet(MY_PQKEM_PRIV_KEY, rekey.pqkemPriv);
+                await secureSet(MY_PQKEM_PUB_KEY, rekey.pqkemPub);
                 await generateAndUploadOPKs(alias, existing);
               }
             }
@@ -1792,6 +1828,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 secureSet(MY_IK_PUB_KEY,  rekey.ikPub),
                 secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv),
                 secureSet(MY_SPK_PUB_KEY,  rekey.spkPub),
+                secureSet(MY_PQKEM_PRIV_KEY, rekey.pqkemPriv),
+                secureSet(MY_PQKEM_PUB_KEY,  rekey.pqkemPub),
               ]);
               await generateAndUploadOPKs(selfAlias, token);
               ikPrivFinal  = rekey.ikPriv;
@@ -2001,6 +2039,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         secureDelete(MY_IK_PUB_KEY),
         secureDelete(MY_SPK_PRIV_KEY),
         secureDelete(MY_SPK_PUB_KEY),
+        secureDelete(MY_PQKEM_PRIV_KEY),
+        secureDelete(MY_PQKEM_PUB_KEY),
         secureDelete(SMS_FALLBACK_NUMBERS_KEY),
         secureDelete(SMS_FALLBACK_MESSAGE_KEY),
       ]);
@@ -2529,11 +2569,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const [myIKPriv, myIKPub, mySpkPriv, mySpkPub] = await Promise.all([
+      const [myIKPriv, myIKPub, mySpkPriv, mySpkPub, myPqkemPriv] = await Promise.all([
         secureGet(MY_IK_PRIV_KEY),
         secureGet(MY_IK_PUB_KEY),
         secureGet(MY_SPK_PRIV_KEY),
         secureGet(MY_SPK_PUB_KEY),
+        secureGet(MY_PQKEM_PRIV_KEY),
       ]);
 
       if (!myIKPriv || !myIKPub || !mySpkPriv || !mySpkPub) {
@@ -2551,6 +2592,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      // Pass our stored ML-KEM private key so Bob can decapsulate Alice's PQXDH
+      // ciphertext (if present). Absent → classical-only session.
       const bobSession = initSessionBobFromHeader(
         x3dhHeader,
         myIKPriv,
@@ -2558,6 +2601,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         mySpkPriv,
         mySpkPub,
         opkPriv,
+        myPqkemPriv ?? undefined,
       );
 
       const { state: newAlice, plaintext } = ratchetDecrypt(bobSession.alice, ratchetMsg);
@@ -2777,6 +2821,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   secureDelete(MY_IK_PUB_KEY),
                   secureDelete(MY_SPK_PRIV_KEY),
                   secureDelete(MY_SPK_PUB_KEY),
+                  secureDelete(MY_PQKEM_PRIV_KEY),
+                  secureDelete(MY_PQKEM_PUB_KEY),
                 ]);
                 const reg = await registerWithServer(currentAlias);
                 if (reg && mounted) {
@@ -2785,6 +2831,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   await secureSet(MY_IK_PUB_KEY, reg.ikPub);
                   await secureSet(MY_SPK_PRIV_KEY, reg.spkPriv);
                   await secureSet(MY_SPK_PUB_KEY, reg.spkPub);
+                  await secureSet(MY_PQKEM_PRIV_KEY, reg.pqkemPriv);
+                  await secureSet(MY_PQKEM_PUB_KEY, reg.pqkemPub);
                   await generateAndUploadOPKs(currentAlias, reg.token);
                   reconnectTimer = setTimeout(connect, 1000);
                 } else if (mounted) {

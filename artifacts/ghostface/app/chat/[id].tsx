@@ -964,7 +964,11 @@ export default function ChatScreen() {
           <View style={styles.headerSub}>
             <StatusDot active size={5} pulse={false} />
             <Text style={styles.headerSubText}>
-              {conv.drSession ? "DOUBLE RATCHET · X3DH · CHACHA20" : "SECURE · CHACHA20-POLY1305"}
+              {conv.drSession
+                ? conv.drSession.alice.pq
+                  ? "POST-QUANTUM · DOUBLE RATCHET · CHACHA20"
+                  : "DOUBLE RATCHET · X3DH · CHACHA20"
+                : "SECURE · CHACHA20-POLY1305"}
             </Text>
             {conv.disappearAfterSec && (
               <View style={styles.headerTimerBadge}>
@@ -1660,9 +1664,26 @@ export default function ChatScreen() {
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>KEY AGREEMENT</Text>
                   <Text style={[styles.infoValue, { color: colors.success }]}>
-                    {conv.drSession ? "X3DH · X25519" : "ECDH"}
+                    {conv.drSession
+                      ? conv.drSession.alice.pq
+                        ? "PQXDH · X25519 + ML-KEM-768"
+                        : "X3DH · X25519"
+                      : "ECDH"}
                   </Text>
                 </View>
+                {conv.drSession && (
+                  <View style={styles.infoRow}>
+                    <Text style={styles.infoLabel}>QUANTUM RESISTANCE</Text>
+                    <Text
+                      style={[
+                        styles.infoValue,
+                        { color: conv.drSession.alice.pq ? colors.success : colors.mutedForeground },
+                      ]}
+                    >
+                      {conv.drSession.alice.pq ? "HYBRID PQ (ML-KEM-768)" : "CLASSICAL ONLY"}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>CIPHER</Text>
                   <Text style={[styles.infoValue, { color: colors.success }]}>CHACHA20-POLY1305</Text>

@@ -21,6 +21,11 @@ export const identityKeysTable = pgTable("identity_keys", {
   spkPublicKey:    text("spk_public_key").notNull(),
   ikSignPublicKey: text("ik_sign_public_key"),
   spkSignature:    text("spk_signature"),
+  // Post-quantum hybrid handshake (PQXDH). Bob's signed ML-KEM-768 public
+  // prekey and its Ed25519 signature (signed with ikSign). Nullable for
+  // backward compatibility with pre-PQ registrations → classical-only fallback.
+  pqkemPublicKey:  text("pqkem_public_key"),
+  pqkemSignature:  text("pqkem_signature"),
   createdAt:       timestamp("created_at").defaultNow().notNull(),
   updatedAt:       timestamp("updated_at").defaultNow().notNull(),
 });

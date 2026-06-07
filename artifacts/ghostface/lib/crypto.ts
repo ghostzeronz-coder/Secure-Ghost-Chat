@@ -4,7 +4,7 @@
  * Algorithms:
  *   - ChaCha20-Poly1305 (256-bit key, 96-bit managed nonce, AEAD)
  *   - PBKDF2-SHA256 (600,000 iterations) for PIN-derived keys — OWASP 2023 recommendation
- *   - SHA-256 for fingerprints and deterministic demo keys
+ *   - SHA-256 for fingerprints
  *
  * Sealed Sender (Signal-compatible concept)
  * ─────────────────────────────────────────

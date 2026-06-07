@@ -54,6 +54,11 @@ function isValidSignature(k: unknown): k is string {
   return isValidHex(k, 128);
 }
 
+/** Validate a 2368-char hex string (1184-byte ML-KEM-768 public key). */
+function isValidPqkemPubKey(k: unknown): k is string {
+  return isValidHex(k, 2368);
+}
+
 /**
  * Middleware: verify the Bearer token in the Authorization header matches the
  * stored device token for the userId in the path parameter.
@@ -101,12 +106,22 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
       return res.status(429).json({ error: "Too many registration attempts. Try again later." });
     }
 
-    const { userId, ikPublicKey, spkPublicKey, ikSignPublicKey, spkSignature } = req.body as {
+    const {
+      userId,
+      ikPublicKey,
+      spkPublicKey,
+      ikSignPublicKey,
+      spkSignature,
+      pqkemPublicKey,
+      pqkemSignature,
+    } = req.body as {
       userId?: string;
       ikPublicKey?: string;
       spkPublicKey?: string;
       ikSignPublicKey?: string;
       spkSignature?: string;
+      pqkemPublicKey?: string;
+      pqkemSignature?: string;
     };
 
     if (!userId || typeof userId !== "string" || userId.length > 128) {
@@ -127,6 +142,16 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
       return res
         .status(400)
         .json({ error: "spkSignature must be a 128-char hex string (Ed25519 signature)" });
+    }
+    if (pqkemPublicKey !== undefined && !isValidPqkemPubKey(pqkemPublicKey)) {
+      return res
+        .status(400)
+        .json({ error: "pqkemPublicKey must be a 2368-char hex string (ML-KEM-768 pub key)" });
+    }
+    if (pqkemSignature !== undefined && !isValidSignature(pqkemSignature)) {
+      return res
+        .status(400)
+        .json({ error: "pqkemSignature must be a 128-char hex string (Ed25519 signature)" });
     }
 
     // Normalize and validate alias format
@@ -161,6 +186,8 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
             spkPublicKey,
             ikSignPublicKey: ikSignPublicKey ?? null,
             spkSignature: spkSignature ?? null,
+            pqkemPublicKey: pqkemPublicKey ?? null,
+            pqkemSignature: pqkemSignature ?? null,
           })
           .where(eq(identityKeysTable.userId, normalizedUserId));
       });
@@ -175,6 +202,8 @@ router.post("/prekeys/register", async (req: Request, res: Response) => {
         spkPublicKey,
         ikSignPublicKey: ikSignPublicKey ?? null,
         spkSignature: spkSignature ?? null,
+        pqkemPublicKey: pqkemPublicKey ?? null,
+        pqkemSignature: pqkemSignature ?? null,
       });
     });
 
@@ -198,11 +227,20 @@ router.put(
   async (req: Request, res: Response) => {
     try {
       const userId = req.params["userId"] as string;
-      const { ikPublicKey, spkPublicKey, ikSignPublicKey, spkSignature } = req.body as {
+      const {
+        ikPublicKey,
+        spkPublicKey,
+        ikSignPublicKey,
+        spkSignature,
+        pqkemPublicKey,
+        pqkemSignature,
+      } = req.body as {
         ikPublicKey?: string;
         spkPublicKey?: string;
         ikSignPublicKey?: string;
         spkSignature?: string;
+        pqkemPublicKey?: string;
+        pqkemSignature?: string;
       };
 
       if (!isValidPubKey(ikPublicKey)) {
@@ -217,6 +255,12 @@ router.put(
       if (spkSignature !== undefined && !isValidSignature(spkSignature)) {
         return res.status(400).json({ error: "spkSignature must be a 128-char hex string" });
       }
+      if (pqkemPublicKey !== undefined && !isValidPqkemPubKey(pqkemPublicKey)) {
+        return res.status(400).json({ error: "pqkemPublicKey must be a 2368-char hex string" });
+      }
+      if (pqkemSignature !== undefined && !isValidSignature(pqkemSignature)) {
+        return res.status(400).json({ error: "pqkemSignature must be a 128-char hex string" });
+      }
 
       await db
         .update(identityKeysTable)
@@ -225,6 +269,8 @@ router.put(
           spkPublicKey,
           ikSignPublicKey: ikSignPublicKey ?? null,
           spkSignature: spkSignature ?? null,
+          pqkemPublicKey: pqkemPublicKey ?? null,
+          pqkemSignature: pqkemSignature ?? null,
         })
         .where(eq(identityKeysTable.userId, userId));
 
@@ -325,6 +371,8 @@ router.get("/prekeys/:userId/bundle", async (req: Request, res: Response) => {
       spkPublicKey: identityKey.spkPublicKey,
       ikSignPublicKey: identityKey.ikSignPublicKey ?? undefined,
       spkSignature: identityKey.spkSignature ?? undefined,
+      pqkemPublicKey: identityKey.pqkemPublicKey ?? undefined,
+      pqkemSignature: identityKey.pqkemSignature ?? undefined,
       opk,
       remaining: remainingNum,
       lowSupply: remainingNum < OPK_LOW_WATERMARK,

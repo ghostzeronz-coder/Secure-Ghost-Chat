@@ -6,6 +6,7 @@
     "paths": {
       "@/*": ["./*"],
       "@noble/curves/ed25519.js": ["./node_modules/@noble/curves/ed25519.d.ts"],
+      "@noble/post-quantum/ml-kem.js": ["./node_modules/@noble/post-quantum/ml-kem.d.ts"],
       "@noble/hashes/utils.js": ["./node_modules/@noble/hashes/utils.d.ts"],
       "@noble/hashes/hkdf.js": ["./node_modules/@noble/hashes/hkdf.d.ts"],
       "@noble/hashes/hmac.js": ["./node_modules/@noble/hashes/hmac.d.ts"],

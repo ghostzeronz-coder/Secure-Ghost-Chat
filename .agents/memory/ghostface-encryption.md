@@ -18,5 +18,17 @@ GHOSTFACE messaging is real E2E only — there is NO demo/deterministic/simulate
 
 **How to apply:** when touching `lib/doubleRatchet.ts`, `lib/crypto.ts`, or `context/AppContext.tsx` send/add-conversation flows, preserve these invariants.
 
+# Post-quantum hybrid layer (ML-KEM-768) — invariants
+GHOSTFACE uses HYBRID PQ: ML-KEM-768 mixed with X25519 in BOTH the X3DH handshake (PQXDH) and the continuous Double Ratchet rekey (PQ3). Hybrid means security is ALWAYS ≥ classical — never drop the X25519 leg.
+- **Symmetry is the load-bearing invariant**: in `performDHRatchet` the encapsulator's sending-KDF must equal the decapsulator's receiving-KDF. Order: receive side decapsulates with the CURRENT `PQs.priv` BEFORE rotating; then rotate `PQs`, encapsulate to peer `PQr`, fold into sending KDF. Break this ordering → silent de-sync (messages stop decrypting after the first ratchet step).
+- **Agreement is proven by DECRYPTION, not by comparing RK.** Alice ratchets immediately on init so her `RK` diverges from Bob's by design even on a correct handshake. Tests/assertions must check that a message decrypts (and a tampered `pqkemCt` fails to decrypt), NOT `aliceRK === bobRK`.
+- **Graceful classical fallback**: all PQ fields (`PQs/PQr/pq/pendingPqCt`, header `pqPub/pqCt/pqkemCt`, bundle `pqkemPublicKey/pqkemSignature`) are OPTIONAL. No PQ material → `pq=false`, classical path. Legacy serialized states (no PQ fields) must still validate.
+- **`isValidRatchetState` guard**: if `pq===true` the state MUST carry a valid `PQs` keypair (pub+priv), else reject — a `pq:true` state with missing `PQs` would de-sync on the next ratchet. Fresh-rebuild beats message loss.
+- **Self-heal must check the ML-KEM key too**: AppContext mount/background rekey gates check BOTH `MY_IK_PRIV_KEY` AND `MY_PQKEM_PRIV_KEY`; if either is missing, rekey. Otherwise the server keeps advertising a PQ prekey while the Bob receive path (needs `bobKemPriv` to decapsulate) fails → message loss.
+- KEM prekey signature is verified STRICTLY (Ed25519 over the KEM pub via ikSign); reject on bad/missing sig when `pqkemPublicKey` present.
+- DB: `identity_keys` gained nullable `pqkem_public_key`/`pqkem_signature`. PQ KEM ct rides inside existing payload/x3dhHeader JSON — no messages-table change.
+
+**Why:** hybrid was added so a future quantum adversary can't break sessions, without ever weakening the classical guarantee. The subtle failure mode is silent de-sync from asymmetric KEM folding or a half-provisioned PQ key.
+
 # Test infra note (no JS test runner)
 The repo has NO vitest/jest/tsx/esbuild, and `artifacts/ghostface/tsconfig.json` EXCLUDES `**/*.test.ts` (so a `.test.ts` is neither typechecked nor run). The convention for runnable checks is `scripts/check-*.{js,mjs}` exposed as a `check:*` package script. The two-party handshake test lives at `artifacts/ghostface/scripts/check-x3dh-handshake.mjs` (`pnpm --filter @workspace/ghostface run check:handshake`); it transpiles `lib/doubleRatchet.ts` at runtime via the `typescript` API and asserts no private-key sharing.
