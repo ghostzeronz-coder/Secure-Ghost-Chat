@@ -8,7 +8,8 @@
     "build": "node scripts/build.js",
     "serve": "node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check:silence": "node scripts/check-panic-wipe-silence.js"
+    "check:silence": "node scripts/check-panic-wipe-silence.js",
+    "check:handshake": "node scripts/check-x3dh-handshake.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

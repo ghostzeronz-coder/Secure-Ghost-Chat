@@ -160,7 +160,13 @@ export default function GhostInvite() {
     }
 
     try {
-      await addConversation(result.ownerAlias);
+      const added = await addConversation(result.ownerAlias);
+      if (!added.ok) {
+        setRedeemState("not_found");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setTimeout(() => setRedeemState("idle"), 4000);
+        return;
+      }
       setRedeemAlias(result.ownerAlias);
       setRedeemInput("");
       setRedeemState("success");
@@ -230,17 +236,25 @@ export default function GhostInvite() {
       // Scanned an invite code QR — resolve to real alias via server
       const result = await lookupInviteCode(decoded);
       if (result.ok) {
-        await addConversation(result.ownerAlias);
-        setRedeemAlias(result.ownerAlias);
-        setRedeemState("success");
+        const added = await addConversation(result.ownerAlias);
+        if (added.ok) {
+          setRedeemAlias(result.ownerAlias);
+          setRedeemState("success");
+        } else {
+          setRedeemState("not_found");
+        }
       } else {
         setRedeemState(result.reason);
       }
     } else {
       // Scanned a contact QR (ghostface://add/<alias>)
-      await addConversation(decoded);
-      setRedeemAlias(decoded);
-      setRedeemState("success");
+      const added = await addConversation(decoded);
+      if (added.ok) {
+        setRedeemAlias(decoded);
+        setRedeemState("success");
+      } else {
+        setRedeemState("not_found");
+      }
     }
     setTimeout(() => setRedeemState("idle"), 4000);
   };

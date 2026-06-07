@@ -284,18 +284,13 @@ export function generateOneTimePreKeys(count = 10): OneTimePreKey[] {
 /**
  * A prekey bundle as fetched from the server for initiating an X3DH session.
  *
- * Alice-side (protocol-correct):
+ * Public keys only — this is exactly what the server stores and transmits.
+ * Alice never sees Bob's private keys; Bob keeps them on his own device and
+ * completes his side of X3DH from the first message's X3DH header.
+ *
  *   ikPublicKey  — Bob's long-term identity public key
  *   spkPublicKey — Bob's signed prekey public key
  *   opkPublicKey — Bob's one-time prekey public key (null → 3-DH fallback)
- *
- * Demo-only simulation fields (present only because we generated Bob's keys on-device):
- *   ikPrivKey    — Bob's IK private key for symmetric DH verification
- *   spkPrivKey   — Bob's SPK private key for symmetric DH verification
- *   opkPrivKey   — Bob's OPK private key for symmetric DH4 verification
- *
- * In a real multi-device deployment only the public keys are transported.
- * Alice never sees Bob's private keys; Bob keeps them on his own device.
  */
 export interface PreKeyBundle {
   ikPublicKey:     string;
@@ -313,146 +308,8 @@ export interface PreKeyBundle {
    * Separate from the X25519 ikPublicKey used for DH operations.
    */
   ikSignPublicKey?: string;
-  /** Demo-only: Bob's IK private key for local simulation. */
-  ikPrivKey?:      string;
-  /** Demo-only: Bob's SPK private key for local simulation. */
-  spkPrivKey?:     string;
-  /** Demo-only: Bob's OPK private key for local simulation. */
-  opkPrivKey?:     string;
 }
 
-/**
- * Bootstrap a Double Ratchet session from a server-provided prekey bundle.
- *
- * Signal X3DH (4-DH when server returns an OPK, 3-DH fallback when opkPublicKey is null):
- *
- *   DH1 = DH(IK_A.priv,  SPK_B.pub)
- *   DH2 = DH(EK_A.priv,  IK_B.pub)
- *   DH3 = DH(EK_A.priv,  SPK_B.pub)
- *   DH4 = DH(EK_A.priv,  OPK_B.pub)  ← 4-DH only when bundle.opkPublicKey is non-null
- *
- * Alice's side uses ONLY public keys from the bundle (protocol-correct).
- * The fallback to 3-DH happens solely when the server returns opkPublicKey: null —
- * i.e. when Bob has exhausted his OPK supply.
- *
- * Demo simulation: when Bob's private keys are available (ikPrivKey, spkPrivKey, opkPrivKey),
- * Bob's symmetric DH computation is also performed so both shared secrets can be
- * verified equal on the same device.  Private keys are stored because this single-device
- * demo generates Bob's keys on Alice's behalf.
- */
-export function initSessionFromBundle(bundle: PreKeyBundle): DRSession {
-  // ── SPK signature verification (Signal X3DH §2.4) ─────────────────────────
-  // Reject the bundle if the SPK was not signed by the claimed IK signing key.
-  // A bad/missing signature means the server may have substituted a different
-  // SPK — proceeding would mean encrypting to an attacker's key.
-  if (bundle.spkSignature && bundle.ikSignPublicKey) {
-    const valid = verifySPKSignature(bundle.spkPublicKey, bundle.spkSignature, bundle.ikSignPublicKey);
-    if (!valid) {
-      throw new Error("[X3DH] SPK signature verification FAILED — bundle rejected (possible MITM)");
-    }
-  } else {
-    console.warn("[X3DH] Bundle has no SPK signature — proceeding without MITM protection (legacy registration)");
-  }
-
-  const IK_A = generateDH();
-  const EK_A = generateDH();
-
-  const ikBPub  = fromHex(bundle.ikPublicKey);
-  const spkBPub = fromHex(bundle.spkPublicKey);
-
-  // Alice's 4th DH uses only the OPK public key from the server bundle.
-  // Fallback to 3-DH only when server returned no OPK (opkPublicKey === null).
-  const opkBPub: Uint8Array | undefined = bundle.opkPublicKey
-    ? fromHex(bundle.opkPublicKey)
-    : undefined;
-
-  const dh4_alice = opkBPub ? dhCompute(EK_A, opkBPub) : undefined;
-
-  const SK_alice = x3dhShared(
-    dhCompute(IK_A, spkBPub),
-    dhCompute(EK_A, ikBPub),
-    dhCompute(EK_A, spkBPub),
-    dh4_alice,
-  );
-
-  // Demo simulation: also compute Bob's symmetric shared secret when privkeys are available.
-  let SK_bob: Uint8Array;
-  let spkBForBobState: DHKeyPair;
-
-  if (bundle.ikPrivKey && bundle.spkPrivKey) {
-    const IK_B: DHKeyPair  = { priv: fromHex(bundle.ikPrivKey),  pub: ikBPub };
-    const SPK_B: DHKeyPair = { priv: fromHex(bundle.spkPrivKey), pub: spkBPub };
-    const dh4_bob = (opkBPub && bundle.opkPrivKey)
-      ? dhCompute({ priv: fromHex(bundle.opkPrivKey), pub: opkBPub }, EK_A.pub)
-      : undefined;
-
-    SK_bob = x3dhShared(
-      dhCompute(SPK_B, IK_A.pub),
-      dhCompute(IK_B,  EK_A.pub),
-      dhCompute(SPK_B, EK_A.pub),
-      dh4_bob,
-    );
-    spkBForBobState = SPK_B;
-  } else {
-    // Private keys unavailable: both sides use Alice's SK (session still functional locally).
-    SK_bob = SK_alice;
-    spkBForBobState = generateDH();
-  }
-
-  const aliceDHs = generateDH();
-  const { rk: aliceRK, ck: aliceCKs } = kdfRk(SK_alice, dhCompute(aliceDHs, spkBPub));
-
-  const aliceState: RatchetState = {
-    DHs: aliceDHs,
-    DHr: spkBPub,
-    RK:  aliceRK,
-    CKs: aliceCKs,
-    CKr: null,
-    Ns: 0, Nr: 0, PN: 0,
-    MKSKIPPED: new Map(),
-    step: 0,
-  };
-
-  const bobState: RatchetState = {
-    DHs: spkBForBobState,
-    DHr: null,
-    RK:  SK_bob,
-    CKs: null,
-    CKr: null,
-    Ns: 0, Nr: 0, PN: 0,
-    MKSKIPPED: new Map(),
-    step: 0,
-  };
-
-  return {
-    alice:           serializeState(aliceState),
-    bob:             serializeState(bobState),
-    lastAliceHeader: null,
-    usedOPK:         !!opkBPub,
-  };
-}
-
-/**
- * Bootstrap a DR session using a one-time prekey (4-DH X3DH).
- *
- * Signal X3DH protocol:
- *   Alice (initiator) only needs Bob's OPK *public* key.
- *     DH4_alice = DH(EK_A.priv, OPK_B.pub)
- *   Bob (responder) needs his own OPK *private* key to compute his side.
- *     DH4_bob   = DH(OPK_B.priv, EK_A.pub)
- *
- * In the demo both sides are simulated on-device.  The caller provides the
- * full OPK keypair so both DH4 computations can be verified locally.
- *
- * @param opk  Full one-time prekey pair {pub, priv} for Bob.
- *             `pub` is what Alice fetches from the server bundle.
- *             `priv` is what Bob uses for his responding DH computation.
- *             Both are required for the local two-party simulation.
- */
-export function initSessionWithOPK(opk: OneTimePreKey): DRSession {
-  const kp: DHKeyPair = { priv: fromHex(opk.priv), pub: fromHex(opk.pub) };
-  return initSession(kp);
-}
 
 // ── Serialisation ─────────────────────────────────────────────────────────────
 
@@ -486,96 +343,6 @@ function deserializeState(s: SerializedRatchetState): RatchetState {
   };
 }
 
-// ── Session initialisation ────────────────────────────────────────────────────
-
-/**
- * Bootstrap a complete Double Ratchet session (both Alice and Bob sides).
- *
- * In a real deployment, Bob's IK/SPK public keys come from a prekey server
- * and Alice's EK is sent alongside the first message.  For the demo, we
- * generate all keypairs locally so both sides can be simulated on-device.
- *
- * When `opkB` is provided (a one-time prekey keypair for Bob), the session
- * uses the full 4-DH X3DH variant from the Signal spec:
- *   DH4 = DH(EK_A, OPK_B)
- * Otherwise it falls back to the 3-DH path.
- *
- * Alice's initial state after X3DH:
- *   DHs  = fresh ratchet keypair (she sends first)
- *   DHr  = SPK_B.pub (Bob's signed prekey = his initial ratchet key)
- *   (RK, CKs) = KDF_RK(SK, DH(DHs, SPK_B))
- *   CKr  = null, Ns=Nr=PN=0
- *
- * Bob's initial state (pre-receive):
- *   DHs  = SPK_B (his signed prekey pair)
- *   DHr  = null
- *   RK   = SK (shared secret from X3DH)
- *   CKs=CKr=null, Ns=Nr=PN=0
- *
- * @param opkB  Optional one-time prekey keypair for Bob. When supplied, the
- *              4-DH X3DH handshake is performed; otherwise the 3-DH fallback
- *              is used (e.g. when the server has no OPKs left for Bob).
- */
-export function initSession(opkB?: DHKeyPair): DRSession {
-  const IK_A  = generateDH();
-  const EK_A  = generateDH();
-  const IK_B  = generateDH();
-  const SPK_B = generateDH();
-
-  const dh4_alice = opkB ? dhCompute(EK_A, opkB.pub) : undefined;
-  const dh4_bob   = opkB ? dhCompute(opkB, EK_A.pub) : undefined;
-
-  const SK_alice = x3dhShared(
-    dhCompute(IK_A, SPK_B.pub),
-    dhCompute(EK_A, IK_B.pub),
-    dhCompute(EK_A, SPK_B.pub),
-    dh4_alice,
-  );
-  const SK_bob = x3dhShared(
-    dhCompute(SPK_B, IK_A.pub),
-    dhCompute(IK_B, EK_A.pub),
-    dhCompute(SPK_B, EK_A.pub),
-    dh4_bob,
-  );
-  // SK_alice === SK_bob (Diffie-Hellman symmetry)
-
-  // Alice generates her initial ratchet keypair
-  const aliceDHs = generateDH();
-
-  // Alice's initial sending chain comes from her first DH ratchet step
-  const { rk: aliceRK, ck: aliceCKs } = kdfRk(SK_alice, dhCompute(aliceDHs, SPK_B.pub));
-
-  const aliceState: RatchetState = {
-    DHs: aliceDHs,
-    DHr: SPK_B.pub,
-    RK:  aliceRK,
-    CKs: aliceCKs,
-    CKr: null,
-    Ns: 0, Nr: 0, PN: 0,
-    MKSKIPPED: new Map(),
-    step: 0,
-  };
-
-  // Bob starts with only the shared secret; he performs his first DH ratchet
-  // step when he receives Alice's first message (inside ratchetDecrypt).
-  const bobState: RatchetState = {
-    DHs: SPK_B,
-    DHr: null,
-    RK:  SK_bob,
-    CKs: null,
-    CKr: null,
-    Ns: 0, Nr: 0, PN: 0,
-    MKSKIPPED: new Map(),
-    step: 0,
-  };
-
-  return {
-    alice:           serializeState(aliceState),
-    bob:             serializeState(bobState),
-    lastAliceHeader: null,
-    usedOPK:         !!opkB,
-  };
-}
 
 // ── Ratchet Encrypt ───────────────────────────────────────────────────────────
 

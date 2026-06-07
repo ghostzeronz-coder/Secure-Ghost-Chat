@@ -35,15 +35,9 @@ import React, {
   useState,
 } from "react";
 import {
-  demoKeyForConversation,
-  sealedEncryptMessage,
   generateSafetyNumber,
-  messageFingerprint,
-  type SealedMessage,
 } from "@/lib/crypto";
 import {
-  initSession,
-  initSessionFromBundle,
   initSessionAliceWithHeader,
   initSessionBobFromHeader,
   generateOneTimePreKeys,
@@ -51,7 +45,6 @@ import {
   ratchetDecrypt,
   isValidDRSession,
   type DRSession,
-  type OneTimePreKey,
   type PreKeyBundle,
   type X3DHHeader,
   type RatchetMessage,
@@ -393,7 +386,7 @@ interface AppContextType extends AppState {
   disconnectVPN: () => void;
   sendMessage: (conversationId: string, text: string, attachment?: Attachment) => { queued: boolean };
   retryMessage: (conversationId: string, messageId: string) => void;
-  addConversation: (alias: string) => Promise<{ isReal: boolean }>;
+  addConversation: (alias: string) => Promise<{ ok: boolean; error?: string }>;
   deleteMessage: (conversationId: string, messageId: string) => void;
   clearConversation: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => void;
@@ -417,37 +410,14 @@ interface AppContextType extends AppState {
 }
 
 /**
- * Build a Message using Sealed Sender encryption.
- *
- * The sender's alias is embedded INSIDE the ciphertext payload.
- * What would be stored on a server: { to: recipientId, ciphertext: "..." }
- * The from field is completely absent — only the recipient can recover it.
+ * Build a local, non-transported system/status Message (e.g. the
+ * "secure channel established" banner). These messages never cross the
+ * wire and carry no ciphertext — they are purely informational UI rows.
  */
-function buildMessage(
+function buildSystemMessage(
   text: string,
-  fromMe: boolean,
-  convId: string,
-  senderAlias: string,
   disappearAfterSec?: number,
-  attachment?: Attachment,
 ): Message {
-  const key = demoKeyForConversation(convId);
-  let ciphertext: string | undefined;
-  let fingerprint: string | undefined;
-  let sealed = false;
-
-  try {
-    // Sealed sender: senderAlias is encrypted inside the payload, not exposed.
-    // When an attachment is present, the JSON envelope (text + attachment) is
-    // what gets encrypted, so the recipient recovers both atomically.
-    const enc: SealedMessage = sealedEncryptMessage(wrapPayload(text, attachment), senderAlias, key);
-    ciphertext = enc.ciphertext;
-    fingerprint = messageFingerprint(enc);
-    sealed = true;
-  } catch {
-    // Graceful fallback if noble unavailable (unlikely but safe)
-  }
-
   const expiresAt = disappearAfterSec
     ? Date.now() + disappearAfterSec * 1000
     : undefined;
@@ -455,14 +425,11 @@ function buildMessage(
   return {
     id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
     text,
-    fromMe,
+    fromMe: false,
     timestamp: Date.now(),
     encrypted: true,
-    sealed,
-    ciphertext,
-    fingerprint,
+    sealed: true,
     expiresAt,
-    attachment,
   };
 }
 
@@ -501,7 +468,6 @@ const CONNECTED_WALLET_KEY = "ghostface_connected_wallet";
 const OPK_STORE_KEY = "ghostface_opk_store";
 const OPK_BATCH_SIZE = 10;
 const DEVICE_TOKEN_KEY = "ghostface_device_token";
-const CONTACT_IDENTITY_STORE_KEY = "ghostface_contact_identity_store";
 const AUTO_LOCK_TIMEOUT_KEY = "ghostface_auto_lock_timeout";
 const DURESS_GRACE_KEY = "ghostface_duress_grace_period";
 const LANGUAGE_KEY = "ghostface_language";
@@ -521,7 +487,6 @@ const APP_STORAGE_KEYS = [
   OUTBOX_KEY,
   CONNECTED_WALLET_KEY,
   OPK_STORE_KEY,
-  CONTACT_IDENTITY_STORE_KEY,
   AUTO_LOCK_TIMEOUT_KEY,
   DURESS_GRACE_KEY,
   LANGUAGE_KEY,
@@ -558,41 +523,6 @@ async function saveOPKStore(store: Record<string, string>): Promise<void> {
     await AsyncStorage.setItem(OPK_STORE_KEY, JSON.stringify(store));
   } catch (err) {
     console.warn("[OPK] Failed to save OPK store:", err);
-  }
-}
-
-/**
- * Contact identity store: maps contactAlias → full identity key material.
- * Populated when we simulate registration for a contact in the single-device demo.
- *
- * ikSign* fields: Ed25519 signing key pair (Signal X3DH §2.4).
- * spkSignature:   Ed25519 signature of spkPub bytes signed by ikSignPriv.
- */
-interface ContactIdentity {
-  ikPub:        string;
-  ikPriv:       string;
-  spkPub:       string;
-  spkPriv:      string;
-  ikSignPub?:   string;
-  ikSignPriv?:  string;
-  spkSignature?: string;
-}
-
-async function loadContactIdentityStore(): Promise<Record<string, ContactIdentity>> {
-  try {
-    const raw = await AsyncStorage.getItem(CONTACT_IDENTITY_STORE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, ContactIdentity>;
-  } catch {
-    return {};
-  }
-}
-
-async function saveContactIdentityStore(store: Record<string, ContactIdentity>): Promise<void> {
-  try {
-    await AsyncStorage.setItem(CONTACT_IDENTITY_STORE_KEY, JSON.stringify(store));
-  } catch (err) {
-    console.warn("[IK] Failed to save contact identity store:", err);
   }
 }
 
@@ -705,88 +635,6 @@ async function rekeyWithServer(
 }
 
 /**
- * Simulate registration for a contact (demo only).
- * Generates their IK + SPK + OPKs, uploads them, and stores private keys locally.
- * Returns the contact identity record or null on failure.
- */
-async function registerContactForSimulation(
-  contactAlias: string,
-): Promise<ContactIdentity | null> {
-  const apiBase = getApiBase();
-  if (!apiBase) return null;
-  try {
-    const ik     = generateHexKeypair();
-    const spk    = generateHexKeypair();
-    const ikSign = generateEd25519Keypair();
-    const spkSig = signSPKLocal(spk.pub, ikSign.priv);
-
-    const res = await fetch(`${apiBase}/prekeys/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId:          contactAlias,
-        ikPublicKey:     ik.pub,
-        spkPublicKey:    spk.pub,
-        ikSignPublicKey: ikSign.pub,
-        spkSignature:    spkSig,
-      }),
-    });
-
-    const identity: ContactIdentity = {
-      ikPub:        ik.pub,
-      ikPriv:       ik.priv,
-      spkPub:       spk.pub,
-      spkPriv:      spk.priv,
-      ikSignPub:    ikSign.pub,
-      ikSignPriv:   ikSign.priv,
-      spkSignature: spkSig,
-    };
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({})) as { error?: string };
-      // Already registered is OK — reload from local store if possible
-      if (res.status === 409) {
-        const store = await loadContactIdentityStore();
-        return store[contactAlias] ?? null;
-      }
-      console.warn("[REGISTER] Contact registration failed:", err.error ?? res.status);
-      return null;
-    }
-
-    const data = await res.json() as { token: string };
-    const contactToken = data.token;
-
-    // Upload initial OPKs on behalf of contact (authenticated with their token)
-    const opks = generateOneTimePreKeys(OPK_BATCH_SIZE);
-    const opkStore = await loadOPKStore();
-    for (const opk of opks) {
-      opkStore[opk.pub] = opk.priv;
-    }
-    await saveOPKStore(opkStore);
-
-    await fetch(`${apiBase}/prekeys/${encodeURIComponent(contactAlias)}`, {
-      method: "POST",
-      headers: {
-        "Content-Type":  "application/json",
-        "Authorization": `Bearer ${contactToken}`,
-      },
-      body: JSON.stringify({ keys: opks.map((k) => k.pub) }),
-    });
-
-    // Store contact's identity (both halves — demo only)
-    const idStore = await loadContactIdentityStore();
-    idStore[contactAlias] = identity;
-    await saveContactIdentityStore(idStore);
-
-    console.log(`[REGISTER] Simulated registration for contact ${contactAlias}`);
-    return identity;
-  } catch (err) {
-    console.warn("[REGISTER] Failed to register contact:", contactAlias, err);
-    return null;
-  }
-}
-
-/**
  * Generate a batch of OPKs, save private keys locally, and upload public keys
  * to the server with device-token authentication.
  */
@@ -873,39 +721,18 @@ async function fetchContactBundle(contactAlias: string): Promise<PreKeyBundle | 
     // 3-DH fallback only when server returns opk: null (Bob exhausted his OPK supply).
     const opkPublicKey = data.opk ?? null;
 
-    // Demo simulation: retrieve OPK private key from local store if available.
-    // This is only used so Bob's side of the X3DH can be locally verified.
-    let opkPrivKey: string | undefined;
-    if (opkPublicKey) {
-      const opkStore = await loadOPKStore();
-      opkPrivKey = opkStore[opkPublicKey];
-      if (opkPrivKey) {
-        delete opkStore[opkPublicKey];
-        await saveOPKStore(opkStore);
-      } else {
-        console.warn("[BUNDLE] OPK returned but private key not in local demo store (simulation only):", opkPublicKey);
-      }
-    }
-
-    // Retrieve contact's private identity keys for the demo simulation
-    const idStore  = await loadContactIdentityStore();
-    const identity = idStore[contactAlias];
-
     const bundle: PreKeyBundle = {
       ikPublicKey:     data.ikPublicKey,
       spkPublicKey:    data.spkPublicKey,
       opkPublicKey,
       ikSignPublicKey: data.ikSignPublicKey,
       spkSignature:    data.spkSignature,
-      ikPrivKey:       identity?.ikPriv,
-      spkPrivKey:      identity?.spkPriv,
-      opkPrivKey,
     };
 
     const sigStatus = data.spkSignature ? "✓ SPK signature present" : "⚠ no SPK signature (legacy)";
     console.log(
       opkPublicKey
-        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias} — ${sigStatus}${opkPrivKey ? " (simulation keys available)" : ""}`
+        ? `[BUNDLE] 4-DH bundle fetched for ${contactAlias} — ${sigStatus}`
         : `[BUNDLE] 3-DH bundle fetched for ${contactAlias} — ${sigStatus} (no OPKs remaining on server)`,
     );
 
@@ -1042,10 +869,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         // Ensure every conversation has a valid DR session.
         // Conversations loaded from an older app version (or corrupted storage)
-        // may be missing a session or have malformed hex fields — reinitialise
-        // those rather than silently operating on bad key material.
+        // may be missing a session or have malformed hex fields. We never
+        // fabricate a fake session for these — drop the broken session so the
+        // conversation has no usable channel until a real X3DH handshake runs.
         conversations = conversations.map((c) =>
-          isValidDRSession(c.drSession) ? c : { ...c, drSession: initSession() }
+          isValidDRSession(c.drSession) ? c : { ...c, drSession: undefined }
         );
 
         let autoLockTimeout: number | null = 5 * 60 * 1000;
@@ -1698,71 +1526,79 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let aliceMsg: RatchetMessage | undefined;
       let updatedDRSession = conv.drSession;
 
-      if (conv.drSession) {
-        let drSession = conv.drSession;
-        let attempts = 0;
+      // A message can only be sent over an established real Double Ratchet
+      // session bootstrapped from a real X3DH handshake. We never fabricate or
+      // simulate a session — if one is missing or the ratchet step fails, the
+      // send fails cleanly and the user is told. No deterministic fallback.
+      const recordSendFailure = (reason: string): { queued: boolean } => {
+        const failedMsg: Message = {
+          id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+          text,
+          fromMe: true,
+          timestamp: Date.now(),
+          encrypted: false,
+          sealed: false,
+          failed: true,
+          attachment,
+        };
+        setState((prev) => {
+          const updated = prev.conversations.map((c) =>
+            c.id === conversationId
+              ? { ...c, messages: [...c.messages, failedMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
+              : c
+          );
+          persistConversations(updated);
+          return { ...prev, conversations: updated };
+        });
+        Alert.alert("Send failed", reason);
+        return { queued: false };
+      };
+
+      // A send is only ever permitted over a real, server-bootstrapped X3DH
+      // session. `isRealContact` is set together with `drSession` whenever a
+      // real handshake completes; a conversation that has one without the other
+      // can only be stale local-only state (e.g. legacy persisted data). We
+      // refuse it here rather than appending a message that is never delivered.
+      if (!isRealContact || !conv.drSession) {
+        console.error("[DR] Aborting send: no secure session for", conversationId);
+        return recordSendFailure(
+          "No secure channel with this contact yet. Add them again to run a key exchange."
+        );
+      }
+
+      {
+        const drSession = conv.drSession;
         const wireText = wrapPayload(text, attachment);
-        while (attempts < 2) {
-          try {
-            const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, wireText);
-            if (isRealContact) {
-              updatedDRSession = { ...drSession, alice: newAlice, lastAliceHeader: msg.header };
-            } else {
-              const { state: newBob } = ratchetDecrypt(drSession.bob, msg);
-              updatedDRSession = { alice: newAlice, bob: newBob, lastAliceHeader: msg.header, usedOPK: drSession.usedOPK ?? false };
-            }
-            aliceMsg = msg;
-            break;
-          } catch (e) {
-            console.error(`[DR] Encrypt attempt ${attempts + 1} failed:`, e);
-            drSession = initSession();
-            attempts += 1;
-          }
+        try {
+          const { state: newAlice, message: msg } = ratchetEncrypt(drSession.alice, wireText);
+          updatedDRSession = { ...drSession, alice: newAlice, lastAliceHeader: msg.header };
+          aliceMsg = msg;
+        } catch (e) {
+          console.error("[DR] Encrypt failed:", e);
         }
-        if (!aliceMsg) {
-          console.error("[DR] Aborting send: could not encrypt with DR after reinit");
-          const failedMsg: Message = {
-            id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-            text,
-            fromMe: true,
-            timestamp: Date.now(),
-            encrypted: false,
-            sealed: false,
-            failed: true,
-            attachment,
-          };
-          setState((prev) => {
-            const updated = prev.conversations.map((c) =>
-              c.id === conversationId
-                ? { ...c, messages: [...c.messages, failedMsg], lastMessage: previewText, timestamp: Date.now(), unread: 0 }
-                : c
-            );
-            persistConversations(updated);
-            return { ...prev, conversations: updated };
-          });
-          Alert.alert("Send failed", "Message could not be encrypted. Please try again.");
-          return { queued: false };
-        }
+      }
+
+      if (!aliceMsg) {
+        console.error("[DR] Aborting send: could not encrypt with DR");
+        return recordSendFailure("Message could not be encrypted. Please try again.");
       }
 
       const expiresAt = conv.disappearAfterSec
         ? Date.now() + conv.disappearAfterSec * 1000
         : undefined;
 
-      const newMsg: Message = conv.drSession && aliceMsg
-        ? {
-            id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-            text,
-            fromMe: true,
-            timestamp: Date.now(),
-            encrypted: true,
-            sealed: true,
-            ciphertext: aliceMsg.ciphertext,
-            fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`,
-            expiresAt,
-            attachment,
-          }
-        : buildMessage(text, true, conversationId, myAlias, conv.disappearAfterSec, attachment);
+      const newMsg: Message = {
+        id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
+        text,
+        fromMe: true,
+        timestamp: Date.now(),
+        encrypted: true,
+        sealed: true,
+        ciphertext: aliceMsg.ciphertext,
+        fingerprint: `DR:${aliceMsg.ciphertext.slice(0, 8).toUpperCase()}`,
+        expiresAt,
+        attachment,
+      };
 
       const headerToSend = conv.pendingX3DHHeader;
 
@@ -1889,73 +1725,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ...prev, conversations: updated };
       });
 
-      if (!isRealContact) {
-        const delay = 1500 + Math.random() * 1000;
-        // Satisfy return type — non-real contacts deliver synchronously
-        // (return at end of callback)
-        const REPLY_POOL = [
-          "Understood. Signal secure.",
-          "Roger. Transmission encrypted.",
-          "Copy. Awaiting further instructions.",
-          "Confirmed. No trace detected.",
-          "Acknowledged. Channel open.",
-        ];
-        const replyText = REPLY_POOL[Math.floor(Math.random() * REPLY_POOL.length)];
-        setTimeout(() => {
-          setState((prev) => {
-            const c2 = prev.conversations.find((c) => c.id === conversationId);
-            if (!c2) return prev;
-
-            let replyMsg: Message;
-            let updSess = c2.drSession;
-
-            if (c2.drSession) {
-              let ds = c2.drSession;
-              let bobMsg: RatchetMessage | undefined;
-              let att = 0;
-              while (att < 2) {
-                try {
-                  const { state: newBob, message: msg } = ratchetEncrypt(ds.bob, replyText);
-                  const { state: newAlice } = ratchetDecrypt(ds.alice, msg);
-                  updSess = { alice: newAlice, bob: newBob, lastAliceHeader: null, usedOPK: ds.usedOPK ?? false };
-                  bobMsg = msg;
-                  break;
-                } catch (e) {
-                  console.error(`[DR] Reply attempt ${att + 1} failed:`, e);
-                  ds = initSession();
-                  att += 1;
-                }
-              }
-              if (!bobMsg) {
-                console.error("[DR] Aborting reply: could not encrypt with DR after reinit");
-                return prev;
-              }
-              const exp = c2.disappearAfterSec ? Date.now() + c2.disappearAfterSec * 1000 : undefined;
-              replyMsg = {
-                id: `${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
-                text: replyText,
-                fromMe: false,
-                timestamp: Date.now(),
-                encrypted: true,
-                sealed: true,
-                ciphertext: bobMsg.ciphertext,
-                fingerprint: `DR:${bobMsg.ciphertext.slice(0, 8).toUpperCase()}`,
-                expiresAt: exp,
-              };
-            } else {
-              replyMsg = buildMessage(replyText, false, conversationId, c2.alias ?? "GHOST", c2.disappearAfterSec);
-            }
-
-            const updated = prev.conversations.map((c) =>
-              c.id === conversationId
-                ? { ...c, messages: [...c.messages, replyMsg!], lastMessage: replyText, timestamp: Date.now(), drSession: updSess }
-                : c
-            );
-            persistConversations(updated);
-            return { ...prev, conversations: updated };
-          });
-        }, delay);
-      }
       return { queued: false };
     },
     [persistConversations, persistOutbox]
@@ -1965,109 +1734,91 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (alias: string) => {
       const aliasUpper = alias.toUpperCase();
       const apiBase = getApiBase();
+      if (!apiBase) {
+        return { ok: false, error: "server_unreachable" };
+      }
 
-      // Step 1: Check if the user actually exists on the server
+      // Step 1: The contact MUST exist on the server as a real, registered user.
+      // There is no simulated/demo contact path — if they are not registered we
+      // cannot run a real X3DH handshake, so we refuse to create the channel.
       let userExistsOnServer = false;
-      if (apiBase) {
-        try {
-          const checkRes = await fetch(`${apiBase}/users/exists/${encodeURIComponent(aliasUpper)}`);
-          userExistsOnServer = checkRes.ok;
-        } catch {
-          // Server unreachable — fall back to simulation mode
-        }
+      try {
+        const checkRes = await fetch(`${apiBase}/users/exists/${encodeURIComponent(aliasUpper)}`);
+        userExistsOnServer = checkRes.ok;
+      } catch {
+        return { ok: false, error: "server_unreachable" };
+      }
+      if (!userExistsOnServer) {
+        return { ok: false, error: "not_found" };
       }
 
-      let bundle: PreKeyBundle | null = null;
-
-      if (userExistsOnServer) {
-        // Real user: fetch their actual public prekey bundle (no simulation)
-        bundle = await fetchContactBundle(aliasUpper);
-      } else {
-        // Not found on server — simulate their registration for single-device demo
-        await registerContactForSimulation(aliasUpper);
-        bundle = await fetchContactBundle(aliasUpper);
+      // Step 2: Fetch the contact's real PUBLIC prekey bundle.
+      let bundle = await fetchContactBundle(aliasUpper);
+      if (!bundle) {
+        return { ok: false, error: "no_bundle" };
       }
 
-      // Step 3: Initiate the X3DH session.
-      // If real user + own keys available → use real X3DH (initSessionAliceWithHeader).
-      // Otherwise → fall back to single-device simulation (initSessionFromBundle / initSession).
+      // Step 3: Run a real X3DH handshake using OUR private identity keys, which
+      // never leave this device. If our own keys are missing we rotate them on
+      // the server first. No deterministic/simulated session is ever fabricated.
       let drSession: DRSession;
       let usedOPK = false;
-      let pendingX3DHHeader: string | undefined;
+      let pendingX3DHHeader: string;
 
-      if (userExistsOnServer && bundle) {
-        // Try real X3DH first (requires own stored IK/SPK private keys)
-        try {
-          const [myIKPriv, myIKPub, mySpkPriv, mySpkPub] = await Promise.all([
-            secureGet(MY_IK_PRIV_KEY),
-            secureGet(MY_IK_PUB_KEY),
-            secureGet(MY_SPK_PRIV_KEY),
-            secureGet(MY_SPK_PUB_KEY),
-          ]);
+      try {
+        const [myIKPriv, myIKPub, mySpkPriv, mySpkPub] = await Promise.all([
+          secureGet(MY_IK_PRIV_KEY),
+          secureGet(MY_IK_PUB_KEY),
+          secureGet(MY_SPK_PRIV_KEY),
+          secureGet(MY_SPK_PUB_KEY),
+        ]);
 
-          let ikPrivFinal = myIKPriv;
-          let ikPubFinal  = myIKPub;
-          let spkPrivFinal = mySpkPriv;
-          let spkPubFinal  = mySpkPub;
+        let ikPrivFinal = myIKPriv;
+        let ikPubFinal  = myIKPub;
+        let spkPrivFinal = mySpkPriv;
+        let spkPubFinal  = mySpkPub;
 
-          if (!ikPrivFinal || !ikPubFinal || !spkPrivFinal || !spkPubFinal) {
-            // Own keys missing — try to rotate them on the server using the
-            // existing device token so we can proceed with real X3DH.
-            const token = await secureGet(DEVICE_TOKEN_KEY);
-            const selfAlias = state.alias;
-            if (token && selfAlias) {
-              console.warn("[X3DH] Own keys missing — attempting rekey before session init for self:", selfAlias);
-              const rekey = await rekeyWithServer(selfAlias, token);
-              if (rekey) {
-                await Promise.all([
-                  secureSet(MY_IK_PRIV_KEY, rekey.ikPriv),
-                  secureSet(MY_IK_PUB_KEY,  rekey.ikPub),
-                  secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv),
-                  secureSet(MY_SPK_PUB_KEY,  rekey.spkPub),
-                ]);
-                await generateAndUploadOPKs(selfAlias, token);
-                ikPrivFinal  = rekey.ikPriv;
-                ikPubFinal   = rekey.ikPub;
-                spkPrivFinal = rekey.spkPriv;
-                spkPubFinal  = rekey.spkPub;
-                // Re-fetch contact bundle so it picks up fresh OPKs if any
-                bundle = await fetchContactBundle(aliasUpper);
-              }
+        if (!ikPrivFinal || !ikPubFinal || !spkPrivFinal || !spkPubFinal) {
+          // Own keys missing — rotate them on the server using the existing
+          // device token so we can proceed with a real X3DH handshake.
+          const token = await secureGet(DEVICE_TOKEN_KEY);
+          const selfAlias = state.alias;
+          if (token && selfAlias) {
+            console.warn("[X3DH] Own keys missing — attempting rekey before session init for self:", selfAlias);
+            const rekey = await rekeyWithServer(selfAlias, token);
+            if (rekey) {
+              await Promise.all([
+                secureSet(MY_IK_PRIV_KEY, rekey.ikPriv),
+                secureSet(MY_IK_PUB_KEY,  rekey.ikPub),
+                secureSet(MY_SPK_PRIV_KEY, rekey.spkPriv),
+                secureSet(MY_SPK_PUB_KEY,  rekey.spkPub),
+              ]);
+              await generateAndUploadOPKs(selfAlias, token);
+              ikPrivFinal  = rekey.ikPriv;
+              ikPubFinal   = rekey.ikPub;
+              spkPrivFinal = rekey.spkPriv;
+              spkPubFinal  = rekey.spkPub;
+              // Re-fetch contact bundle so it picks up fresh OPKs if any
+              const refreshed = await fetchContactBundle(aliasUpper);
+              if (refreshed) bundle = refreshed;
             }
-          }
-
-          if (ikPrivFinal && ikPubFinal && spkPrivFinal && spkPubFinal && bundle) {
-            const { session, x3dhHeader } = initSessionAliceWithHeader(bundle, ikPrivFinal, ikPubFinal);
-            drSession = session;
-            usedOPK = !!(bundle.opkPublicKey);
-            pendingX3DHHeader = JSON.stringify(x3dhHeader);
-            console.log(`[X3DH] Real ${usedOPK ? "4-DH" : "3-DH"} session initiated with ${aliasUpper}`);
-          } else {
-            // Own keys still unavailable — fall back to local simulation only
-            console.warn("[X3DH] Own private keys not found — falling back to simulation for", aliasUpper);
-            if (bundle) {
-              drSession = initSessionFromBundle(bundle);
-              usedOPK = !!(bundle.opkPublicKey);
-            } else {
-              drSession = initSession();
-            }
-          }
-        } catch (e) {
-          console.error("[X3DH] Real session init failed — falling back:", e);
-          if (bundle) {
-            drSession = initSessionFromBundle(bundle);
-            usedOPK = !!(bundle.opkPublicKey);
-          } else {
-            drSession = initSession();
           }
         }
-      } else if (bundle) {
-        drSession = initSessionFromBundle(bundle);
-        usedOPK = !!(bundle.opkPublicKey);
-        console.log(`[X3DH] ${usedOPK ? "4-DH" : "3-DH"} demo session initiated with ${aliasUpper}`);
-      } else {
-        drSession = initSession();
-        console.log(`[X3DH] Server unavailable — using local 3-DH for ${aliasUpper}`);
+
+        if (!ikPrivFinal || !ikPubFinal || !spkPrivFinal || !spkPubFinal) {
+          // Still no own private keys — we cannot run a real handshake.
+          console.error("[X3DH] Own private keys unavailable — cannot establish real session for", aliasUpper);
+          return { ok: false, error: "no_own_keys" };
+        }
+
+        const { session, x3dhHeader } = initSessionAliceWithHeader(bundle, ikPrivFinal, ikPubFinal);
+        drSession = session;
+        usedOPK = !!bundle.opkPublicKey;
+        pendingX3DHHeader = JSON.stringify(x3dhHeader);
+        console.log(`[X3DH] Real ${usedOPK ? "4-DH" : "3-DH"} session initiated with ${aliasUpper}`);
+      } catch (e) {
+        console.error("[X3DH] Real session init failed for", aliasUpper, e);
+        return { ok: false, error: "x3dh_failed" };
       }
 
       setState((prev) => {
@@ -2081,16 +1832,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           unread: 0,
           safetyNumber,
           drSession,
-          isRealContact: userExistsOnServer,
+          isRealContact: true,
           pendingX3DHHeader,
           messages: [
-            buildMessage(
+            buildSystemMessage(
               usedOPK
                 ? "Double Ratchet E2EE channel established. X3DH key exchange complete (4-DH with one-time prekey)."
                 : "Double Ratchet E2EE channel established. X3DH key exchange complete.",
-              false,
-              id,
-              aliasUpper,
             ),
           ],
         };
@@ -2112,7 +1860,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })();
 
-      return { isReal: userExistsOnServer };
+      return { ok: true };
     },
     [persistConversations]
   );

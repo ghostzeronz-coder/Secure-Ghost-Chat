@@ -225,12 +225,3 @@ export function generateSafetyNumber(myAlias: string, theirAlias: string): strin
   }).join(" ");
 }
 
-// ── Demo key derivation ───────────────────────────────────────────────────────
-
-/**
- * Deterministic demo key per conversation ID.
- * In production, replaced by a real X3DH-negotiated shared secret.
- */
-export function demoKeyForConversation(convId: string): Uint8Array {
-  return sha256(strToBytes(`ghostface:demo:conv:${convId}`));
-}

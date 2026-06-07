@@ -34,6 +34,34 @@ function formatTime(ts: number): string {
   return `${d.getDate()}/${d.getMonth() + 1}`;
 }
 
+function addConvErrorTitle(error?: string): string {
+  switch (error) {
+    case "not_found":
+      return "User Not Found";
+    case "server_unreachable":
+      return "Network Unavailable";
+    default:
+      return "Could Not Start Chat";
+  }
+}
+
+function addConvErrorMessage(alias: string, error?: string): string {
+  switch (error) {
+    case "not_found":
+      return `${alias} is not on the GHOSTFACE network. They must install GHOSTFACE and register before you can start an encrypted conversation.`;
+    case "server_unreachable":
+      return "Cannot reach the GHOSTFACE network. Check your connection and try again.";
+    case "no_bundle":
+      return `${alias} has no encryption keys available right now. Ask them to reopen GHOSTFACE, then try again.`;
+    case "no_own_keys":
+      return "Your own encryption keys could not be prepared. Try again in a moment.";
+    case "x3dh_failed":
+      return "The secure key exchange failed. Please try again.";
+    default:
+      return "The encrypted channel could not be established. Please try again.";
+  }
+}
+
 type PageTab = "messages" | "tools" | "invite";
 
 export default function MessagesScreen() {
@@ -95,10 +123,10 @@ export default function MessagesScreen() {
     try {
       const result = await addConversation(alias);
       Haptics.notificationAsync(
-        result.isReal ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
+        result.ok ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
       );
-      if (!result.isReal) {
-        Alert.alert("User Not Found", `${alias} is not on GHOSTFACE network. Starting local simulation instead.`, [{ text: "OK" }]);
+      if (!result.ok) {
+        Alert.alert(addConvErrorTitle(result.error), addConvErrorMessage(alias, result.error), [{ text: "OK" }]);
       }
     } finally {
       setAddingChat(false);
@@ -114,12 +142,12 @@ export default function MessagesScreen() {
     try {
       const result = await addConversation(trimmed);
       Haptics.notificationAsync(
-        result.isReal ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Warning
+        result.ok ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error
       );
-      if (!result.isReal) {
+      if (!result.ok) {
         Alert.alert(
-          "User Not Found",
-          `${trimmed.toUpperCase()} is not on GHOSTFACE network. Starting local simulation instead.`,
+          addConvErrorTitle(result.error),
+          addConvErrorMessage(trimmed.toUpperCase(), result.error),
           [{ text: "OK" }]
         );
       }
