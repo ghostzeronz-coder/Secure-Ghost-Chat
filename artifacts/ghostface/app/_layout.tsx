@@ -1,0 +1,280 @@
+import "react-native-get-random-values";
+import {
+  Inter_400Regular,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_500Medium,
+  useFonts,
+} from "@expo-google-fonts/inter";
+import {
+  ShareTechMono_400Regular,
+} from "@expo-google-fonts/share-tech-mono";
+import { Feather, Ionicons } from "@expo/vector-icons";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { router, Stack, usePathname } from "expo-router";
+import { usePreventScreenCapture } from "expo-screen-capture";
+import * as SplashScreen from "expo-splash-screen";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { Animated, AppState, AppStateStatus, PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AppProvider, useApp } from "@/context/AppContext";
+import { useColors } from "@/hooks/useColors";
+import { boxShadow } from "@/lib/shadow";
+import LockScreen from "@/app/lock";
+import OnboardingScreen from "@/app/onboarding";
+
+SplashScreen.preventAutoHideAsync();
+
+const queryClient = new QueryClient();
+
+// ── Incoming call overlay ─────────────────────────────────────────────────────
+function IncomingCallOverlay() {
+  const { incomingCall, dismissIncomingCall, sendCallSignal } = useApp();
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const slideAnim = useRef(new Animated.Value(-200)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (incomingCall) {
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 70, friction: 11 }).start();
+      const pulse = Animated.loop(Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.08, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,    duration: 700, useNativeDriver: true }),
+      ]));
+      pulse.start();
+      return () => pulse.stop();
+    } else {
+      Animated.timing(slideAnim, { toValue: -200, duration: 250, useNativeDriver: true }).start();
+    }
+  }, [incomingCall, slideAnim, pulseAnim]);
+
+  if (!incomingCall) return null;
+
+  const handleAccept = () => {
+    const { callId, from, mode } = incomingCall;
+    dismissIncomingCall();
+    router.push({ pathname: "/call", params: { alias: from, mode, role: "callee", callId } });
+  };
+
+  const handleDecline = () => {
+    sendCallSignal({ type: "call-hangup", to: incomingCall.from, callId: incomingCall.callId });
+    dismissIncomingCall();
+  };
+
+  const styles = StyleSheet.create({
+    wrapper: {
+      position: "absolute",
+      top: 0, left: 0, right: 0,
+      zIndex: 9999,
+      paddingTop: insets.top + 8,
+      paddingHorizontal: 12,
+    },
+    card: {
+      backgroundColor: "#0D0D0D",
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      padding: 16,
+      boxShadow: boxShadow(colors.primary, 0.3, 20, 0, 4),
+    },
+    row: { flexDirection: "row", alignItems: "center", gap: 14 },
+    avatarWrap: {
+      width: 52, height: 52, borderRadius: 26,
+      backgroundColor: `${colors.primary}22`,
+      borderWidth: 2, borderColor: colors.primary,
+      alignItems: "center", justifyContent: "center",
+    },
+    info: { flex: 1 },
+    label: { color: colors.mutedForeground, fontSize: 9, letterSpacing: 3, fontWeight: "700" as const },
+    alias: { color: colors.foreground, fontSize: 18, fontWeight: "800" as const, letterSpacing: 3, marginTop: 2 },
+    subLabel: { color: colors.primary, fontSize: 10, letterSpacing: 2, marginTop: 2 },
+    actions: { flexDirection: "row", gap: 10, marginTop: 14, justifyContent: "flex-end" as const },
+    declineBtn: {
+      flexDirection: "row", alignItems: "center", gap: 6,
+      backgroundColor: `${colors.destructive}20`,
+      borderRadius: 24, paddingVertical: 10, paddingHorizontal: 18,
+      borderWidth: 1, borderColor: colors.destructive,
+    },
+    declineTxt: { color: colors.destructive, fontSize: 11, fontWeight: "800" as const, letterSpacing: 2 },
+    acceptBtn: {
+      flexDirection: "row", alignItems: "center", gap: 6,
+      backgroundColor: colors.success,
+      borderRadius: 24, paddingVertical: 10, paddingHorizontal: 18,
+    },
+    acceptTxt: { color: "#000", fontSize: 11, fontWeight: "800" as const, letterSpacing: 2 },
+  });
+
+  return (
+    <Animated.View style={[styles.wrapper, { transform: [{ translateY: slideAnim }] }]}>
+      <View style={styles.card}>
+        <View style={styles.row}>
+          <Animated.View style={[styles.avatarWrap, { transform: [{ scale: pulseAnim }] }]}>
+            <Ionicons
+              name={incomingCall.mode === "video" ? "videocam" : "call"}
+              size={22}
+              color={colors.primary}
+            />
+          </Animated.View>
+          <View style={styles.info}>
+            <Text style={styles.label}>INCOMING {incomingCall.mode === "video" ? "VIDEO" : "VOICE"} CALL</Text>
+            <Text style={styles.alias}>{incomingCall.from}</Text>
+            <Text style={styles.subLabel}>ENCRYPTED · ZRTP</Text>
+          </View>
+        </View>
+        <View style={styles.actions}>
+          <Pressable style={({ pressed }) => [styles.declineBtn, pressed && { opacity: 0.7 }]} onPress={handleDecline}>
+            <Ionicons name="call" size={14} color={colors.destructive} style={{ transform: [{ rotate: "135deg" }] }} />
+            <Text style={styles.declineTxt}>DECLINE</Text>
+          </Pressable>
+          <Pressable style={({ pressed }) => [styles.acceptBtn, pressed && { opacity: 0.85 }]} onPress={handleAccept}>
+            <Ionicons name="call" size={14} color="#000" />
+            <Text style={styles.acceptTxt}>ACCEPT</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ── Root navigator ────────────────────────────────────────────────────────────
+function RootNavigator() {
+  const { isOnboarded, isLocked, loaded, setLocked, autoLockTimeout, incomingCall } = useApp();
+  const appState = useRef(AppState.currentState);
+  const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pathname = usePathname();
+
+  const clearInactivityTimer = useCallback(() => {
+    if (inactivityTimer.current) {
+      clearTimeout(inactivityTimer.current);
+      inactivityTimer.current = null;
+    }
+  }, []);
+
+  const resetInactivityTimer = useCallback(() => {
+    clearInactivityTimer();
+    if (typeof autoLockTimeout !== "number" || isLocked) return;
+    inactivityTimer.current = setTimeout(() => {
+      setLocked(true);
+    }, autoLockTimeout);
+  }, [autoLockTimeout, isLocked, clearInactivityTimer, setLocked]);
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponderCapture: () => {
+          resetInactivityTimer();
+          return false;
+        },
+        onMoveShouldSetPanResponderCapture: () => {
+          resetInactivityTimer();
+          return false;
+        },
+      }),
+    [resetInactivityTimer]
+  );
+
+  useEffect(() => {
+    if (!loaded || !isOnboarded) return;
+    if (isLocked) {
+      clearInactivityTimer();
+      return;
+    }
+    resetInactivityTimer();
+    return () => clearInactivityTimer();
+  }, [loaded, isOnboarded, isLocked, autoLockTimeout, resetInactivityTimer, clearInactivityTimer]);
+
+  useEffect(() => {
+    if (!isLocked && loaded && isOnboarded) {
+      resetInactivityTimer();
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!loaded || !isOnboarded) return;
+
+    const subscription = AppState.addEventListener(
+      "change",
+      (nextAppState: AppStateStatus) => {
+        const wasActive = appState.current === "active";
+        const isBackground =
+          nextAppState === "background" || nextAppState === "inactive";
+        if (wasActive && isBackground) {
+          setLocked(true);
+        }
+        appState.current = nextAppState;
+      }
+    );
+
+    return () => subscription.remove();
+  }, [loaded, isOnboarded, setLocked]);
+
+  if (!loaded) {
+    return <View style={{ flex: 1, backgroundColor: "#000000" }} />;
+  }
+
+  if (isLocked) {
+    return <LockScreen />;
+  }
+
+  if (!isOnboarded) {
+    return <OnboardingScreen />;
+  }
+
+  return (
+    <View style={{ flex: 1 }} {...panResponder.panHandlers}>
+      <Stack screenOptions={{ headerShown: false, animation: "none" }}>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="chat/[id]" />
+        <Stack.Screen name="call" />
+        <Stack.Screen name="paywall" />
+      </Stack>
+      {/* Incoming call overlay sits on top of everything when authenticated */}
+      {incomingCall && <IncomingCallOverlay />}
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  // Block screenshots & screen recording app-wide. On Android this sets
+  // FLAG_SECURE so captures come out black; on iOS recordings are blacked out.
+  usePreventScreenCapture();
+
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    ShareTechMono_400Regular,
+    ...Ionicons.font,
+    ...Feather.font,
+  });
+
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded, fontError]);
+
+  if (!fontsLoaded && !fontError) return null;
+
+  return (
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <KeyboardProvider>
+              <AppProvider>
+                <RootNavigator />
+              </AppProvider>
+            </KeyboardProvider>
+          </GestureHandlerRootView>
+        </QueryClientProvider>
+      </ErrorBoundary>
+    </SafeAreaProvider>
+  );
+}
