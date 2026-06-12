@@ -13,6 +13,7 @@ import { Feather, Ionicons } from "@expo/vector-icons";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, usePathname } from "expo-router";
 import { usePreventScreenCapture } from "expo-screen-capture";
+import { Platform } from "react-native";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Animated, AppState, AppStateStatus, PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
@@ -242,7 +243,10 @@ function RootNavigator() {
 export default function RootLayout() {
   // Block screenshots & screen recording app-wide. On Android this sets
   // FLAG_SECURE so captures come out black; on iOS recordings are blacked out.
-  usePreventScreenCapture();
+  if (Platform.OS !== "web") {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    usePreventScreenCapture();
+  }
 
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
