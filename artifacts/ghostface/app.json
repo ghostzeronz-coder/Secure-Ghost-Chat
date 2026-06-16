@@ -99,7 +99,10 @@
       "privacyPolicyUrl": "https://ghostface.app/privacy",
       "marketingUrl": "https://ghostface.app",
       "eas": {
-        "projectId": "5e6f2a5d-d22d-4bba-9abe-52a69adca323"
+        "projectId": "fa199a6d-ad2c-4779-abf5-10960871cf0e"
+      },
+      "router": {
+        "origin": "https://replit.com/"
       }
     },
     "owner": "ghostfacelimited"
