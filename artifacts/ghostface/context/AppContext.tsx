@@ -1,4 +1,5 @@
 import { evaluateExpiredHandshake } from "@/lib/expiry";
+import { readEncryptedString, writeEncryptedString } from "@/lib/secureStorage";
 import {
   classifyLinkQuality,
   isLowBandwidthActive,
@@ -952,7 +953,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           secureGet(SECURE_DURESS_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
           AsyncStorage.getItem("isOnboarded"),
-          AsyncStorage.getItem(CONVERSATIONS_KEY),
+          readEncryptedString(CONVERSATIONS_KEY),
           AsyncStorage.getItem(CONNECTED_WALLET_KEY),
           AsyncStorage.getItem(AUTO_LOCK_TIMEOUT_KEY),
           secureGet(DEVICE_TOKEN_KEY),
@@ -986,7 +987,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           (c) => !DEMO_ALIASES.has((c.alias ?? "").toUpperCase())
         );
         if (conversations.length !== beforeCount) {
-          AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations)).catch(
+          writeEncryptedString(CONVERSATIONS_KEY, JSON.stringify(conversations)).catch(
             (e) => console.warn("[AppContext] Failed to persist demo cleanup:", e)
           );
         }
@@ -1175,7 +1176,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const persistConversations = useCallback(async (convs: Conversation[]) => {
     try {
-      await AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(convs));
+      await writeEncryptedString(CONVERSATIONS_KEY, JSON.stringify(convs));
     } catch (err) {
       console.warn("[AppContext] Failed to persist conversations:", err);
     }
@@ -1226,7 +1227,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       if (!changed) return;
       setState((prev) => ({ ...prev, conversations: next }));
-      AsyncStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(next)).catch((err) =>
+      writeEncryptedString(CONVERSATIONS_KEY, JSON.stringify(next)).catch((err) =>
         console.warn("[AppContext] Failed to persist expired-handshake seal:", err)
       );
     };

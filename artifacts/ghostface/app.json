@@ -17,7 +17,6 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.ghostface.app",
       "buildNumber": "1",
-      "minimumOsVersion": "16.0",
       "infoPlist": {
         "NSFaceIDUsageDescription": "GHOSTFACE uses Face ID to protect your private messages and identity with biometric authentication.",
         "NSCameraUsageDescription": "GHOSTFACE uses the camera for QR code scanning and secure video calls.",
@@ -38,9 +37,6 @@
     "android": {
       "package": "com.ghostface.app",
       "versionCode": 1,
-      "compileSdkVersion": 35,
-      "targetSdkVersion": 35,
-      "minSdkVersion": 26,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -83,6 +79,19 @@
         "expo-local-authentication",
         {
           "faceIDPermission": "GHOSTFACE uses Face ID to protect your private messages and identity with biometric authentication."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.0"
+          },
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 26
+          }
         }
       ]
     ],
