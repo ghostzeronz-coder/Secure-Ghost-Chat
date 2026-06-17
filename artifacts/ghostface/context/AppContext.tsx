@@ -899,7 +899,11 @@ async function secureDelete(key: string): Promise<void> {
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(false);// Safety net: never let the splash hang forever, even if init stalls.
+  useEffect(() => {
+    const t = setTimeout(() => setLoaded(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
   const [hasDuressPin, setHasDuressPin] = useState(false);
