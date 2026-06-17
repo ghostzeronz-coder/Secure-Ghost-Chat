@@ -93,10 +93,11 @@
     "extra": {
       "privacyPolicyUrl": "https://ghostface.app/privacy",
       "marketingUrl": "https://ghostface.app",
+      "router": {},
       "eas": {
-        "projectId": "fa199a6d-ad2c-4779-abf5-10960871cf0e"
+        "projectId": "0b6b78a6-7c24-4128-b51c-70dbaaf4b58e"
       }
     },
-    "owner": "ghostfacelimited"
+    "owner": "ghost_face"
   }
 }
