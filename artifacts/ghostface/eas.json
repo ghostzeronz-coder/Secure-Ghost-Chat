@@ -48,7 +48,11 @@
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "6781518828"
+        "ascAppId": "6781518828",
+        "appleTeamId": "98337579X8",
+        "ascApiKeyPath": "/Users/ghostface/.appstoreconnect/AuthKey_RBN27BB727.p8",
+        "ascApiKeyId": "RBN27BB727",
+        "ascApiKeyIssuerId": "abba23f8-558e-49d5-bdc6-f80952590f8e"
       },
       "android": {
         "track": "production",

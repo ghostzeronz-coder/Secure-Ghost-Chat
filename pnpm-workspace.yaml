@@ -62,7 +62,7 @@ overrides:
   '@tailwindcss/oxide>@tailwindcss/oxide-linux-x64-musl': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-arm64-msvc': '-'
   '@tailwindcss/oxide>@tailwindcss/oxide-win32-x64-msvc': '-'
-  '@xmldom/xmldom@<0.8.13': '>=0.8.13'
+  '@xmldom/xmldom@<0.8.13': '>=0.8.13 <0.9.0'
   brace-expansion@>=2.0.0 <2.0.3: '>=2.0.3'
   drizzle-orm@<0.45.2: '>=0.45.2'
   esbuild: 0.27.3
