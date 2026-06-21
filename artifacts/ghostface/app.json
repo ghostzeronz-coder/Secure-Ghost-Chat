@@ -22,7 +22,7 @@
         "NSFaceIDUsageDescription": "GHOSTFACE uses Face ID to protect your private messages and identity with biometric authentication.",
         "NSCameraUsageDescription": "GHOSTFACE uses the camera for QR code scanning and secure video calls.",
         "NSMicrophoneUsageDescription": "GHOSTFACE needs microphone access for encrypted voice and video calls.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": true
       },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
@@ -99,9 +99,9 @@
       "privacyPolicyUrl": "https://ghostface.app/privacy",
       "marketingUrl": "https://ghostface.app",
       "eas": {
-        "projectId": "5384dffd-78ad-41a3-bff3-4ed0a894c22c"
+        "projectId": "0b6b78a6-7c24-4128-b51c-70dbaaf4b58e"
       }
     },
-    "owner": "ghostfacecomms"
+    "owner": "ghost_face"
   }
 }
