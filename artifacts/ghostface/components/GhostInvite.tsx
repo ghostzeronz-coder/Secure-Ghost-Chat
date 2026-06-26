@@ -15,6 +15,7 @@ import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { QRScanner, encodeContactQR, encodeInviteQR } from "@/components/QRScanner";
 import { GoldGradient } from "@/components/GoldGradient";
+import { CODE_REGEX, type RedeemFailReason, type RedeemResult, lookupInviteCode, consumeInviteCode } from "@/lib/invites";
 
 const TIMER_OPTIONS = [
   { label: "10 MIN", ms: 10 * 60 * 1000 },
@@ -49,8 +50,6 @@ function fmtCountdown(ms: number): string {
   return `${m}M ${s % 60}S`;
 }
 
-const CODE_REGEX = /^GF-[A-Z2-9]{4}-[A-Z2-9]{4}$/;
-
 /**
  * POST the invite code to the server so it maps to the owner's real alias.
  * If the server is unreachable we skip silently — typed codes won't work
@@ -71,34 +70,6 @@ async function registerInviteOnServer(
     });
   } catch {
     // Non-critical
-  }
-}
-
-type RedeemFailReason = "bad_format" | "not_found" | "expired" | "used" | "offline";
-type RedeemResult =
-  | { ok: true; ownerAlias: string }
-  | { ok: false; reason: RedeemFailReason };
-
-async function lookupInviteCode(code: string): Promise<RedeemResult> {
-  const apiBase = getApiBase();
-  if (!apiBase) return { ok: false, reason: "offline" };
-  try {
-    const res = await fetch(`${apiBase}/invites/${encodeURIComponent(code.toUpperCase())}`);
-    if (res.ok) {
-      const data = (await res.json()) as { ownerAlias: string };
-      return { ok: true, ownerAlias: data.ownerAlias };
-    }
-    if (res.status === 410) {
-      const data = (await res.json()) as { error?: string };
-      const reason: RedeemFailReason =
-        typeof data.error === "string" && data.error.toLowerCase().includes("expir")
-          ? "expired"
-          : "used";
-      return { ok: false, reason };
-    }
-    return { ok: false, reason: "not_found" };
-  } catch {
-    return { ok: false, reason: "offline" };
   }
 }
 
@@ -150,32 +121,33 @@ export default function GhostInvite() {
       return;
     }
 
-    const result = await lookupInviteCode(redeemInput);
-
-    if (!result.ok) {
+    const lookup = await lookupInviteCode(redeemInput);
+    if (!lookup.ok) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setRedeemState(result.reason);
+      setRedeemState(lookup.reason);
       setTimeout(() => setRedeemState("idle"), 4000);
       return;
     }
 
-    try {
-      const added = await addConversation(result.ownerAlias);
-      if (!added.ok) {
-        setRedeemState("not_found");
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-        setTimeout(() => setRedeemState("idle"), 4000);
-        return;
-      }
-      setRedeemAlias(result.ownerAlias);
-      setRedeemInput("");
-      setRedeemState("success");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setTimeout(() => setRedeemState("idle"), 4000);
-    } catch {
-      setRedeemState("not_found");
+    const added = await addConversation(lookup.ownerAlias);
+    if (!added.ok) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setRedeemState("connection_failed");
+      setTimeout(() => setRedeemState("idle"), 4000);
+      return;
     }
+
+    // Handshake confirmed — now atomically consume the code
+    const consume = await consumeInviteCode(redeemInput);
+    if (!consume.ok && !consume.alreadyUsed) {
+      console.warn("[invite] consume failed after successful redeem");
+    }
+
+    setRedeemAlias(lookup.ownerAlias);
+    setRedeemInput("");
+    setRedeemState("success");
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setRedeemState("idle"), 4000);
   };
 
   const reset = useCallback(
@@ -230,33 +202,43 @@ export default function GhostInvite() {
    *  - a plain alias — start conversation directly
    */
   const handleQRScan = async (decoded: string) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
     if (CODE_REGEX.test(decoded)) {
-      // Scanned an invite code QR — resolve to real alias via server
-      const result = await lookupInviteCode(decoded);
-      if (result.ok) {
-        const added = await addConversation(result.ownerAlias);
-        if (added.ok) {
-          setRedeemAlias(result.ownerAlias);
-          setRedeemState("success");
-        } else {
-          setRedeemState("not_found");
-        }
-      } else {
-        setRedeemState(result.reason);
+      // Scanned an invite code QR — lookup → add → consume
+      const lookup = await lookupInviteCode(decoded);
+      if (!lookup.ok) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setRedeemState(lookup.reason);
+        setTimeout(() => setRedeemState("idle"), 4000);
+        return;
       }
+      const added = await addConversation(lookup.ownerAlias);
+      if (!added.ok) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        setRedeemState("connection_failed");
+        setTimeout(() => setRedeemState("idle"), 4000);
+        return;
+      }
+      const consume = await consumeInviteCode(decoded);
+      if (!consume.ok && !consume.alreadyUsed) {
+        console.warn("[invite] QR consume failed after successful add");
+      }
+      setRedeemAlias(lookup.ownerAlias);
+      setRedeemState("success");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setTimeout(() => setRedeemState("idle"), 4000);
     } else {
       // Scanned a contact QR (ghostface://add/<alias>)
       const added = await addConversation(decoded);
       if (added.ok) {
         setRedeemAlias(decoded);
         setRedeemState("success");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       } else {
         setRedeemState("not_found");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
+      setTimeout(() => setRedeemState("idle"), 4000);
     }
-    setTimeout(() => setRedeemState("idle"), 4000);
   };
 
   const redeemErrorLabel = (): string => {
@@ -266,6 +248,7 @@ export default function GhostInvite() {
       case "expired":    return "CODE HAS EXPIRED";
       case "used":       return "CODE ALREADY USED";
       case "offline":    return "SERVER UNREACHABLE";
+      case "connection_failed": return "CODE VALID — CONNECTION FAILED, TRY AGAIN";
       default:           return "COULD NOT REDEEM";
     }
   };
