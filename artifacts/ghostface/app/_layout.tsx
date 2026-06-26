@@ -15,7 +15,7 @@ import { router, Stack, usePathname } from "expo-router";
 import { usePreventScreenCapture } from "expo-screen-capture";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Animated, AppState, AppStateStatus, PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, AppState, AppStateStatus, Platform, PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,6 +30,13 @@ import OnboardingScreen from "@/app/onboarding";
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
+
+// Disabled in dev so you can capture screenshots for testing & store listings.
+function ScreenCaptureBlocker() {
+  usePreventScreenCapture();
+  return null;
+}
+const blockScreenCapture = Platform.OS !== "web" && !__DEV__;
 
 // ── Incoming call overlay ─────────────────────────────────────────────────────
 function IncomingCallOverlay() {
@@ -240,10 +247,6 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  // Block screenshots & screen recording app-wide. On Android this sets
-  // FLAG_SECURE so captures come out black; on iOS recordings are blacked out.
-  usePreventScreenCapture();
-
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -264,6 +267,7 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {blockScreenCapture && <ScreenCaptureBlocker />}
       <ErrorBoundary>
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
