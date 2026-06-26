@@ -395,7 +395,7 @@ export default function HomeScreen() {
                       <Ionicons
                         name={node.icon}
                         size={20}
-                        color={active ? GOLD : "rgba(191,155,48,0.75)"}
+                        color={active ? "#FFFFFF" : "rgba(255,255,255,0.75)"}
                       />
                     </View>
                     <Text
@@ -556,13 +556,13 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(191,155,48,0.07)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     borderWidth: 1,
-    borderColor: "rgba(191,155,48,0.3)",
+    borderColor: "rgba(255,255,255,0.3)",
   },
   nodeCircleActive: {
-    backgroundColor: "rgba(191,155,48,0.16)",
-    borderColor: "rgba(191,155,48,0.6)",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderColor: "rgba(255,255,255,0.6)",
   },
   nodeLabel: {
     fontFamily: FONT_MONO,
