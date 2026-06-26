@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { GoldGradient } from "@/components/GoldGradient";
 import { SecureBadge } from "@/components/SecureBadge";
 import { useApp } from "@/context/AppContext";
@@ -788,7 +789,7 @@ export default function WalletScreen() {
         animationType="slide"
         onRequestClose={() => setShowConnect(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowConnect(false)} />
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>LINK WALLET</Text>
@@ -826,7 +827,7 @@ export default function WalletScreen() {
                 <Text style={styles.cancelText}>CANCEL</Text>
               </Pressable>
             </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── SEND MODAL ──────────────────────────────────── */}
@@ -836,7 +837,7 @@ export default function WalletScreen() {
         animationType="slide"
         onRequestClose={() => setShowSend(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSend(false)} />
             <View style={styles.modalContent}>
               {sent ? (
@@ -880,7 +881,7 @@ export default function WalletScreen() {
                 </>
               )}
             </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── RECEIVE MODAL ───────────────────────────────── */}

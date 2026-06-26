@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { GhostLogo } from "@/components/GhostLogo";
 import { GoldGradient } from "@/components/GoldGradient";
 import { PanicButton } from "@/components/PanicButton";
@@ -1022,7 +1023,7 @@ export default function SettingsScreen() {
           setPinSimilar(false);
         }}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => {
             setShowPinChange(false);
             setNewPin("");
@@ -1102,7 +1103,7 @@ export default function SettingsScreen() {
                 </>
               )}
             </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Duress PIN modal */}
@@ -1112,7 +1113,7 @@ export default function SettingsScreen() {
         animationType="slide"
         onRequestClose={() => setShowDuressPin(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowDuressPin(false)} />
             <View style={styles.modalContent}>
               {duressPinSaved ? (
@@ -1186,7 +1187,7 @@ export default function SettingsScreen() {
                 </>
               )}
             </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Language picker modal */}
@@ -1231,7 +1232,7 @@ export default function SettingsScreen() {
         animationType="slide"
         onRequestClose={() => setShowSmsFallback(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView behavior="padding" style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSmsFallback(false)} />
           <View style={styles.modalContent}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 }}>
@@ -1351,7 +1352,7 @@ export default function SettingsScreen() {
               <Text style={styles.cancelText}>CLOSE</Text>
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
     </View>
