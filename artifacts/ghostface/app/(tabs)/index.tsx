@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { PanicButton } from "@/components/PanicButton";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 import { useApp } from "@/context/AppContext";
 import { boxShadow } from "@/lib/shadow";
@@ -165,6 +166,11 @@ export default function HomeScreen() {
   const handleWipePressOut = () => {
     if (wipeTimer.current) clearTimeout(wipeTimer.current);
     if (!isWiping) setWipeArmed(false);
+  };
+
+  const handlePanicWipe = async () => {
+    await panicWipe();
+    // Navigation handled automatically — panicWipe sets isOnboarded: false
   };
 
   const go = (path: () => void) => () => {
@@ -409,6 +415,11 @@ export default function HomeScreen() {
             })}
           </View>
         </View>
+
+        {/* Panic wipe — below globe, same button as Settings */}
+        <View style={styles.panicWrap}>
+          <PanicButton onWipe={handlePanicWipe} />
+        </View>
       </View>
     </TabScreenWrapper>
   );
@@ -541,6 +552,13 @@ const styles = StyleSheet.create({
     fontSize: 9,
     letterSpacing: 4,
     color: "rgba(191,155,48,0.6)",
+  },
+
+  panicWrap: {
+    position: "absolute",
+    bottom: 100,
+    left: 24,
+    right: 24,
   },
 
   // Nav nodes

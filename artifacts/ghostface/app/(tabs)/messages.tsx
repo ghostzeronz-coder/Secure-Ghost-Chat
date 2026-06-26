@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import EncryptionTools from "@/components/EncryptionTools";
 import GhostInvite from "@/components/GhostInvite";
 import { GoldGradient } from "@/components/GoldGradient";
@@ -553,7 +554,7 @@ export default function MessagesScreen() {
         animationType="slide"
         onRequestClose={() => setShowNew(false)}
       >
-        <View style={styles.overlay}>
+        <KeyboardAvoidingView behavior="padding" style={styles.overlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowNew(false)} />
             <View style={styles.sheet}>
               <Text style={styles.sheetTitle}>NEW SECURE CHANNEL</Text>
@@ -600,7 +601,7 @@ export default function MessagesScreen() {
                 <Text style={styles.cancelTxt}>CANCEL</Text>
               </Pressable>
             </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
     </TabScreenWrapper>
