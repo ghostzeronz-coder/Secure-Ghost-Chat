@@ -56,8 +56,7 @@
       },
       "android": {
         "track": "production",
-        "releaseStatus": "completed",
-        "credentialsSource": "remote"
+        "releaseStatus": "completed"
       }
     }
   }
