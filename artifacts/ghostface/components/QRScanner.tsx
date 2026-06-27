@@ -1,5 +1,6 @@
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
+import { allowScreenCaptureAsync, preventScreenCaptureAsync } from "expo-screen-capture";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
@@ -62,6 +63,11 @@ export function QRScanner({ visible, onClose, onScan }: QRScannerProps) {
       scannedRef.current = false;
       setFlash(false);
       if (Platform.OS !== "web" && !permission?.granted) requestPermission();
+      // Camera preview is blocked by FLAG_SECURE / iOS recording shield — lift
+      // protection for the duration of the scan and restore when it closes.
+      if (Platform.OS !== "web") allowScreenCaptureAsync().catch(() => {});
+    } else {
+      if (Platform.OS !== "web") preventScreenCaptureAsync().catch(() => {});
     }
   }, [visible]);
 

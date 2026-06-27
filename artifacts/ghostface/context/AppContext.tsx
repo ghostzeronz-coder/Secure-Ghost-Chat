@@ -446,7 +446,7 @@ interface AppContextType extends AppState {
   disconnectVPN: () => void;
   sendMessage: (conversationId: string, text: string, attachment?: Attachment) => { queued: boolean };
   retryMessage: (conversationId: string, messageId: string) => void;
-  addConversation: (alias: string) => Promise<{ ok: boolean; error?: string }>;
+  addConversation: (alias: string) => Promise<{ ok: boolean; conversationId?: string; error?: string }>;
   deleteMessage: (conversationId: string, messageId: string) => void;
   clearConversation: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => void;
@@ -1996,11 +1996,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return { ok: false, error: "x3dh_failed" };
       }
 
+      const newConvId = `${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
       setState((prev) => {
-        const id = `${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
         const safetyNumber = generateSafetyNumber(prev.alias ?? "GHOST_USER", aliasUpper);
         const newConv: Conversation = {
-          id,
+          id: newConvId,
           alias: aliasUpper,
           lastMessage: "Double Ratchet session established.",
           timestamp: Date.now(),
@@ -2036,7 +2036,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       })();
 
-      return { ok: true };
+      return { ok: true, conversationId: newConvId };
     },
     [persistConversations]
   );

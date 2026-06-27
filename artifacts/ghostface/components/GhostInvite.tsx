@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import QRCode from "react-native-qrcode-svg";
+import { router } from "expo-router";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
 import { QRScanner, encodeContactQR, encodeInviteQR } from "@/components/QRScanner";
@@ -225,7 +226,7 @@ export default function GhostInvite() {
       setRedeemAlias(lookup.ownerAlias);
       setRedeemState("success");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setTimeout(() => setRedeemState("idle"), 4000);
+      if (added.conversationId) router.push(`/chat/${added.conversationId}`);
     } else {
       // Scanned a contact QR (ghostface://add/<alias>)
       const added = await addConversation(decoded);
@@ -233,6 +234,7 @@ export default function GhostInvite() {
         setRedeemAlias(decoded);
         setRedeemState("success");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (added.conversationId) router.push(`/chat/${added.conversationId}`);
       } else {
         setRedeemState("not_found");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);

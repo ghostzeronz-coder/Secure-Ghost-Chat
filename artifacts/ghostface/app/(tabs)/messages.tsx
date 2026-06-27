@@ -153,6 +153,7 @@ export default function MessagesScreen() {
         const consume = await consumeInviteCode(decoded);
         if (!consume.ok && !consume.alreadyUsed) console.warn("[invite] QR consume failed in messages");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (result.conversationId) router.push(`/chat/${result.conversationId}`);
       } else {
         const result = await addConversation(decoded);
         Haptics.notificationAsync(
@@ -160,6 +161,8 @@ export default function MessagesScreen() {
         );
         if (!result.ok) {
           Alert.alert(addConvErrorTitle(result.error), addConvErrorMessage(decoded, result.error), [{ text: "OK" }]);
+        } else if (result.conversationId) {
+          router.push(`/chat/${result.conversationId}`);
         }
       }
     } finally {
@@ -190,6 +193,7 @@ export default function MessagesScreen() {
         const consume = await consumeInviteCode(trimmed);
         if (!consume.ok && !consume.alreadyUsed) console.warn("[invite] typed-code consume failed in messages");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        if (result.conversationId) router.push(`/chat/${result.conversationId}`);
       } else {
         const result = await addConversation(trimmed);
         Haptics.notificationAsync(
@@ -201,6 +205,8 @@ export default function MessagesScreen() {
             addConvErrorMessage(trimmed.toUpperCase(), result.error),
             [{ text: "OK" }]
           );
+        } else if (result.conversationId) {
+          router.push(`/chat/${result.conversationId}`);
         }
       }
     } finally {
