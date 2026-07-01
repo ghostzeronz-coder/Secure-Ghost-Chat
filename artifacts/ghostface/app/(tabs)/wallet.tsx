@@ -850,26 +850,33 @@ export default function WalletScreen() {
               ) : (
                 <>
                   <Text style={styles.modalTitle}>SEND {activeToken}</Text>
+                  <View style={{ backgroundColor: "rgba(138,138,138,0.1)", borderRadius: 8, borderWidth: 1, borderColor: colors.border, padding: 12, marginBottom: 12 }}>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 10, letterSpacing: 2, textAlign: "center" }}>
+                      COMING SOON — TRANSFERS NOT YET ACTIVE
+                    </Text>
+                  </View>
                   <TextInput
-                    style={styles.modalInput}
+                    style={[styles.modalInput, { opacity: 0.4 }]}
                     value={sendAddress}
                     onChangeText={setSendAddress}
                     placeholder="RECIPIENT ADDRESS"
                     placeholderTextColor={colors.mutedForeground}
                     autoCorrect={false}
+                    editable={false}
                   />
                   <TextInput
-                    style={styles.modalInput}
+                    style={[styles.modalInput, { opacity: 0.4 }]}
                     value={sendAmount}
                     onChangeText={setSendAmount}
                     placeholder="AMOUNT"
                     placeholderTextColor={colors.mutedForeground}
                     keyboardType="decimal-pad"
+                    editable={false}
                   />
                   <Pressable
-                    style={[styles.modalBtnPrimary, (!sendAmount || !sendAddress) && { opacity: 0.4 }]}
+                    style={[styles.modalBtnPrimary, { opacity: 0.4 }]}
                     onPress={handleSend}
-                    disabled={!sendAmount || !sendAddress}
+                    disabled={true}
                   >
                     <GoldGradient style={styles.modalBtnPrimaryInner}>
                       <Text style={styles.modalBtnText}>CONFIRM SEND</Text>

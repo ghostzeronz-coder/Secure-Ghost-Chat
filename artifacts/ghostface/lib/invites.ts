@@ -2,7 +2,10 @@ export const CODE_REGEX = /^GF-[A-Z2-9]{4}-[A-Z2-9]{4}$/;
 
 function getApiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (!domain) return "";
+  if (!domain) {
+    if (__DEV__) console.error("[ghostface] EXPO_PUBLIC_DOMAIN is not set — invite API calls will be skipped. Set it in .env or eas.json.");
+    return "";
+  }
   return `https://${domain}/api`;
 }
 

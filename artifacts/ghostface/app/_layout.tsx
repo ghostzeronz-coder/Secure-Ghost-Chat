@@ -239,6 +239,10 @@ function RootNavigator() {
         <Stack.Screen name="chat/[id]" />
         <Stack.Screen name="call" />
         <Stack.Screen name="paywall" />
+        {/* Solana crypto paywall — Android/web only. Excluded from the iOS
+            nav stack so ghostface://paywall-crypto deep links 404 on iOS
+            instead of reaching the screen. Component also guards internally. */}
+        {Platform.OS !== "ios" && <Stack.Screen name="paywall-crypto" />}
       </Stack>
       {/* Incoming call overlay sits on top of everything when authenticated */}
       {incomingCall && <IncomingCallOverlay />}

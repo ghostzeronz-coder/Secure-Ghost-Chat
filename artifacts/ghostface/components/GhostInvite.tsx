@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -26,7 +27,10 @@ const TIMER_OPTIONS = [
 
 function getApiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (!domain) return "";
+  if (!domain) {
+    if (__DEV__) console.error("[ghostface] EXPO_PUBLIC_DOMAIN is not set — invite API calls will be skipped. Set it in .env or eas.json.");
+    return "";
+  }
   return `https://${domain}/api`;
 }
 
@@ -84,6 +88,7 @@ export default function GhostInvite() {
   const [expiresAt, setExpiresAt] = useState(() => Date.now() + TIMER_OPTIONS[0].ms);
   const [remaining, setRemaining] = useState(TIMER_OPTIONS[0].ms);
   const [copied, setCopied] = useState(false);
+  const [copiedShare, setCopiedShare] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [redeemInput, setRedeemInput] = useState("");
   const [redeemState, setRedeemState] = useState<RedeemState>("idle");
@@ -185,6 +190,24 @@ export default function GhostInvite() {
     setCopied(true);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setTimeout(() => setCopied(false), 2500);
+  };
+
+  const buildInviteShareText = (c: string) =>
+    `Join me on GHOSTFACE 👻\nMy invite code: ${c}\n\niOS: https://apps.apple.com/app/id6781518828\nAndroid: https://play.google.com/store/apps/details?id=com.ghostface.app`;
+
+  const handleCopyShare = async () => {
+    await Clipboard.setStringAsync(buildInviteShareText(code));
+    setCopiedShare(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setCopiedShare(false), 2000);
+  };
+
+  const handleSend = async () => {
+    try {
+      await Share.share({ message: buildInviteShareText(code) });
+    } catch {
+      // user cancelled or share sheet unavailable
+    }
   };
 
   const handleTimer = (idx: number) => {
@@ -496,6 +519,36 @@ export default function GhostInvite() {
       fontWeight: "800",
       letterSpacing: 3,
     },
+    shareRow: {
+      flexDirection: "row" as const,
+      gap: 10,
+      width: "100%" as const,
+    },
+    shareBtn: {
+      flex: 1,
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "center" as const,
+      gap: 6,
+      paddingVertical: 11,
+      backgroundColor: colors.muted,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    shareBtnActive: {
+      backgroundColor: "rgba(32,138,239,0.15)",
+      borderColor: colors.primary,
+    },
+    shareBtnTxt: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      fontWeight: "700",
+      letterSpacing: 2,
+    },
+    shareBtnTxtActive: {
+      color: colors.primary,
+    },
   });
 
   return (
@@ -592,6 +645,29 @@ export default function GhostInvite() {
                 {expired ? "CODE DESTROYED" : `DESTROYS IN  ${fmtCountdown(remaining)}`}
               </Text>
             </View>
+
+            {/* Copy + Send */}
+            {!expired && (
+              <View style={styles.shareRow}>
+                <Pressable
+                  style={[styles.shareBtn, copiedShare && styles.shareBtnActive]}
+                  onPress={handleCopyShare}
+                >
+                  <Ionicons
+                    name={copiedShare ? "checkmark" : "copy-outline"}
+                    size={14}
+                    color={copiedShare ? colors.primary : colors.mutedForeground}
+                  />
+                  <Text style={[styles.shareBtnTxt, copiedShare && styles.shareBtnTxtActive]}>
+                    {copiedShare ? "COPIED" : "COPY"}
+                  </Text>
+                </Pressable>
+                <Pressable style={styles.shareBtn} onPress={handleSend}>
+                  <Ionicons name="share-outline" size={14} color={colors.mutedForeground} />
+                  <Text style={styles.shareBtnTxt}>SEND</Text>
+                </Pressable>
+              </View>
+            )}
 
           </View>
         </View>
