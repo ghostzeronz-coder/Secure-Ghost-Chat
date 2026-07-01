@@ -70,6 +70,7 @@
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@noble/post-quantum": "^0.6.1",
+    "expo": "~54.0.35",
     "expo-av": "~16.0.8",
     "expo-build-properties": "~1.0.10",
     "expo-camera": "^17.0.10",
@@ -85,6 +86,7 @@
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-get-random-values": "^1.11.0",
+    "react-native-purchases": "^10.4.0",
     "react-native-qrcode-svg": "^6.3.21",
     "react-native-webrtc": "^124.0.7"
   }

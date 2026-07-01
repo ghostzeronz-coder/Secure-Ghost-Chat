@@ -19,13 +19,15 @@
       "node": "22.13.0",
       "distribution": "internal",
       "ios": { "simulator": false },
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "apk" },
+      "env": { "EXPO_PUBLIC_DOMAIN": "ghostface.co.nz" }
     },
     "production": {
       "node": "22.13.0",
       "autoIncrement": true,
       "ios": { "buildConfiguration": "Release", "distribution": "store" },
-      "android": { "buildType": "app-bundle", "distribution": "store" }
+      "android": { "buildType": "app-bundle", "distribution": "store" },
+      "env": { "EXPO_PUBLIC_DOMAIN": "ghostface.co.nz" }
     }
   },
   "submit": {
