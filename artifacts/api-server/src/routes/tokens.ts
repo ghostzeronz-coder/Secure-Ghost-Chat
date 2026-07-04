@@ -13,7 +13,22 @@ import { toErrorMessage } from "../utils/error";
 
 const router: IRouter = Router();
 
-const SOLANA_RPC = process.env.SOLANA_RPC_URL ?? clusterApiUrl("mainnet-beta");
+// Deliberately independent of SOLANA_RPC_URL — that env var is the live
+// mainnet connection solanaPayments.ts uses to verify real USDC subscription
+// payments. Reusing it here would mean pointing token-deploy testing at
+// devnet could silently break real payment verification, or vice versa.
+type SolanaNetwork = "devnet" | "mainnet-beta";
+
+function isSolanaNetwork(v: unknown): v is SolanaNetwork {
+  return v === "devnet" || v === "mainnet-beta";
+}
+
+function getRpcUrl(network: SolanaNetwork): string {
+  if (network === "devnet") {
+    return process.env.SOLANA_DEVNET_RPC_URL?.trim() || clusterApiUrl("devnet");
+  }
+  return process.env.SOLANA_RPC_URL?.trim() || clusterApiUrl("mainnet-beta");
+}
 
 function getDeployerKeypair(): Keypair | null {
   const raw = process.env.SOLANA_DEPLOYER_KEY;
@@ -136,7 +151,12 @@ router.delete("/tokens/:id", async (req: Request, res: Response) => {
   }
 });
 
-// ── POST /api/tokens/:id/deploy — Deploy to Solana mainnet ───────────────────
+// ── POST /api/tokens/:id/deploy — Deploy to Solana (devnet by default) ───────
+//
+// Body: { network?: "devnet" | "mainnet-beta", mintAuthority?: string }
+// network defaults to "devnet" — deploying a real, irreversible mainnet
+// token requires explicitly passing { network: "mainnet-beta" }. This was
+// previously hardcoded to mainnet-beta with no way to test safely first.
 router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
   try {
     const [token] = await db
@@ -149,11 +169,17 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
         .status(400)
         .json({ error: "Token is already deployed", mintAddress: token.mintAddress });
 
+    const requestedNetwork = req.body.network;
+    if (requestedNetwork !== undefined && !isSolanaNetwork(requestedNetwork)) {
+      return res.status(400).json({ error: 'network must be "devnet" or "mainnet-beta"' });
+    }
+    const network: SolanaNetwork = requestedNetwork ?? "devnet";
+
     const payer = getDeployerKeypair();
     if (!payer) {
       return res.status(503).json({
         error:
-          "Deployer not configured. Set SOLANA_DEPLOYER_KEY (JSON array of 64 bytes) and fund it with SOL.",
+          "Deployer not configured. Set SOLANA_DEPLOYER_KEY (JSON array of 64 bytes).",
         setup: true,
       });
     }
@@ -168,12 +194,24 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
       }
     }
 
-    const connection = new Connection(SOLANA_RPC, "confirmed");
-    const balance = await connection.getBalance(payer.publicKey);
+    const connection = new Connection(getRpcUrl(network), "confirmed");
+    let balance = await connection.getBalance(payer.publicKey);
+    if (balance < 0.01 * LAMPORTS_PER_SOL && network === "devnet") {
+      // Devnet SOL is free and only usable for testing — airdrop rather
+      // than asking for manual funding.
+      try {
+        const sig = await connection.requestAirdrop(payer.publicKey, LAMPORTS_PER_SOL);
+        await connection.confirmTransaction(sig, "confirmed");
+        balance = await connection.getBalance(payer.publicKey);
+      } catch (err) {
+        logger.warn({ err: toErrorMessage(err) }, "[tokens/deploy] devnet airdrop failed");
+      }
+    }
     if (balance < 0.01 * LAMPORTS_PER_SOL) {
       return res.status(402).json({
-        error: `Deployer needs ≥ 0.01 SOL. Current: ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL`,
+        error: `Deployer needs ≥ 0.01 SOL on ${network}. Current: ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL`,
         deployerAddress: payer.publicKey.toBase58(),
+        network,
         setup: true,
       });
     }
@@ -201,7 +239,10 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
     }
 
     const mintAddress = mint.toBase58();
-    const explorerUrl = `https://solscan.io/token/${mintAddress}`;
+    const explorerUrl =
+      network === "devnet"
+        ? `https://solscan.io/token/${mintAddress}?cluster=devnet`
+        : `https://solscan.io/token/${mintAddress}`;
 
     await db
       .update(tokensTable)
@@ -210,7 +251,7 @@ router.post("/tokens/:id/deploy", async (req: Request, res: Response) => {
         mintAddress,
         deploySignature: mintSignature,
         explorerUrl,
-        network: "mainnet-beta",
+        network,
         deployedAt: new Date(),
       })
       .where(eq(tokensTable.id, token.id));
