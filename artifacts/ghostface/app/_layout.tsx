@@ -23,7 +23,6 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { boxShadow } from "@/lib/shadow";
 import LockScreen from "@/app/lock";
 import OnboardingScreen from "@/app/onboarding";
@@ -155,12 +154,6 @@ function RootNavigator() {
   const appState = useRef(AppState.currentState);
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
-
-  // Registers for push once the user is actually past onboarding and
-  // unlocked — no point prompting for permission on the lock/onboarding
-  // screens. The token itself isn't sent anywhere yet; wiring it to the
-  // api-server so it can address a push at this device is separate work.
-  usePushNotifications(loaded && isOnboarded && !isLocked);
 
   const clearInactivityTimer = useCallback(() => {
     if (inactivityTimer.current) {

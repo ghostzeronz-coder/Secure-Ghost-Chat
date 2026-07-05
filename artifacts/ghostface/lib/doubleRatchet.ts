@@ -32,6 +32,7 @@ import { randomBytes } from "@noble/hashes/utils.js";
 import { ml_kem768 } from "@noble/post-quantum/ml-kem.js";
 
 const MAX_SKIP = 1000;
+const PQ_CT_RESEND_WINDOW = 4;
 
 // ── Byte helpers ──────────────────────────────────────────────────────────────
 
@@ -554,7 +555,7 @@ export function ratchetEncrypt(
   // attach the ciphertext for the peer (set when this sending chain began with a
   // DH ratchet). Both ride inside the AEAD associated data via the serialised header.
   if (s.pq && s.PQs) header.pqPub = s.PQs.pub;
-  if (s.pq && s.pendingPqCt) header.pqCt = s.pendingPqCt;
+  if (s.pq && s.pendingPqCt && s.Ns < PQ_CT_RESEND_WINDOW) header.pqCt = s.pendingPqCt;
 
   const ad         = strToBytes(JSON.stringify(header));
   const ciphertext = aeadEncrypt(mk, padPlaintext(plaintext), ad);
