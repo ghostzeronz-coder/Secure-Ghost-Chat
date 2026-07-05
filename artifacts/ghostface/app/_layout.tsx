@@ -23,6 +23,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AppProvider, useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { boxShadow } from "@/lib/shadow";
 import LockScreen from "@/app/lock";
 import OnboardingScreen from "@/app/onboarding";
@@ -155,6 +156,12 @@ function RootNavigator() {
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
 
+  // Registers for push once the user is actually past onboarding and
+  // unlocked — no point prompting for permission on the lock/onboarding
+  // screens. The token itself isn't sent anywhere yet; wiring it to the
+  // api-server so it can address a push at this device is separate work.
+  usePushNotifications(loaded && isOnboarded && !isLocked);
+
   const clearInactivityTimer = useCallback(() => {
     if (inactivityTimer.current) {
       clearTimeout(inactivityTimer.current);
@@ -239,10 +246,18 @@ function RootNavigator() {
         <Stack.Screen name="chat/[id]" />
         <Stack.Screen name="call" />
         <Stack.Screen name="paywall" />
-        {/* Solana crypto paywall — Android/web only. Excluded from the iOS
-            nav stack so ghostface://paywall-crypto deep links 404 on iOS
-            instead of reaching the screen. Component also guards internally. */}
-        {Platform.OS !== "ios" && <Stack.Screen name="paywall-crypto" />}
+        {/* Solana/USDC crypto paywall — Apple Guideline 3.1.1 forbids in-app
+            crypto payments on iOS. Stack.Protected genuinely drops this
+            screen from the navigator's route table when guard is false;
+            a bare conditional <Stack.Screen> does NOT do this — expo-router
+            silently re-appends any undeclared file route (see
+            useScreens.js:getSortedChildren "add remaining children"), so
+            the previous version of this guard never actually blocked the
+            route or the ghostface://paywall-crypto deep link. Android/web
+            keep it. */}
+        <Stack.Protected guard={Platform.OS !== "ios"}>
+          <Stack.Screen name="paywall-crypto" />
+        </Stack.Protected>
       </Stack>
       {/* Incoming call overlay sits on top of everything when authenticated */}
       {incomingCall && <IncomingCallOverlay />}

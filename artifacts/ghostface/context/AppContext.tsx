@@ -364,7 +364,6 @@ export interface VPNServer {
   country: string;
   region: string;
   shortRegion: string;
-  latency: number;
   flag: string;
 }
 
@@ -514,12 +513,12 @@ const CALL_SIGNAL_TYPES = new Set([
 const DEFAULT_TRANSACTIONS: Transaction[] = [];
 
 const VPN_SERVERS: VPNServer[] = [
-  { id: "1", name: "US East", country: "United States", region: "New York", shortRegion: "NYC", latency: 12, flag: "🇺🇸" },
-  { id: "2", name: "EU West", country: "Germany", region: "Frankfurt", shortRegion: "FRA", latency: 24, flag: "🇩🇪" },
-  { id: "3", name: "Asia Pacific", country: "Japan", region: "Tokyo", shortRegion: "TYO", latency: 68, flag: "🇯🇵" },
-  { id: "4", name: "Nordic", country: "Sweden", region: "Stockholm", shortRegion: "ARN", latency: 31, flag: "🇸🇪" },
-  { id: "5", name: "Offshore", country: "Iceland", region: "Reykjavik", shortRegion: "KEF", latency: 45, flag: "🇮🇸" },
-  { id: "6", name: "SE Asia", country: "Singapore", region: "Singapore", shortRegion: "SIN", latency: 92, flag: "🇸🇬" },
+  { id: "1", name: "US East", country: "United States", region: "New York", shortRegion: "NYC", flag: "🇺🇸" },
+  { id: "2", name: "EU West", country: "Germany", region: "Frankfurt", shortRegion: "FRA", flag: "🇩🇪" },
+  { id: "3", name: "Asia Pacific", country: "Japan", region: "Tokyo", shortRegion: "TYO", flag: "🇯🇵" },
+  { id: "4", name: "Nordic", country: "Sweden", region: "Stockholm", shortRegion: "ARN", flag: "🇸🇪" },
+  { id: "5", name: "Offshore", country: "Iceland", region: "Reykjavik", shortRegion: "KEF", flag: "🇮🇸" },
+  { id: "6", name: "SE Asia", country: "Singapore", region: "Singapore", shortRegion: "SIN", flag: "🇸🇬" },
 ];
 
 export { VPN_SERVERS };
@@ -563,7 +562,7 @@ const APP_STORAGE_KEYS = [
   LOW_BW_MODE_KEY,
 ] as const;
 
-function getApiBase(): string {
+export function getApiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (!domain) return "";
   return `https://${domain}/api`;

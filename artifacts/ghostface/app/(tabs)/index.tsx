@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  Image,
   Platform,
   Pressable,
   StyleSheet,
@@ -15,11 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PanicButton } from "@/components/PanicButton";
 import { TabScreenWrapper } from "@/components/TabScreenWrapper";
 import { useApp } from "@/context/AppContext";
-import { boxShadow } from "@/lib/shadow";
 
 const BG = "#000";
-const GOLD = "#bf9b30";
-const RED = "#dc2626";
 
 const FONT_SERIF = Platform.select({
   ios: "Georgia",
@@ -50,22 +48,16 @@ type NavNode = {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { alias, vpnConnected, panicWipe } = useApp();
-  const [wipeArmed, setWipeArmed] = useState(false);
-  const [isWiping, setIsWiping] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const wipeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wipeFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
-
   const spin = useRef(new Animated.Value(0)).current;
-  const globeSpin = useRef(new Animated.Value(0)).current;
-  const fade = useRef(new Animated.Value(0)).current;
   const reveal = useRef(new Animated.Value(0)).current;
-  const wipeAnim = useRef(new Animated.Value(0)).current;
+  const globeSpin = useRef(new Animated.Value(0)).current;
+  const glowPulse = useRef(new Animated.Value(0)).current;
 
-  // Continuous slow spin + ghostly breathing fade for the centerpiece.
-  // Gated by screen focus so the loops don't churn battery while off-screen.
+  // Slow decorative tick-ring spin, the continuous globe rotation, and its
+  // glow pulse. All gated by screen focus so nothing churns battery while
+  // this tab is off-screen.
   useFocusEffect(
     useCallback(() => {
       const spinLoop = Animated.loop(
@@ -76,8 +68,6 @@ export default function HomeScreen() {
           useNativeDriver: true,
         }),
       );
-      // Sideways "globe" spin for the centerpiece — rotates on its vertical
-      // axis (rotateY) rather than flat round-and-round (rotateZ).
       const globeLoop = Animated.loop(
         Animated.timing(globeSpin, {
           toValue: 1,
@@ -86,31 +76,31 @@ export default function HomeScreen() {
           useNativeDriver: true,
         }),
       );
-      const fadeLoop = Animated.loop(
+      const glowLoop = Animated.loop(
         Animated.sequence([
-          Animated.timing(fade, {
+          Animated.timing(glowPulse, {
             toValue: 1,
-            duration: 2600,
-            easing: Easing.inOut(Easing.quad),
+            duration: 2200,
+            easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
-          Animated.timing(fade, {
+          Animated.timing(glowPulse, {
             toValue: 0,
-            duration: 3200,
-            easing: Easing.inOut(Easing.quad),
+            duration: 2200,
+            easing: Easing.inOut(Easing.sin),
             useNativeDriver: true,
           }),
         ]),
       );
       spinLoop.start();
       globeLoop.start();
-      fadeLoop.start();
+      glowLoop.start();
       return () => {
         spinLoop.stop();
         globeLoop.stop();
-        fadeLoop.stop();
+        glowLoop.stop();
       };
-    }, [spin, globeSpin, fade]),
+    }, [spin, globeSpin, glowPulse]),
   );
 
   // Reveal/hide the orbiting menu when the central circle is long-pressed.
@@ -122,51 +112,6 @@ export default function HomeScreen() {
       useNativeDriver: true,
     }).start();
   }, [menuOpen, reveal]);
-
-  useEffect(() => {
-    Animated.timing(wipeAnim, {
-      toValue: wipeArmed || isWiping ? 1 : 0,
-      duration: 700,
-      useNativeDriver: false,
-    }).start();
-  }, [wipeArmed, isWiping, wipeAnim]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (wipeTimer.current) clearTimeout(wipeTimer.current);
-      if (wipeFeedbackTimer.current) clearTimeout(wipeFeedbackTimer.current);
-    };
-  }, []);
-
-  // Panic-wipe gesture — silent: no haptics, no audio, no toast, no alert.
-  // The 3-second hold IS the confirmation.
-  const handleWipePressIn = () => {
-    if (isWiping) return;
-    setWipeArmed(true);
-    if (wipeTimer.current) clearTimeout(wipeTimer.current);
-    wipeTimer.current = setTimeout(async () => {
-      if (!mountedRef.current) return;
-      setIsWiping(true);
-      setWipeArmed(false);
-      try {
-        await panicWipe();
-      } catch {
-        // swallow — silent
-      }
-      if (!mountedRef.current) return;
-      if (wipeFeedbackTimer.current) clearTimeout(wipeFeedbackTimer.current);
-      wipeFeedbackTimer.current = setTimeout(() => {
-        if (mountedRef.current) setIsWiping(false);
-      }, 1500);
-    }, 3000);
-  };
-
-  const handleWipePressOut = () => {
-    if (wipeTimer.current) clearTimeout(wipeTimer.current);
-    if (!isWiping) setWipeArmed(false);
-  };
 
   const handlePanicWipe = async () => {
     await panicWipe();
@@ -228,13 +173,21 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
-  const globeDeg = globeSpin.interpolate({
+  const globeFrontDeg = globeSpin.interpolate({
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
-  const circleOpacity = fade.interpolate({
+  const globeBackDeg = globeSpin.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.82, 1],
+    outputRange: ["180deg", "540deg"],
+  });
+  const glowOpacity = glowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.05, 0.2],
+  });
+  const glowScale = glowPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.07],
   });
   const nodeScale = reveal.interpolate({
     inputRange: [0, 1],
@@ -252,45 +205,6 @@ export default function HomeScreen() {
   return (
     <TabScreenWrapper>
       <View style={styles.container}>
-        {/* Panic-wipe seal — top-right, tiny, silent */}
-        <View
-          pointerEvents="box-none"
-          style={[styles.wipeContainer, { top: insets.top + 16 }]}
-        >
-          <Pressable
-            onPressIn={handleWipePressIn}
-            onPressOut={handleWipePressOut}
-            hitSlop={16}
-            style={styles.wipeHit}
-          >
-            <Animated.View
-              style={[
-                styles.wipeSeal,
-                {
-                  backgroundColor: wipeAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ["rgba(127,29,29,0.4)", RED],
-                  }),
-                  transform: [
-                    {
-                      scale: wipeAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 1.25],
-                      }),
-                    },
-                  ],
-                  boxShadow: boxShadow(RED, wipeArmed || isWiping ? 0.95 : 0.5, 10),
-                },
-              ]}
-            >
-              <Ionicons name="flame" size={13} color="#fff" />
-            </Animated.View>
-            <Text style={styles.wipeLabel}>
-              {isWiping ? "WIPED" : wipeArmed ? "HOLD 3s" : "WIPE"}
-            </Text>
-          </Pressable>
-        </View>
-
         {/* Alias header */}
         <View pointerEvents="none" style={[styles.header, { top: insets.top + 18 }]}>
           <Text style={styles.aliasText}>{aliasText}</Text>
@@ -338,22 +252,40 @@ export default function HomeScreen() {
                     menuOpen ? "Hide menu" : "Long press to reveal menu"
                   }
                 >
-                  <View pointerEvents="none" style={styles.globeGlow} />
-                  <View pointerEvents="none" style={styles.globeGlowInner} />
-                  <Animated.Image
-                    source={require("../../assets/images/login-compass.png")}
-                    resizeMode="contain"
+                  {/* Continuously spinning "globe" — two mirrored copies of
+                      the same mark, each rotated on the Y axis and hidden
+                      via backfaceVisibility while edge-on, so the transition
+                      between them never shows a mirrored/incorrect frame.
+                      Sits inside the same long-press-to-reveal-menu hit
+                      target as before; the spin itself has no gesture, so it
+                      doesn't conflict with the long press. */}
+                  <Animated.View
+                    pointerEvents="none"
                     style={[
-                      styles.centerEmblem,
-                      {
-                        opacity: circleOpacity,
-                        transform: [
-                          { perspective: 800 },
-                          { rotateY: globeDeg },
-                        ],
-                      },
+                      styles.globeGlowInner,
+                      { opacity: glowOpacity, transform: [{ scale: glowScale }] },
                     ]}
                   />
+                  <View style={styles.globeTiltWrap}>
+                    <Animated.Image
+                      source={require("../../assets/images/login-compass.png")}
+                      resizeMode="contain"
+                      style={[
+                        styles.centerEmblem,
+                        styles.globeFace,
+                        { transform: [{ rotateY: globeFrontDeg }] },
+                      ]}
+                    />
+                    <Animated.Image
+                      source={require("../../assets/images/login-compass.png")}
+                      resizeMode="contain"
+                      style={[
+                        styles.centerEmblem,
+                        styles.globeFace,
+                        { transform: [{ scaleX: -1 }, { rotateY: globeBackDeg }] },
+                      ]}
+                    />
+                  </View>
                 </Pressable>
                 <Animated.Text
                   pointerEvents="none"
@@ -416,9 +348,9 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Panic wipe — below globe, same button as Settings */}
+        {/* Panic wipe — below globe, same button as Settings, at half size here */}
         <View style={styles.panicWrap}>
-          <PanicButton onWipe={handlePanicWipe} />
+          <PanicButton onWipe={handlePanicWipe} scale={0.5} />
         </View>
       </View>
     </TabScreenWrapper>
@@ -427,32 +359,6 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
-
-  // Wipe seal (top-right)
-  wipeContainer: {
-    position: "absolute",
-    right: 24,
-    alignItems: "center",
-    zIndex: 50,
-  },
-  wipeHit: { alignItems: "center", justifyContent: "center", padding: 8 },
-  wipeSeal: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(220,38,38,0.7)",
-  },
-  wipeLabel: {
-    position: "absolute",
-    top: 32,
-    fontFamily: FONT_MONO,
-    fontSize: 8,
-    letterSpacing: 2,
-    color: "rgba(220,38,38,0.9)",
-  },
 
   // Alias header
   header: {
@@ -524,15 +430,16 @@ const styles = StyleSheet.create({
     width: 184,
     height: 184,
   },
-  globeGlow: {
+  globeTiltWrap: {
+    width: 184,
+    height: 184,
+    transform: [{ perspective: 900 }, { rotateX: "12deg" }],
+  },
+  globeFace: {
     position: "absolute",
-    width: 250,
-    height: 250,
-    top: (184 - 250) / 2,
-    left: (184 - 250) / 2,
-    borderRadius: 125,
-    backgroundColor: "rgba(191,155,48,0.07)",
-    boxShadow: boxShadow(GOLD, 0.6, 55),
+    top: 0,
+    left: 0,
+    backfaceVisibility: "hidden",
   },
   globeGlowInner: {
     position: "absolute",
