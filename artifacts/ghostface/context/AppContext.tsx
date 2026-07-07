@@ -358,6 +358,20 @@ export interface Transaction {
   timestamp: number;
 }
 
+// Mirrors the shape of GET /api/tokens on the api-server — the mint address
+// and network are only present once a token has actually been deployed
+// on-chain (see routes/tokens.ts). Fetched live rather than hardcoded so
+// the wallet screen tracks whatever's actually deployed without a client
+// release every time a mint address changes.
+export interface AppToken {
+  id: number;
+  name: string;
+  symbol: string;
+  decimals: number;
+  mintAddress: string | null;
+  network: string | null;
+}
+
 export interface VPNServer {
   id: string;
   name: string;
@@ -397,6 +411,7 @@ interface AppState {
   conversations: Conversation[];
   fdBalance: number;
   casperBalance: number;
+  appTokens: AppToken[];
   walletAddress: string;
   transactions: Transaction[];
   dataUsed: number;
@@ -456,6 +471,7 @@ interface AppContextType extends AppState {
   panicWipe: () => Promise<void>;
   connectWallet: (address: string) => Promise<{ error?: string }>;
   disconnectWallet: () => Promise<void>;
+  refreshAppTokenBalances: () => Promise<void>;
   setAutoLockTimeout: (ms: number | null) => Promise<void>;
   setDuressGracePeriod: (seconds: number) => Promise<void>;
   setLanguage: (code: string) => Promise<void>;
@@ -882,6 +898,86 @@ async function fetchSolBalance(address: string): Promise<number> {
   }
 }
 
+function clusterRpcUrl(network: string | null): string {
+  return network === "devnet"
+    ? "https://api.devnet.solana.com"
+    : "https://api.mainnet-beta.solana.com";
+}
+
+/** Real on-chain SPL token balance for a given owner + mint, via raw
+ * JSON-RPC (no @solana/web3.js dependency needed client-side, matching
+ * fetchSolBalance's pattern). Returns 0 if the owner has no token account
+ * for this mint yet — that's a legitimate "never held any" state, not
+ * an error. */
+async function fetchSplTokenBalance(
+  ownerAddress: string,
+  mintAddress: string,
+  network: string | null,
+): Promise<number> {
+  try {
+    const resp = await fetch(clusterRpcUrl(network), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getTokenAccountsByOwner",
+        params: [ownerAddress, { mint: mintAddress }, { encoding: "jsonParsed" }],
+      }),
+    });
+    const json = await resp.json();
+    const accounts = json?.result?.value ?? [];
+    if (accounts.length === 0) return 0;
+    const amount =
+      accounts[0]?.account?.data?.parsed?.info?.tokenAmount?.uiAmount;
+    return typeof amount === "number" ? amount : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Fetches the live token list (name/symbol/mint) from the api-server, and
+ * — if a wallet is connected — the real balance of each deployed token for
+ * that wallet. Deliberately tolerant of a missing apiBase or a token with
+ * no mintAddress yet (still "pending"): those just show as 0 rather than
+ * failing the whole screen. */
+async function fetchAppTokensAndBalances(
+  ownerAddress: string | null,
+): Promise<{ tokens: AppToken[]; balances: number[] }> {
+  const apiBase = getApiBase();
+  if (!apiBase) return { tokens: [], balances: [] };
+  try {
+    const resp = await fetch(`${apiBase}/tokens`);
+    if (!resp.ok) return { tokens: [], balances: [] };
+    const json = await resp.json();
+    const raw = (json?.data ?? []) as Array<{
+      id: number;
+      name: string;
+      symbol: string;
+      decimals: number;
+      mintAddress: string | null;
+      network: string | null;
+    }>;
+    const tokens: AppToken[] = raw.map((t) => ({
+      id: t.id,
+      name: t.name,
+      symbol: t.symbol,
+      decimals: t.decimals,
+      mintAddress: t.mintAddress,
+      network: t.network,
+    }));
+    if (!ownerAddress) return { tokens, balances: tokens.map(() => 0) };
+    const balances = await Promise.all(
+      tokens.map((t) =>
+        t.mintAddress ? fetchSplTokenBalance(ownerAddress, t.mintAddress, t.network) : Promise.resolve(0),
+      ),
+    );
+    return { tokens, balances };
+  } catch {
+    return { tokens: [], balances: [] };
+  }
+}
+
 async function secureGet(key: string): Promise<string | null> {
   if (Platform.OS === "web") return AsyncStorage.getItem(key);
   return SecureStore.getItemAsync(key);
@@ -923,6 +1019,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     conversations: createDefaultConversations(),
     fdBalance: 0,
     casperBalance: 0,
+    appTokens: [],
     walletAddress: "GhFc3...x9mKr4",
     incomingCall: null,
     transactions: DEFAULT_TRANSACTIONS,
@@ -1095,6 +1192,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             setState((prev) => ({ ...prev, solBalance: bal }))
           );
         }
+
+        // Populate app token metadata (name/symbol/mint) regardless of
+        // whether a wallet is connected, so the wallet screen's tabs show
+        // real symbols instead of placeholders; balances only resolve if a
+        // wallet is connected (fetchAppTokensAndBalances handles both).
+        fetchAppTokensAndBalances(connectedWallet ?? null).then(({ tokens, balances }) => {
+          if (tokens.length === 0) return;
+          setState((prev) => ({
+            ...prev,
+            appTokens: tokens,
+            casperBalance: balances[0] ?? prev.casperBalance,
+            fdBalance: balances[1] ?? prev.fdBalance,
+          }));
+        });
 
         // Self-heal crypto state for returning users.
         // Three cases:
@@ -2046,6 +2157,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [persistConversations]
   );
 
+  const refreshAppTokenBalances = useCallback(async () => {
+    const owner = latestStateRef.current.connectedWalletAddress;
+    const { tokens, balances } = await fetchAppTokensAndBalances(owner);
+    if (tokens.length === 0) return;
+    setState((prev) => ({
+      ...prev,
+      appTokens: tokens,
+      // Ordered by id ascending server-side (routes/tokens.ts) — id 1 is
+      // CASPER, id 2 is the second app token (Fantasma). Falls back to the
+      // previous value rather than 0 if the list ever comes back shorter.
+      casperBalance: balances[0] ?? prev.casperBalance,
+      fdBalance: balances[1] ?? prev.fdBalance,
+    }));
+  }, []);
+
   const connectWallet = useCallback(async (address: string): Promise<{ error?: string }> => {
     const trimmed = address.trim();
     if (!isValidSolanaAddress(trimmed)) {
@@ -2053,10 +2179,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     try {
       await AsyncStorage.setItem(CONNECTED_WALLET_KEY, trimmed);
-      setState((prev) => ({ ...prev, connectedWalletAddress: trimmed, solBalance: 0 }));
+      setState((prev) => ({ ...prev, connectedWalletAddress: trimmed, solBalance: 0, fdBalance: 0, casperBalance: 0 }));
       fetchSolBalance(trimmed).then((bal) =>
         setState((prev) => ({ ...prev, solBalance: bal }))
       );
+      fetchAppTokensAndBalances(trimmed).then(({ tokens, balances }) => {
+        if (tokens.length === 0) return;
+        setState((prev) => ({
+          ...prev,
+          appTokens: tokens,
+          casperBalance: balances[0] ?? 0,
+          fdBalance: balances[1] ?? 0,
+        }));
+      });
       return {};
     } catch (err) {
       console.error("[AppContext] Failed to save connected wallet:", err);
@@ -2066,7 +2201,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const disconnectWallet = useCallback(async () => {
     await AsyncStorage.removeItem(CONNECTED_WALLET_KEY);
-    setState((prev) => ({ ...prev, connectedWalletAddress: null, solBalance: 0 }));
+    // Token balances belonged to the wallet that just disconnected — zero
+    // them out too, but keep appTokens (name/symbol/mint) so the tabs don't
+    // flash back to placeholder labels.
+    setState((prev) => ({ ...prev, connectedWalletAddress: null, solBalance: 0, fdBalance: 0, casperBalance: 0 }));
   }, []);
 
   const setLanguage = useCallback(async (code: string) => {
@@ -2217,6 +2355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       conversations: [],
       fdBalance: 0,
       casperBalance: 0,
+      appTokens: [],
       walletAddress: "GhFc3...x9mKr4",
       transactions: DEFAULT_TRANSACTIONS,
       dataUsed: 2.4,
@@ -3092,6 +3231,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         panicWipe,
         connectWallet,
         disconnectWallet,
+        refreshAppTokenBalances,
         setAutoLockTimeout,
         setDuressGracePeriod,
         setLanguage,
