@@ -446,16 +446,23 @@ interface AppState {
 interface AppContextType extends AppState {
   hasPin: boolean;
   hasDuressPin: boolean;
+  hasDecoyPin: boolean;
+  decoyMode: boolean;
   loadError: string | null;
   setAlias: (alias: string) => Promise<void>;
   setPin: (pin: string) => Promise<void>;
   checkPin: (input: string) => Promise<boolean>;
   checkDuressPin: (input: string) => Promise<boolean>;
-  checkPinWithDuress: (input: string) => Promise<{ correct: boolean; isDuress: boolean }>;
+  checkDecoyPin: (input: string) => Promise<boolean>;
+  checkPinWithDuress: (input: string) => Promise<{ correct: boolean; isDuress: boolean; isDecoy: boolean }>;
   captureCurrentPinForTransition: () => Promise<void>;
   checkPreviousMainPin: (candidate: string) => Promise<boolean>;
   setDuressPin: (pin: string) => Promise<void>;
   clearDuressPin: () => Promise<void>;
+  setDecoyPin: (pin: string) => Promise<void>;
+  clearDecoyPin: () => Promise<void>;
+  enterDecoyMode: () => void;
+  exitDecoyMode: () => void;
   setBiometricEnabled: (enabled: boolean) => Promise<void>;
   setLocked: (locked: boolean) => void;
   connectVPN: (server: VPNServer) => void;
@@ -541,6 +548,7 @@ export { VPN_SERVERS };
 
 const SECURE_PIN_KEY = "ghostface_pin";
 const SECURE_DURESS_PIN_KEY = "ghostface_duress_pin";
+const SECURE_DECOY_PIN_KEY = "ghostface_decoy_pin";
 const CONVERSATIONS_KEY = "ghostface_conversations";
 const OUTBOX_KEY = "ghostface_outbox";
 const CONNECTED_WALLET_KEY = "ghostface_connected_wallet";
@@ -1004,6 +1012,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
   const [hasDuressPin, setHasDuressPin] = useState(false);
+  const [hasDecoyPin, setHasDecoyPin] = useState(false);
+  // In-memory only, never persisted — a decoy session must leave no trace
+  // that distinguishes it from a normal one once the app is force-closed.
+  const [decoyMode, setDecoyMode] = useState(false);
   const [vpnAutoReconnecting, setVpnAutoReconnecting] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const wsEverConnectedRef = React.useRef(false);
@@ -1044,10 +1056,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       try {
-        const [alias, pinValue, duressValue, biometric, onboarded, convData, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw, lowBwRaw, smsNumbersRaw, smsMessageRaw] = await Promise.all([
+        const [alias, pinValue, duressValue, decoyValue, biometric, onboarded, convData, connectedWallet, autoLockRaw, storedToken, lastVpnServerId, duressGraceRaw, languageRaw, outboxRaw, lowBwRaw, smsNumbersRaw, smsMessageRaw] = await Promise.all([
           AsyncStorage.getItem("alias"),
           secureGet(SECURE_PIN_KEY),
           secureGet(SECURE_DURESS_PIN_KEY),
+          secureGet(SECURE_DECOY_PIN_KEY),
           AsyncStorage.getItem("biometricEnabled"),
           AsyncStorage.getItem("isOnboarded"),
           readEncryptedString(CONVERSATIONS_KEY),
@@ -1065,6 +1078,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         const hasPinValue = !!pinValue;
         setHasDuressPin(!!duressValue);
+        setHasDecoyPin(!!decoyValue);
         const biometricOn = biometric === "true";
         const isOnboarded = onboarded === "true";
 
@@ -1447,19 +1461,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return prevMainPinRef.current !== null && prevMainPinRef.current === candidate;
   }, []);
 
-  const checkPinWithDuress = useCallback(async (input: string): Promise<{ correct: boolean; isDuress: boolean }> => {
+  const checkPinWithDuress = useCallback(async (input: string): Promise<{ correct: boolean; isDuress: boolean; isDecoy: boolean }> => {
     try {
-      const [stored, duress] = await Promise.all([
+      const [stored, duress, decoy] = await Promise.all([
         secureGet(SECURE_PIN_KEY),
         secureGet(SECURE_DURESS_PIN_KEY),
+        secureGet(SECURE_DECOY_PIN_KEY),
       ]);
-      if (stored === input) return { correct: true, isDuress: false };
-      if (duress && duress === input) return { correct: true, isDuress: true };
-      return { correct: false, isDuress: false };
+      if (stored === input) return { correct: true, isDuress: false, isDecoy: false };
+      if (duress && duress === input) return { correct: true, isDuress: true, isDecoy: false };
+      if (decoy && decoy === input) return { correct: true, isDuress: false, isDecoy: true };
+      return { correct: false, isDuress: false, isDecoy: false };
     } catch (err) {
       console.error("[AppContext] Failed to check PIN with duress:", err);
-      return { correct: false, isDuress: false };
+      return { correct: false, isDuress: false, isDecoy: false };
     }
+  }, []);
+
+  const checkDecoyPin = useCallback(async (input: string): Promise<boolean> => {
+    try {
+      const stored = await secureGet(SECURE_DECOY_PIN_KEY);
+      return stored !== null && stored === input;
+    } catch (err) {
+      console.error("[AppContext] Failed to check decoy PIN:", err);
+      return false;
+    }
+  }, []);
+
+  const setDecoyPin = useCallback(async (pin: string) => {
+    try {
+      await secureSet(SECURE_DECOY_PIN_KEY, pin);
+      setHasDecoyPin(true);
+    } catch (err) {
+      console.error("[AppContext] Failed to save decoy PIN:", err);
+      throw err;
+    }
+  }, []);
+
+  const clearDecoyPin = useCallback(async () => {
+    try {
+      await secureDelete(SECURE_DECOY_PIN_KEY);
+      setHasDecoyPin(false);
+    } catch (err) {
+      console.error("[AppContext] Failed to clear decoy PIN:", err);
+      throw err;
+    }
+  }, []);
+
+  const enterDecoyMode = useCallback(() => {
+    setDecoyMode(true);
+  }, []);
+
+  const exitDecoyMode = useCallback(() => {
+    setDecoyMode(false);
   }, []);
 
   const setDuressPin = useCallback(async (pin: string) => {
@@ -2315,6 +2369,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...APP_STORAGE_KEYS.map((k) => AsyncStorage.removeItem(k)),
         secureDelete(SECURE_PIN_KEY),
         secureDelete(SECURE_DURESS_PIN_KEY),
+        secureDelete(SECURE_DECOY_PIN_KEY),
         secureDelete(DEVICE_TOKEN_KEY),
         secureDelete(MY_IK_PRIV_KEY),
         secureDelete(MY_IK_PUB_KEY),
@@ -2343,6 +2398,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     setHasPin(false);
     setHasDuressPin(false);
+    setHasDecoyPin(false);
+    setDecoyMode(false);
     setState({
       alias: null,
       deviceToken: null,
@@ -3203,16 +3260,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ...state,
         hasPin,
         hasDuressPin,
+        hasDecoyPin,
+        decoyMode,
         loadError,
         setAlias,
         setPin,
         checkPin,
         checkDuressPin,
+        checkDecoyPin,
         checkPinWithDuress,
         captureCurrentPinForTransition,
         checkPreviousMainPin,
         setDuressPin,
         clearDuressPin,
+        setDecoyPin,
+        clearDecoyPin,
+        enterDecoyMode,
+        exitDecoyMode,
         setBiometricEnabled,
         setLocked,
         connectVPN,

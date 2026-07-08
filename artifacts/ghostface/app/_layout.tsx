@@ -26,6 +26,7 @@ import { useColors } from "@/hooks/useColors";
 import { boxShadow } from "@/lib/shadow";
 import LockScreen from "@/app/lock";
 import OnboardingScreen from "@/app/onboarding";
+import DecoyHomeScreen from "@/app/decoy-home";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -150,7 +151,7 @@ function IncomingCallOverlay() {
 
 // ── Root navigator ────────────────────────────────────────────────────────────
 function RootNavigator() {
-  const { isOnboarded, isLocked, loaded, setLocked, autoLockTimeout, incomingCall } = useApp();
+  const { isOnboarded, isLocked, loaded, setLocked, autoLockTimeout, incomingCall, decoyMode } = useApp();
   const appState = useRef(AppState.currentState);
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
@@ -226,6 +227,14 @@ function RootNavigator() {
 
   if (isLocked) {
     return <LockScreen />;
+  }
+
+  // Decoy PIN was entered — render a self-contained, fresh-install-looking
+  // screen instead of the real tab navigator. This never mounts (tabs),
+  // messages, wallet, or vpn screens, so real conversation/wallet state
+  // can never be reached from here, even by accident.
+  if (decoyMode) {
+    return <DecoyHomeScreen />;
   }
 
   if (!isOnboarded) {

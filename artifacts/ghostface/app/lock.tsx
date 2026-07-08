@@ -94,7 +94,7 @@ function shuffleDigits(): string[] {
 export default function LockScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { hasPin, biometricEnabled, duressGracePeriod, smsFallbackNumbers, checkPinWithDuress, setLocked, panicWipe } = useApp();
+  const { hasPin, biometricEnabled, duressGracePeriod, smsFallbackNumbers, checkPinWithDuress, setLocked, panicWipe, enterDecoyMode, exitDecoyMode } = useApp();
   // Count of armed fallback recipients (Task #113). Shown next to the
   // duress countdown bar so the user can confirm at-a-glance whether
   // their out-of-band channel is configured. We deliberately never show
@@ -228,6 +228,7 @@ export default function LockScreen() {
         await clearFailCount();
         failedAttemptsRef.current = 0;
         setFailedAttempts(0);
+        exitDecoyMode();
         setLocked(false);
       } else {
         setBiometricError("Biometric failed — use PIN");
@@ -262,7 +263,7 @@ export default function LockScreen() {
     };
 
     try {
-      const { correct, isDuress } = await checkPinWithDuress(pin);
+      const { correct, isDuress, isDecoy } = await checkPinWithDuress(pin);
       if (correct) {
         // The success haptic fires here — before we know whether this is a
         // duress unlock — so it looks identical to a normal unlock and does
@@ -274,7 +275,13 @@ export default function LockScreen() {
         await clearFailCount();
         failedAttemptsRef.current = 0;
         setFailedAttempts(0);
-        if (isDuress) {
+        if (isDecoy) {
+          // Indistinguishable from a normal unlock to a bystander — no
+          // countdown, no visual difference. RootNavigator swaps in the
+          // decoy interface once decoyMode flips.
+          enterDecoyMode();
+          setLocked(false);
+        } else if (isDuress) {
           // Start a grace period so the user can cancel an accidental
           // duress trigger. The countdown is subtle — a bystander watching
           // the brief animation won't register it. If not cancelled, the wipe
@@ -308,6 +315,9 @@ export default function LockScreen() {
           }, 1000);
           // Keep isVerifying true during the countdown so keypad is locked
         } else {
+          // Real PIN entered — make sure a prior decoy session doesn't
+          // linger if the app was re-locked and reopened normally.
+          exitDecoyMode();
           setLocked(false);
         }
       } else {
