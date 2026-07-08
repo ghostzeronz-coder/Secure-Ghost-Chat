@@ -196,7 +196,7 @@ function GhostWipeScreen({ onDone }: { onDone: () => void }) {
           opacity: textOpacity,
         }}
       >
-        <Ionicons name="nuclear" size={44} color="#FF3B30" />
+        <Ionicons name="nuclear" size={44} color="#FF3B30" allowFontScaling={false} />
         <Text style={ss.wipedHeading}>DATA WIPED</Text>
         <Text style={ss.wipedSub}>ALL TRACES ELIMINATED</Text>
       </Animated.View>
@@ -311,7 +311,7 @@ export function PanicButton({ onWipe, scale = 1 }: PanicButtonProps) {
                 style={[styles.progressFill, { width: `${panicProgress}%` }]}
               />
             )}
-            <Ionicons name="nuclear-outline" size={22 * scale} color="#ffffff" />
+            <Ionicons name="nuclear-outline" size={22 * scale} color="#ffffff" allowFontScaling={false} />
             <Text style={[styles.btnText, { fontSize: 15 * scale }]}>
               {panicHeld ? "WIPING..." : "SELF DESTRUCT"}
             </Text>
