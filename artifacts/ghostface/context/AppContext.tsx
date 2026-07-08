@@ -389,6 +389,12 @@ export interface CallSignal {
   callMode?: string;
 }
 
+export interface GhostpadSignal {
+  type: "ghostpad-created" | "ghostpad-paired" | "ghostpad-text" | "ghostpad-wipe" | "ghostpad-ended" | "ghostpad-error";
+  code?: string;
+  text?: string;
+}
+
 export interface IncomingCall {
   callId: string;
   from: string;
@@ -489,6 +495,8 @@ interface AppContextType extends AppState {
   refreshEntitlement: () => Promise<void>;
   sendCallSignal: (msg: object) => void;
   registerCallListener: (fn: ((s: CallSignal) => void) | null) => void;
+  sendGhostpadSignal: (msg: object) => void;
+  registerGhostpadListener: (fn: ((s: GhostpadSignal) => void) | null) => void;
   dismissIncomingCall: () => void;
   wsConnected: boolean;
   loaded: boolean;
@@ -531,6 +539,10 @@ function createDefaultConversations(): Conversation[] {
 const CALL_SIGNAL_TYPES = new Set([
   "call-ring", "call-accept", "call-hangup",
   "call-offer", "call-answer", "call-ice",
+]);
+
+const GHOSTPAD_SIGNAL_TYPES = new Set([
+  "ghostpad-created", "ghostpad-paired", "ghostpad-text", "ghostpad-wipe", "ghostpad-ended", "ghostpad-error",
 ]);
 
 const DEFAULT_TRANSACTIONS: Transaction[] = [];
@@ -1313,6 +1325,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const wsRef = React.useRef<WebSocket | null>(null);
   const callSignalListenerRef = React.useRef<((s: CallSignal) => void) | null>(null);
+  const ghostpadListenerRef = React.useRef<((s: GhostpadSignal) => void) | null>(null);
   const latestStateRef = React.useRef(state);
   const prevMainPinRef = React.useRef<string | null>(null);
   const outboxRef = React.useRef<OutboxItem[]>([]);
@@ -2445,6 +2458,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     callSignalListenerRef.current = fn;
   }, []);
 
+  const sendGhostpadSignal = useCallback((msg: object) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  const registerGhostpadListener = useCallback((fn: ((s: GhostpadSignal) => void) | null) => {
+    ghostpadListenerRef.current = fn;
+  }, []);
+
   const dismissIncomingCall = useCallback(() => {
     setState((prev) => ({ ...prev, incomingCall: null }));
   }, []);
@@ -2755,7 +2779,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [persistConversations, persistOutbox, drainOutbox]);
 
   const handleIncomingWsMessage = useCallback(async (raw: string) => {
-    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string };
+    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string; code?: string; text?: string };
     try {
       wsMsg = JSON.parse(raw);
     } catch {
@@ -2807,6 +2831,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         );
         persistConversations(updated);
         return { ...prev, conversations: updated };
+      });
+      return;
+    }
+
+    // ── Ghostpad signals — relayed, never persisted client-side either ───────
+    if (wsMsg.type && GHOSTPAD_SIGNAL_TYPES.has(wsMsg.type)) {
+      ghostpadListenerRef.current?.({
+        type: wsMsg.type as GhostpadSignal["type"],
+        code: wsMsg.code,
+        text: wsMsg.text,
       });
       return;
     }
@@ -3291,6 +3325,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         verifyConversation,
         sendCallSignal,
         registerCallListener,
+        sendGhostpadSignal,
+        registerGhostpadListener,
         dismissIncomingCall,
         panicWipe,
         connectWallet,
