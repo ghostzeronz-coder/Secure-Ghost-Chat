@@ -313,7 +313,7 @@ export function PanicButton({ onWipe, scale = 1 }: PanicButtonProps) {
             )}
             <Ionicons name="nuclear-outline" size={22 * scale} color="#ffffff" />
             <Text style={[styles.btnText, { fontSize: 15 * scale }]}>
-              {panicHeld ? "WIPING..." : "PANIC WIPE"}
+              {panicHeld ? "WIPING..." : "SELF DESTRUCT"}
             </Text>
           </LinearGradient>
         </Pressable>

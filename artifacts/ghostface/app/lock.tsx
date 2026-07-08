@@ -432,8 +432,13 @@ export default function LockScreen() {
       backgroundColor: colors.background,
       alignItems: "center",
       justifyContent: "center",
-      paddingTop: insets.top + (Platform.OS === "web" ? 67 : 0),
-      paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 0),
+      // Symmetric top/bottom padding keeps the centered content visually
+      // centered regardless of how lopsided a device's safe-area insets are
+      // (e.g. iPhone 16's Dynamic Island top inset vs. its home-indicator
+      // bottom inset) — asymmetric insets here would skew justifyContent:
+      // "center" downward by half the top/bottom delta.
+      paddingTop: Math.max(insets.top, insets.bottom) + (Platform.OS === "web" ? 67 : 0),
+      paddingBottom: Math.max(insets.top, insets.bottom) + (Platform.OS === "web" ? 34 : 0),
     },
     logo: { marginBottom: 12 },
     appName: {

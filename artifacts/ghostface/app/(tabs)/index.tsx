@@ -54,6 +54,7 @@ export default function HomeScreen() {
   const reveal = useRef(new Animated.Value(0)).current;
   const globeSpin = useRef(new Animated.Value(0)).current;
   const glowPulse = useRef(new Animated.Value(0)).current;
+  const hintPulse = useRef(new Animated.Value(1)).current;
 
   // Slow decorative tick-ring spin, the continuous globe rotation, and its
   // glow pulse. All gated by screen focus so nothing churns battery while
@@ -92,15 +93,37 @@ export default function HomeScreen() {
           }),
         ]),
       );
+      // "HOLD TO REVEAL" hint blinks out and back in on a steady 5s cycle
+      // to keep drawing the eye without being permanently distracting.
+      const hintLoop = Animated.loop(
+        Animated.sequence([
+          Animated.delay(3900),
+          Animated.timing(hintPulse, {
+            toValue: 0,
+            duration: 400,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.delay(300),
+          Animated.timing(hintPulse, {
+            toValue: 1,
+            duration: 400,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
       spinLoop.start();
       globeLoop.start();
       glowLoop.start();
+      hintLoop.start();
       return () => {
         spinLoop.stop();
         globeLoop.stop();
         glowLoop.stop();
+        hintLoop.stop();
       };
-    }, [spin, globeSpin, glowPulse]),
+    }, [spin, globeSpin, glowPulse, hintPulse]),
   );
 
   // Reveal/hide the orbiting menu when the central circle is long-pressed.
@@ -201,6 +224,7 @@ export default function HomeScreen() {
     inputRange: [0, 1],
     outputRange: [1, 0],
   });
+  const hintFinalOpacity = Animated.multiply(hintOpacity, hintPulse);
 
   return (
     <TabScreenWrapper>
@@ -289,7 +313,7 @@ export default function HomeScreen() {
                 </Pressable>
                 <Animated.Text
                   pointerEvents="none"
-                  style={[styles.centerHint, { opacity: hintOpacity }]}
+                  style={[styles.centerHint, { opacity: hintFinalOpacity }]}
                 >
                   HOLD TO REVEAL
                 </Animated.Text>
