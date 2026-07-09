@@ -178,33 +178,29 @@ export function usePushNotifications(enabled: boolean): PushTokens {
       }
     }
 
-    let voipRegisterSub: { remove?: () => void } | undefined;
-    let voipNotificationSub: { remove?: () => void } | undefined;
+    const iosVoipActive = Platform.OS === "ios" && !!VoipPushNotification;
 
-    if (Platform.OS === "ios" && VoipPushNotification) {
+    if (iosVoipActive) {
       try {
         VoipPushNotification.registerVoipToken();
 
-        voipRegisterSub = VoipPushNotification.addEventListener("register", (token: string) => {
+        VoipPushNotification.addEventListener("register", (token: string) => {
           setTokens((prev) => ({ ...prev, voipPushToken: token }));
         });
 
-        voipNotificationSub = VoipPushNotification.addEventListener(
-          "notification",
-          (payload: IncomingCallPayload) => {
-            const callId = payload.callId ?? String(Date.now());
-            pendingCalls.set(callId, payload);
-            if (CallKeep) {
-              CallKeep.displayIncomingCall(
-                callId,
-                payload.from ?? "Unknown",
-                payload.from ?? "Unknown",
-                "generic",
-                payload.callMode === "video",
-              );
-            }
-          },
-        );
+        VoipPushNotification.addEventListener("notification", (payload: IncomingCallPayload) => {
+          const callId = payload.callId ?? String(Date.now());
+          pendingCalls.set(callId, payload);
+          if (CallKeep) {
+            CallKeep.displayIncomingCall(
+              callId,
+              payload.from ?? "Unknown",
+              payload.from ?? "Unknown",
+              "generic",
+              payload.callMode === "video",
+            );
+          }
+        });
       } catch (e) {
         console.warn("[Push] VoIP push registration failed:", e);
       }
@@ -213,11 +209,17 @@ export function usePushNotifications(enabled: boolean): PushTokens {
     return () => {
       receivedSub.remove();
       responseSub.remove();
-      voipRegisterSub?.remove?.();
-      voipNotificationSub?.remove?.();
       if (CallKeep) {
         try {
           CallKeep.removeEventListener("answerCall");
+        } catch {
+          // best-effort cleanup only
+        }
+      }
+      if (iosVoipActive) {
+        try {
+          VoipPushNotification.removeEventListener("register");
+          VoipPushNotification.removeEventListener("notification");
         } catch {
           // best-effort cleanup only
         }
