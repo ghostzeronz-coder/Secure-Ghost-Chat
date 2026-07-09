@@ -45,3 +45,26 @@ export async function ensureDeliveryId(userId: string): Promise<string | null> {
     .where(eq(identityKeysTable.userId, userId));
   return fresh?.deliveryId ?? null;
 }
+
+export interface PushTokens {
+  expoPushToken: string | null;
+  voipPushToken: string | null;
+}
+
+/** Push tokens for a user addressed by alias — used for call signalling, which is alias-addressed. */
+export async function pushTokensForAlias(userId: string): Promise<PushTokens | null> {
+  const [row] = await db
+    .select({ expoPushToken: identityKeysTable.expoPushToken, voipPushToken: identityKeysTable.voipPushToken })
+    .from(identityKeysTable)
+    .where(eq(identityKeysTable.userId, userId));
+  return row ?? null;
+}
+
+/** Push tokens for a user addressed by delivery id — used for messages, which are delivery-id-addressed. */
+export async function pushTokensForDeliveryId(deliveryId: string): Promise<PushTokens | null> {
+  const [row] = await db
+    .select({ expoPushToken: identityKeysTable.expoPushToken, voipPushToken: identityKeysTable.voipPushToken })
+    .from(identityKeysTable)
+    .where(eq(identityKeysTable.deliveryId, deliveryId));
+  return row ?? null;
+}

@@ -12,7 +12,8 @@ import { createHash } from "crypto";
 import { inflateRawSync } from "zlib";
 import { logger } from "../lib/logger";
 import { normalizeAlias } from "../utils/alias";
-import { ensureDeliveryId } from "../utils/delivery";
+import { ensureDeliveryId, pushTokensForAlias, pushTokensForDeliveryId } from "../utils/delivery";
+import { sendExpoPush, sendVoipPushIOS } from "../lib/pushNotifications";
 
 // ── msg-z (compressed frame) safety limits ──────────────────────────────
 // Compressed frames are an untrusted, attacker-controllable input even
@@ -107,6 +108,24 @@ const CALL_SIGNAL_TYPES = new Set([
   "call-answer",
   "call-ice",
 ]);
+
+// How long to hold an offline call-ring open while a push wake gives the
+// callee's device a chance to reconnect, before falling back to the
+// existing "callee offline" bounce. Polling (not a single timeout) so a
+// reconnect is picked up as soon as it happens rather than waiting out the
+// full window every time.
+const CALL_WAKE_GRACE_MS = 8_000;
+const CALL_WAKE_POLL_MS = 500;
+
+async function waitForReconnect(alias: string, timeoutMs: number): Promise<AuthedSocket | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const client = connectedClients.get(alias);
+    if (client && client.ws.readyState === WebSocket.OPEN) return client;
+    await new Promise((resolve) => setTimeout(resolve, CALL_WAKE_POLL_MS));
+  }
+  return connectedClients.get(alias) ?? null;
+}
 
 // ── Ghostpad: live shared scratchpad, never persisted ───────────────────────
 // A pairing code is redeemed once to link two sockets; from then on, text and
@@ -385,12 +404,49 @@ export function createWsServer(wss: WebSocketServer): void {
       if (CALL_SIGNAL_TYPES.has(msg.type)) {
         if (!msg.to) return;
         const toAlias = normalizeAlias(msg.to);
-        const recipient = connectedClients.get(toAlias);
+        let recipient: AuthedSocket | null | undefined = connectedClients.get(toAlias);
+
+        // Callee isn't connected — before giving up, try to wake their device
+        // (VoIP push on iOS via CallKit, high-priority data push on Android)
+        // and give it a short window to reconnect. If neither push token is
+        // registered this resolves immediately and falls straight through to
+        // the existing offline bounce, unchanged.
+        if ((!recipient || recipient.ws.readyState !== WebSocket.OPEN) && msg.type === "call-ring") {
+          // Best-effort: if the push_token columns aren't migrated yet on this
+          // deployment (or the push send throws for any other reason), fall
+          // straight through to the existing offline bounce below rather than
+          // dropping the call attempt entirely.
+          try {
+            const tokens = await pushTokensForAlias(toAlias);
+            if (tokens?.voipPushToken) {
+              await sendVoipPushIOS(tokens.voipPushToken, {
+                callId: msg.callId,
+                from: authedAlias,
+                callMode: msg.callMode,
+              });
+            } else if (tokens?.expoPushToken) {
+              await sendExpoPush(
+                tokens.expoPushToken,
+                "Incoming call",
+                { type: "incoming-call", callId: msg.callId, from: authedAlias, callMode: msg.callMode },
+                { channelId: "incoming-calls" },
+              );
+            }
+            if (tokens?.voipPushToken || tokens?.expoPushToken) {
+              recipient = await waitForReconnect(toAlias, CALL_WAKE_GRACE_MS);
+            }
+          } catch (err) {
+            logger.warn({ err, from: authedAlias, to: toAlias }, "Call-wake push attempt failed");
+          }
+        }
+
         if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
           recipient.ws.send(JSON.stringify({ ...msg, from: authedAlias }));
           logger.debug({ type: msg.type, from: authedAlias, to: toAlias }, "Call signal relayed");
         } else if (msg.type === "call-ring") {
-          // Callee is offline — bounce hangup back to caller immediately
+          // Callee is offline (and either has no push token, or didn't
+          // reconnect within the wake grace period) — bounce hangup back to
+          // the caller.
           ws.send(
             JSON.stringify({
               type: "call-hangup",
@@ -497,6 +553,21 @@ export function createWsServer(wss: WebSocketServer): void {
           logger.debug({ msgId: stored.id }, "Message delivered live");
         } else {
           logger.debug({ msgId: stored.id }, "Message queued for offline delivery");
+          // Best-effort, same as the call-wake path above: if the push_token
+          // columns aren't migrated yet on this deployment, or the send
+          // throws for any other reason, the message stays queued for normal
+          // poll/reconnect delivery — it must not affect the ack below.
+          try {
+            // Generic alert text only — never the sender or message content.
+            // This server doesn't know the sender either (see comment above),
+            // and a push body is visible to Apple/Google/Expo in transit.
+            const tokens = await pushTokensForDeliveryId(toDeliveryId);
+            if (tokens?.expoPushToken) {
+              await sendExpoPush(tokens.expoPushToken, "You have a new message", { type: "message" });
+            }
+          } catch (err) {
+            logger.warn({ err, msgId: stored.id }, "Message-wake push attempt failed");
+          }
         }
 
         ws.send(JSON.stringify({ type: "ack", msgId: stored.id }));

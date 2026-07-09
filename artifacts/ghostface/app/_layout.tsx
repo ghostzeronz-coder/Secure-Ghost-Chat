@@ -21,8 +21,9 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { AppProvider, useApp } from "@/context/AppContext";
+import { AppProvider, getApiBase, useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { boxShadow } from "@/lib/shadow";
 import LockScreen from "@/app/lock";
 import OnboardingScreen from "@/app/onboarding";
@@ -151,10 +152,29 @@ function IncomingCallOverlay() {
 
 // ── Root navigator ────────────────────────────────────────────────────────────
 function RootNavigator() {
-  const { isOnboarded, isLocked, loaded, setLocked, autoLockTimeout, incomingCall, decoyMode } = useApp();
+  const { isOnboarded, isLocked, loaded, setLocked, autoLockTimeout, incomingCall, decoyMode, alias, deviceToken } =
+    useApp();
   const appState = useRef(AppState.currentState);
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
+
+  // Registers for push once the user is actually past onboarding and
+  // unlocked — no point prompting for permission on the lock/onboarding
+  // screens. The tokens themselves aren't sent anywhere by the hook; the
+  // effect below POSTs them to the server whenever they change.
+  const { expoPushToken, voipPushToken } = usePushNotifications(loaded && isOnboarded && !isLocked);
+
+  useEffect(() => {
+    if (!alias || !deviceToken) return;
+    if (!expoPushToken && !voipPushToken) return;
+    const apiBase = getApiBase();
+    if (!apiBase) return;
+    fetch(`${apiBase}/push/${encodeURIComponent(alias)}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
+      body: JSON.stringify({ expoPushToken, voipPushToken }),
+    }).catch((err) => console.warn("[Push] Failed to register push tokens:", err));
+  }, [alias, deviceToken, expoPushToken, voipPushToken]);
 
   const clearInactivityTimer = useCallback(() => {
     if (inactivityTimer.current) {
