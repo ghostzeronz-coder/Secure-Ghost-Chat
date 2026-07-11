@@ -106,10 +106,19 @@ eas submit --platform ios --profile production \
 
 ### Option A: Automated via EAS Submit
 
-You will need a Google Play service account JSON key. See [EAS Submit docs](https://docs.expo.dev/submit/android/) for setup steps. Save the key file to your project root as `google-service-account.json` (do not commit to version control), then run:
+You will need a Google Play service account JSON key. `eas.json` → `submit.production.android.serviceAccountKeyPath` already points at `./google-service-account.json` (gitignored — never commit this file). Generate the key first:
+
+#### Generating the service account key
+1. **Link a Google Cloud project to Play Console** (skip if already linked): [Play Console](https://play.google.com/console) → **Setup** → **API access**. If no Cloud project is linked, Play Console will offer to create/link one — do that.
+2. **Create the service account**: still on **Setup → API access**, click **Create new service account**. This opens Google Cloud Console with a pre-filled service account creation form — follow it through (name it something like `ghostface-eas-submit`), no special IAM roles needed at the Cloud project level.
+3. **Generate the JSON key**: in Google Cloud Console → **IAM & Admin** → **Service Accounts**, select the account you just created → **Keys** tab → **Add Key** → **Create new key** → type **JSON** → Create. This downloads the key file to your machine.
+4. **Grant Play Console permissions**: back in Play Console → **Setup → API access**, find the new service account under "Service accounts" and click **Manage Play Console permissions**. Grant:
+   - **Releases**: at least "Release apps to production, exclude devices, and use Play App Signing" (required for the `track: "production"` / `releaseStatus: "completed"` config in `eas.json`)
+   - **App information**: view access (EAS needs to read app metadata)
+5. **Move the key into place**: rename/move the downloaded JSON file to `google-service-account.json` in the project root (`artifacts/ghostface/`) — matches the gitignore entry and the `serviceAccountKeyPath` already set in `eas.json`.
+6. **Verify and submit**:
 ```bash
-eas submit --platform android --profile production \
-  --android-service-account-key-path ./google-service-account.json
+eas submit --platform android --profile production --latest
 ```
 
 ### Option B: Manual via Google Play Console
@@ -245,18 +254,33 @@ GHOSTFACE implements its own protocol — a Signal-style Double Ratchet plus a p
 This distinction (custom implementation of standard algorithms, vs. non-standard/proprietary algorithms) is the crux of the determination — the former generally qualifies for the lightweight **mass-market self-classification** path under EAR (same route Signal/WhatsApp use); the latter would force a much heavier formal classification-request process.
 
 ### Two separate obligations — don't conflate them
-1. **Apple's declaration** — the `ITSAppUsesNonExemptEncryption` flag + the App Store Connect export compliance questionnaire. This is done.
-2. **The actual US export law obligation** — a filing with the US government (BIS + NSA), independent of Apple, required *before* the app is commercially available and renewed annually. Flipping the Apple flag does **not** satisfy this — it's a separate step, still outstanding.
+1. **Apple's declaration** — the `ITSAppUsesNonExemptEncryption` flag + the App Store Connect export compliance questionnaire.
+2. **The actual US export law obligation** — a filing with the US government (BIS + NSA), independent of Apple, required *before* the app is commercially available and renewed annually. Flipping the Apple flag does **not** satisfy this — it's a separate step.
 
 ### App Store Connect questionnaire — expected answers
 - Uses encryption? **Yes**
 - Qualifies for Category 5 Part 2 exemptions (OS-only/auth-only/etc.)? **No**
-- Uses proprietary/non-standard algorithms? **No** (all algorithms above are standard/published — this is what keeps you on the lighter self-classification path instead of a full CCATS)
+- Uses proprietary/non-standard algorithms? **No** (all algorithms above are standard/published — this is what should keep it on the lighter self-classification path instead of a full CCATS)
 
-### Still outstanding — action required before submission
-- **File the self-classification report** with BIS and NSA (mass-market items like this are typically classified under ECCN 5D992.c). Confirm the current submission process/addresses directly against BIS's current guidance — these details drift, don't rely on this doc for the live process.
-- **Get export-control counsel sign-off** before filing/submitting. This app's whole premise (resisting subpoenas/surveillance) makes it a more scrutiny-prone submission than average — worth a professional review rather than taking this determination at face value.
-- Sanctioned-destination restrictions (Iran, Cuba, North Korea, Syria, Crimea) aren't covered by the mass-market exception, but Apple's own App Store territory settings already exclude those — no action needed here, just noting it.
+### 🔴 BLOCKED — 2026-07-11
+
+`eas submit --platform ios` for build 71 (buildNumber 71, iOS artifact `kJWK93txxHEQ5PwzxuRAUK1EtUyRIpa2bKu2C5PpGsY.ipa`) fails: App Store Connect reports export compliance is missing on the build and is asking for a **commodity classification**.
+
+**This is a discrepancy worth resolving, not routing around.** The determination above says this app should qualify for the *lightweight* mass-market self-classification path (no CCATS) because every algorithm is standard/published. "Commodity classification" is CCATS-flavored language — the *heavier* path. Two possibilities:
+- The App Store Connect questionnaire got answered onto the wrong branch (most likely candidate: the proprietary/non-standard-algorithm question), which is fixable by re-answering it correctly per the table above.
+- Or the determination itself needs revisiting — worth a second look with counsel rather than assumed correct.
+
+**Do not click through App Store Connect's questionnaire to force a submission through.** Whatever gets selected there is a legal attestation to Apple, and it must be backed by an actual completed BIS/NSA filing — not chosen because it's the combination of answers that unblocks the build.
+
+**Next actions, in order:**
+1. Check exactly what App Store Connect's export compliance screen asked for build 71, and how the proprietary/non-standard-algorithm question specifically was answered.
+2. Take that, plus the algorithm table above, to export-control counsel — resolve the CCATS-vs-self-classification discrepancy and get the actual classification determined.
+3. File the self-classification report (or CCATS, if that turns out to be what's actually required) with BIS/NSA. Mass-market items are typically ECCN 5D992.c, but confirm current process/addresses against BIS's live guidance — don't rely on this doc for that.
+4. Only then re-answer the App Store Connect questionnaire to match the real, filed classification, and retry `eas submit`.
+
+Sanctioned-destination restrictions (Iran, Cuba, North Korea, Syria, Crimea) aren't covered by the mass-market exception, but Apple's own App Store territory settings already exclude those — no action needed there.
+
+**This is not legal advice.**
 
 **This is not legal advice.**
 
