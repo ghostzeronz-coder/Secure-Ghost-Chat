@@ -161,6 +161,132 @@ You must capture screenshots on real devices or simulators for each required dev
 
 ---
 
+## Store Listing Copy (Draft v1.0)
+
+### Promotional text (170 char max, editable anytime without review)
+> No Face. No Trace. Encrypted messaging, disposable numbers, and a crypto wallet — built for people who don't want to be found.
+
+### Description (4000 char max)
+```
+GHOSTFACE is a privacy-first communications app for people who want to talk, call, and pay without leaving a trail.
+
+No phone number required to sign up. No email. Just an alias and a PIN.
+
+FEATURES
+
+Encrypted Messaging
+Every conversation is end-to-end encrypted. Only you and the person you're talking to can read what's sent.
+
+Ghost Numbers
+Get disposable, rotating phone numbers for SMS and calls — keep your real number private.
+
+Encrypted Calls
+Voice and video calls, encrypted end-to-end.
+
+GHOSTPAD
+A live shared scratchpad you can pair with anyone using a one-time code — no accounts, no history.
+
+Crypto Wallet
+Built-in Solana wallet for sending and receiving crypto, with support for GHOST and CASPER tokens.
+
+VPN Dashboard
+Monitor your connection status across multiple server locations.
+
+Panic Wipe
+Hold the panic button for 3 seconds to instantly and irreversibly wipe all local data.
+
+Decoy Mode
+Unlock into a harmless-looking empty app under duress, keeping your real data hidden.
+
+Biometric Lock
+Face ID / Touch ID and PIN protection on every launch.
+
+GHOSTFACE is built for anyone who values privacy — journalists, activists, or anyone who just doesn't want their communications tracked, sold, or subpoenaed.
+
+No Face. No Trace.
+```
+
+### Keywords (100 char max, comma-separated, no spaces after commas)
+```
+privacy,encrypted,messaging,anonymous,burner number,secure chat,e2ee,crypto wallet,vpn,disposable
+```
+
+### What's New in This Version
+```
+Initial release: encrypted messaging, ghost numbers, encrypted calls, GHOSTPAD, Solana wallet, VPN dashboard, panic wipe, and decoy mode.
+```
+
+### Support URL
+```
+mailto:support@ghostface.app
+```
+Added to `app.json` → `extra.supportUrl` alongside the existing `marketingUrl`/`privacyPolicyUrl` entries (those two aren't wired into any Apple/EAS build step either — none of the three are referenced anywhere in the app code, they're metadata only). Use `mailto:support@ghostface.app` directly in the App Store Connect "Support URL" field.
+
+**Before submitting**: `support@ghostface.app` needs to actually be a working inbox, or Apple's review (and real users) will get bounces. Since `ghostface.app` is already pointed at this repo's Railway server (`server/serve.js`), the domain itself doesn't do email — you'll need to add email routing at the DNS level (e.g. Cloudflare Email Routing is free and just forwards `support@ghostface.app` to whatever inbox you choose) before this goes live. That's a registrar/DNS step, not a code change.
+
+---
+
+## Encryption Export Compliance
+
+**Determination: `ITSAppUsesNonExemptEncryption` set to `true`** (flipped from `false`) in `app.json`. The prior `false` claimed the standard OS-crypto/HTTPS-only exemption, which doesn't match what the app does.
+
+### The facts (from the code)
+GHOSTFACE implements its own protocol — a Signal-style Double Ratchet plus a post-quantum hybrid (`lib/crypto.ts`, `lib/doubleRatchet.ts`) — rather than relying only on OS/TLS encryption. But every primitive it uses is a **published, standardized algorithm**, not a proprietary/invented one:
+
+| Purpose | Algorithm | Status |
+|---|---|---|
+| Key exchange | X25519 | Standard (RFC 7748) |
+| Identity signing | Ed25519 | Standard (RFC 8032) |
+| Symmetric AEAD | ChaCha20-Poly1305 | Standard (RFC 8439) |
+| KDF | HKDF/HMAC-SHA256 | Standard |
+| PIN key derivation | PBKDF2-SHA256 | Standard |
+| Post-quantum KEM | ML-KEM-768 | NIST-standardized (FIPS 203) |
+
+This distinction (custom implementation of standard algorithms, vs. non-standard/proprietary algorithms) is the crux of the determination — the former generally qualifies for the lightweight **mass-market self-classification** path under EAR (same route Signal/WhatsApp use); the latter would force a much heavier formal classification-request process.
+
+### Two separate obligations — don't conflate them
+1. **Apple's declaration** — the `ITSAppUsesNonExemptEncryption` flag + the App Store Connect export compliance questionnaire. This is done.
+2. **The actual US export law obligation** — a filing with the US government (BIS + NSA), independent of Apple, required *before* the app is commercially available and renewed annually. Flipping the Apple flag does **not** satisfy this — it's a separate step, still outstanding.
+
+### App Store Connect questionnaire — expected answers
+- Uses encryption? **Yes**
+- Qualifies for Category 5 Part 2 exemptions (OS-only/auth-only/etc.)? **No**
+- Uses proprietary/non-standard algorithms? **No** (all algorithms above are standard/published — this is what keeps you on the lighter self-classification path instead of a full CCATS)
+
+### Still outstanding — action required before submission
+- **File the self-classification report** with BIS and NSA (mass-market items like this are typically classified under ECCN 5D992.c). Confirm the current submission process/addresses directly against BIS's current guidance — these details drift, don't rely on this doc for the live process.
+- **Get export-control counsel sign-off** before filing/submitting. This app's whole premise (resisting subpoenas/surveillance) makes it a more scrutiny-prone submission than average — worth a professional review rather than taking this determination at face value.
+- Sanctioned-destination restrictions (Iran, Cuba, North Korea, Syria, Crimea) aren't covered by the mass-market exception, but Apple's own App Store territory settings already exclude those — no action needed here, just noting it.
+
+**This is not legal advice.**
+
+---
+
+## Age Rating (iOS)
+
+Based on a code review of the app (no violence/sexual/gambling content, no in-app browser, contact-adding is invite/QR-code only with no public discovery) — resolved to **4+**, same tier as Signal, WhatsApp, and Telegram.
+
+### Content descriptor grid
+| Descriptor | Answer |
+|---|---|
+| Cartoon or Fantasy Violence | None |
+| Realistic Violence | None |
+| Sexual Content or Nudity | None |
+| Profanity or Crude Humor | None (E2EE user messages aren't reviewable/ratable by Apple — same precedent as Signal/WhatsApp/Telegram) |
+| Alcohol, Tobacco, or Drug Use/References | None |
+| Mature or Suggestive Themes | None (the surveillance-evasion framing — Ghost Numbers, Panic Wipe, Decoy Mode — doesn't depict content, just function) |
+| Horror or Fear Themes | None |
+| Medical or Treatment Information | None |
+| Gambling (simulated) | None |
+| Contests | None |
+| Unrestricted Web Access | No — confirmed no in-app browser/WebView; all links (including the MoonPay on-ramp in `app/(tabs)/wallet.tsx`) hand off to the external Safari via `Linking.openURL`, not an embedded browser |
+
+### Related flags (not part of the rating grid, but adjacent — don't let these slip through review)
+- **Guideline 1.2 (User Generated Content)** — contact-adding is invite/QR-only (`components/GhostInvite.tsx`), no public discovery or alias search, so this stays in the closed-messenger category rather than the open-community category that triggers Apple's stricter filter/report/block/support-contact requirements. Note: the app currently only has "Delete Contact" (`app/(tabs)/messages.tsx`), not an explicit block — deleting a thread doesn't necessarily stop the other party from re-adding you. Not required for the 4+ rating, but worth adding defensively since reviewers sometimes ask for it even on closed models.
+- **Guideline 3.1.5 / Finance category** — the MoonPay fiat on-ramp (buy SOL/USDC with a card) is live, not a placeholder. App Store Connect should likely list **Finance** as a category (primary or secondary) alongside Utilities, and App Review notes should be ready to explain that MoonPay — not GHOSTFACE — handles the KYC/money-transmission side of that transaction.
+
+---
+
 ## App Store Connect Setup (iOS)
 
 Before submitting, complete the following in App Store Connect:
@@ -172,7 +298,7 @@ Before submitting, complete the following in App Store Connect:
 2. **App Information**
    - Name: GHOSTFACE
    - Subtitle: Private & Anonymous Messaging
-   - Category: Utilities (Primary), Social Networking (Secondary)
+   - Category: Utilities (Primary), Social Networking or Finance (Secondary) — see the Guideline 3.1.5 flag under "Age Rating (iOS)" re: the live MoonPay on-ramp
    - Privacy Policy URL: `https://ghostface.app/privacy`
 
 3. **App Privacy** (required)
@@ -181,14 +307,13 @@ Before submitting, complete the following in App Store Connect:
    - Note encryption and local-only storage where applicable
 
 4. **Version Information**
-   - Description: Write a compelling description (up to 4,000 chars)
-   - Keywords: private messaging, anonymous, encrypted, NFC, no trace, secure chat
-   - Support URL: Your support URL
+   - Description, Keywords, What's New: see "Store Listing Copy (Draft v1.0)" above
+   - Support URL: `mailto:support@ghostface.app` (see "Support URL" above — requires DNS email routing to be set up before submission)
    - Marketing URL: `https://ghostface.app`
 
-5. **Age Rating**: Complete the content rating questionnaire (expected: 4+)
+5. **Age Rating**: See "Age Rating (iOS)" above — resolves to 4+. Confirm the grid still matches actual app behavior at submission time before entering it in App Store Connect (these are legal declarations).
 
-6. **Export Compliance**: App uses real non-exempt encryption (Signal-protocol E2E messaging) — `ITSAppUsesNonExemptEncryption` is `true` in app.json. In the questionnaire, answer "Yes" to uses encryption, and "No" to qualifying for EAR Category 5 Part 2 exemptions, then complete the self-classification report step.
+6. **Export Compliance**: See "Encryption Export Compliance" above — `ITSAppUsesNonExemptEncryption` is now `true`. Answer the App Store Connect questionnaire per that section, and confirm the BIS/NSA self-classification filing is done (separate from Apple, still outstanding) before submitting.
 
 ---
 
