@@ -420,8 +420,6 @@ interface AppState {
   appTokens: AppToken[];
   walletAddress: string;
   transactions: Transaction[];
-  dataUsed: number;
-  dataLimit: number;
   connectedWalletAddress: string | null;
   solBalance: number;
   autoLockTimeout: number | null;
@@ -1047,8 +1045,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     walletAddress: "GhFc3...x9mKr4",
     incomingCall: null,
     transactions: DEFAULT_TRANSACTIONS,
-    dataUsed: 2.4,
-    dataLimit: 10,
     connectedWalletAddress: null,
     solBalance: 0,
     autoLockTimeout: 5 * 60 * 1000,
@@ -2428,8 +2424,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       appTokens: [],
       walletAddress: "GhFc3...x9mKr4",
       transactions: DEFAULT_TRANSACTIONS,
-      dataUsed: 2.4,
-      dataLimit: 10,
       connectedWalletAddress: null,
       solBalance: 0,
       autoLockTimeout: 5 * 60 * 1000,

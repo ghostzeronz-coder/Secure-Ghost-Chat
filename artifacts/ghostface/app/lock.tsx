@@ -559,7 +559,9 @@ export default function LockScreen() {
     // ── Ghost-reveal entry gate ────────────────────────────────────────────
     compassWrap: {
       position: "absolute",
-      top: 8,
+      // Shifted up 15mm (~57px @ 96dpi) so the scratch mark doesn't cover
+      // the GHOSTFACE wordmark below it.
+      top: 8 - 57,
       left: 0,
       right: 0,
       alignItems: "center",
@@ -877,7 +879,7 @@ export default function LockScreen() {
       ) : (
         <View style={styles.gate}>
           <View style={styles.compassWrap}>
-            <GhostRevealMark size={600} />
+            <GhostRevealMark size={540} />
           </View>
 
           <Text style={styles.appName}>GHOSTFACE</Text>
