@@ -237,7 +237,9 @@ Added to `app.json` → `extra.supportUrl` alongside the existing `marketingUrl`
 
 ## Encryption Export Compliance
 
-**Determination: `ITSAppUsesNonExemptEncryption` set to `true`** (flipped from `false`) in `app.json`. The prior `false` claimed the standard OS-crypto/HTTPS-only exemption, which doesn't match what the app does.
+**Determination: should be `true`** in `app.json`. The `false` value claims the standard OS-crypto/HTTPS-only exemption, which doesn't match what the app does.
+
+**🟡 Temporarily reverted to `false` on 2026-07-12** — TestFlight/device testing was hitting the build 71 export-compliance wall (see the 🔴 BLOCKED section below) while the real classification is still with counsel, and the developer can't use the iOS Simulator (8GB machine) to test any other way. `false` matches what build 70 shipped with. **Flip this back to `true` before any real App Store submission** — do not let a submission go out with `false` once counsel resolves the classification.
 
 ### The facts (from the code)
 GHOSTFACE implements its own protocol — a Signal-style Double Ratchet plus a post-quantum hybrid (`lib/crypto.ts`, `lib/doubleRatchet.ts`) — rather than relying only on OS/TLS encryption. But every primitive it uses is a **published, standardized algorithm**, not a proprietary/invented one:
