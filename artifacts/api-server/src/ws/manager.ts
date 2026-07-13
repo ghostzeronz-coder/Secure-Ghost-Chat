@@ -50,7 +50,10 @@ export interface WireMessage {
     | "ghostpad-wipe"
     | "ghostpad-leave"
     | "ghostpad-ended"
-    | "ghostpad-error";
+    | "ghostpad-error"
+    | "presence-subscribe"
+    | "presence-unsubscribe"
+    | "presence";
   token?: string;
   alias?: string;
   to?: string;
@@ -62,6 +65,7 @@ export interface WireMessage {
   callId?: string;
   callMode?: string;
   text?: string;
+  online?: boolean;
   // Task #113: client-generated id echoed back as `departed_ack.requestId`
   // so the panic-wipe flow can race the ack against a timeout.
   requestId?: string;
@@ -135,6 +139,25 @@ async function waitForReconnect(alias: string, timeoutMs: number): Promise<Authe
 const GHOSTPAD_CODE_TTL_MS = 5 * 60_000;
 const ghostpadCodes = new Map<string, { alias: string; expiresAt: number }>();
 const ghostpadPartners = new Map<string, string>(); // alias -> paired alias
+
+// ── Presence: online/offline for an explicitly-opened conversation ─────────
+// Same "less metadata-blind" tier as call signalling above (which already
+// puts to/from aliases on the wire) — this is not a new category of leak,
+// just extending that tier to cover presence. Subscriptions are purely
+// in-memory and scoped to "which alias is watching which alias", never
+// persisted, and torn down on unsubscribe or disconnect.
+const presenceSubscribers = new Map<string, Set<string>>(); // target alias -> watcher aliases
+
+function notifyPresence(alias: string, online: boolean): void {
+  const watchers = presenceSubscribers.get(alias);
+  if (!watchers || watchers.size === 0) return;
+  for (const watcherAlias of watchers) {
+    const watcher = connectedClients.get(watcherAlias);
+    if (watcher && watcher.ws.readyState === WebSocket.OPEN) {
+      watcher.ws.send(JSON.stringify({ type: "presence", from: alias, online }));
+    }
+  }
+}
 
 function generateGhostpadCode(): string {
   let code: string;
@@ -285,12 +308,17 @@ export function createWsServer(wss: WebSocketServer): void {
 
     let authedAlias: string | null = null;
     let authedDeliveryId: string | null = null;
+    const myPresenceSubscriptions = new Set<string>(); // targets this socket is watching
 
     const cleanup = () => {
       if (authedAlias) {
         connectedClients.delete(authedAlias);
         revokeGhostpadCode(authedAlias);
         endGhostpadSession(authedAlias);
+        for (const target of myPresenceSubscriptions) {
+          presenceSubscribers.get(target)?.delete(authedAlias);
+        }
+        notifyPresence(authedAlias, false);
       }
     };
 
@@ -334,6 +362,7 @@ export function createWsServer(wss: WebSocketServer): void {
         if (authedDeliveryId) deliveryIdToAlias.set(authedDeliveryId, authedAlias);
         ws.send(JSON.stringify({ type: "ack", alias: authedAlias }));
         logger.info({ alias: authedAlias }, "WS client authenticated");
+        notifyPresence(authedAlias, true);
 
         if (authedDeliveryId) await deliverPending(authedDeliveryId, ws);
         await deliverPendingDepartures(authedAlias, ws);
@@ -510,6 +539,25 @@ export function createWsServer(wss: WebSocketServer): void {
 
       if (msg.type === "ghostpad-leave") {
         endGhostpadSession(authedAlias);
+        return;
+      }
+
+      // ── Presence: subscribe/unsubscribe to another alias's online status ───
+      if (msg.type === "presence-subscribe") {
+        if (!msg.to) return;
+        const targetAlias = normalizeAlias(msg.to);
+        if (!presenceSubscribers.has(targetAlias)) presenceSubscribers.set(targetAlias, new Set());
+        presenceSubscribers.get(targetAlias)!.add(authedAlias);
+        myPresenceSubscriptions.add(targetAlias);
+        ws.send(JSON.stringify({ type: "presence", from: targetAlias, online: connectedClients.has(targetAlias) }));
+        return;
+      }
+
+      if (msg.type === "presence-unsubscribe") {
+        if (!msg.to) return;
+        const targetAlias = normalizeAlias(msg.to);
+        presenceSubscribers.get(targetAlias)?.delete(authedAlias);
+        myPresenceSubscriptions.delete(targetAlias);
         return;
       }
 

@@ -26,6 +26,7 @@ import {
   sanitizeFallbackMessage,
 } from "@/lib/smsFallback";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import { Alert, AppState as RNAppState, Platform } from "react-native";
 import React, {
@@ -477,6 +478,7 @@ interface AppContextType extends AppState {
   deleteMessage: (conversationId: string, messageId: string) => void;
   clearConversation: (conversationId: string) => void;
   deleteConversation: (conversationId: string) => void;
+  markConversationRead: (conversationId: string) => void;
   setDisappearTimer: (conversationId: string, seconds: number | undefined) => void;
   verifyConversation: (conversationId: string) => void;
   panicWipe: () => Promise<void>;
@@ -496,6 +498,10 @@ interface AppContextType extends AppState {
   sendGhostpadSignal: (msg: object) => void;
   registerGhostpadListener: (fn: ((s: GhostpadSignal) => void) | null) => void;
   dismissIncomingCall: () => void;
+  /** alias -> currently connected to the server. Absent key means unknown (not subscribed yet). */
+  presence: Record<string, boolean>;
+  subscribePresence: (alias: string) => void;
+  unsubscribePresence: (alias: string) => void;
   wsConnected: boolean;
   loaded: boolean;
   vpnAutoReconnecting: boolean;
@@ -1782,6 +1788,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [persistConversations]);
 
+  const markConversationRead = useCallback((conversationId: string) => {
+    setState((prev) => {
+      const existing = prev.conversations.find((c) => c.id === conversationId);
+      if (!existing || existing.unread === 0) return prev;
+      const updated = prev.conversations.map((c) =>
+        c.id === conversationId ? { ...c, unread: 0 } : c
+      );
+      persistConversations(updated);
+      return { ...prev, conversations: updated };
+    });
+  }, [persistConversations]);
+
+  // Keep the OS app-icon badge in sync with total unread across conversations.
+  // shouldSetBadge:true (see usePushNotifications) bumps this on every push,
+  // but nothing ever cleared it back down — it would just accumulate forever.
+  useEffect(() => {
+    const total = state.conversations.reduce((sum, c) => sum + c.unread, 0);
+    Notifications.setBadgeCountAsync(total).catch(() => {});
+  }, [state.conversations]);
+
   const setDisappearTimer = useCallback((conversationId: string, seconds: number | undefined) => {
     setState((prev) => {
       const updated = prev.conversations.map((c) =>
@@ -2463,6 +2489,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ghostpadListenerRef.current = fn;
   }, []);
 
+  const [presence, setPresence] = useState<Record<string, boolean>>({});
+
+  const subscribePresence = useCallback((alias: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "presence-subscribe", to: alias }));
+    }
+  }, []);
+
+  const unsubscribePresence = useCallback((alias: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "presence-unsubscribe", to: alias }));
+    }
+    setPresence((prev) => {
+      if (!(alias in prev)) return prev;
+      const next = { ...prev };
+      delete next[alias];
+      return next;
+    });
+  }, []);
+
   const dismissIncomingCall = useCallback(() => {
     setState((prev) => ({ ...prev, incomingCall: null }));
   }, []);
@@ -2773,7 +2821,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [persistConversations, persistOutbox, drainOutbox]);
 
   const handleIncomingWsMessage = useCallback(async (raw: string) => {
-    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string; code?: string; text?: string };
+    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string; code?: string; text?: string; online?: boolean };
     try {
       wsMsg = JSON.parse(raw);
     } catch {
@@ -2826,6 +2874,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         persistConversations(updated);
         return { ...prev, conversations: updated };
       });
+      return;
+    }
+
+    // ── Presence — another alias's online status changed ────────────────────
+    if (wsMsg.type === "presence" && wsMsg.from) {
+      const presenceAlias = wsMsg.from.toUpperCase();
+      setPresence((prev) => ({ ...prev, [presenceAlias]: !!wsMsg.online }));
       return;
     }
 
@@ -3315,12 +3370,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteMessage,
         clearConversation,
         deleteConversation,
+        markConversationRead,
         setDisappearTimer,
         verifyConversation,
         sendCallSignal,
         registerCallListener,
         sendGhostpadSignal,
         registerGhostpadListener,
+        presence,
+        subscribePresence,
+        unsubscribePresence,
         dismissIncomingCall,
         panicWipe,
         connectWallet,

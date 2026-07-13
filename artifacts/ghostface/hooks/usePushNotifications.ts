@@ -16,11 +16,17 @@ try {
 }
 
 let VoipPushNotification: any = null;
+let RTCAudioSession: any = null;
 if (Platform.OS === "ios") {
   try {
     VoipPushNotification = require("react-native-voip-push-notification").default;
   } catch (e) {
     console.warn("[Push] react-native-voip-push-notification not available:", e);
+  }
+  try {
+    RTCAudioSession = require("react-native-webrtc").RTCAudioSession;
+  } catch (e) {
+    console.warn("[Push] react-native-webrtc (RTCAudioSession) not available:", e);
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -152,9 +158,13 @@ export function usePushNotifications(enabled: boolean): PushTokens {
   useEffect(() => {
     if (!enabled) return;
 
-    registerExpoPushTokenAsync().then((expoPushToken) => {
-      setTokens((prev) => ({ ...prev, expoPushToken }));
-    });
+    registerExpoPushTokenAsync()
+      .then((expoPushToken) => {
+        setTokens((prev) => ({ ...prev, expoPushToken }));
+      })
+      .catch((e) => {
+        console.warn("[Push] Expo push token registration failed:", e);
+      });
 
     const receivedSub = Notifications.addNotificationReceivedListener(() => {});
     const responseSub = Notifications.addNotificationResponseReceivedListener((response) => {
@@ -175,6 +185,22 @@ export function usePushNotifications(enabled: boolean): PushTokens {
         });
       } catch (e) {
         console.warn("[Push] CallKeep answerCall listener failed:", e);
+      }
+
+      // CallKit owns the AVAudioSession for CallKit-driven calls — react-native-webrtc
+      // stays silent (ICE/DTLS connects fine, but no audio in or out) until it's told
+      // CallKit has actually activated/deactivated the session.
+      if (RTCAudioSession) {
+        try {
+          CallKeep.addEventListener("didActivateAudioSession", () => {
+            RTCAudioSession.audioSessionDidActivate();
+          });
+          CallKeep.addEventListener("didDeactivateAudioSession", () => {
+            RTCAudioSession.audioSessionDidDeactivate();
+          });
+        } catch (e) {
+          console.warn("[Push] CallKeep audio session listeners failed:", e);
+        }
       }
     }
 
@@ -214,6 +240,14 @@ export function usePushNotifications(enabled: boolean): PushTokens {
           CallKeep.removeEventListener("answerCall");
         } catch {
           // best-effort cleanup only
+        }
+        if (RTCAudioSession) {
+          try {
+            CallKeep.removeEventListener("didActivateAudioSession");
+            CallKeep.removeEventListener("didDeactivateAudioSession");
+          } catch {
+            // best-effort cleanup only
+          }
         }
       }
       if (iosVoipActive) {

@@ -213,7 +213,7 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation, deleteConversation, lowBandwidthActive, wsConnected } = useApp();
+  const { conversations, sendMessage, retryMessage, deleteMessage, clearConversation, setDisappearTimer, verifyConversation, deleteConversation, markConversationRead, lowBandwidthActive, wsConnected, presence, subscribePresence, unsubscribePresence } = useApp();
   const [text, setText] = useState("");
   const [showInfo, setShowInfo] = useState(false);
   const [showDisappear, setShowDisappear] = useState(false);
@@ -250,6 +250,24 @@ export default function ChatScreen() {
   };
 
   const conv = conversations.find((c) => c.id === id);
+
+  // Clear the unread badge for whichever conversation is actually open —
+  // both for existing unread on entry and for a message that arrives while
+  // already viewing this screen (unread still ticks up server-side regardless
+  // of focus, so re-zero it every time it changes rather than only on mount).
+  useEffect(() => {
+    if (conv?.id && conv.unread > 0) markConversationRead(conv.id);
+  }, [conv?.id, conv?.unread, markConversationRead]);
+
+  // Subscribe to the other side's real online status for as long as this
+  // chat is open — unsubscribe on the way out so the server drops us from
+  // its watcher list instead of leaking a stale subscription.
+  useEffect(() => {
+    if (!conv?.alias) return;
+    const alias = conv.alias;
+    subscribePresence(alias);
+    return () => unsubscribePresence(alias);
+  }, [conv?.alias, subscribePresence, unsubscribePresence]);
 
   // Tick every second when a disappear timer is active — keeps countdown badges live
   useEffect(() => {
@@ -961,8 +979,9 @@ export default function ChatScreen() {
         <View style={styles.headerInfo}>
           <Text style={styles.headerAlias}>{conv.alias}</Text>
           <View style={styles.headerSub}>
-            <StatusDot active size={5} pulse={false} />
+            <StatusDot active={!!presence[conv.alias]} size={5} pulse={presence[conv.alias] === true} />
             <Text style={styles.headerSubText}>
+              {presence[conv.alias] === undefined ? "" : presence[conv.alias] ? "ONLINE · " : "OFFLINE · "}
               {conv.drSession
                 ? conv.drSession.alice.pq
                   ? "POST-QUANTUM · DOUBLE RATCHET · CHACHA20"
