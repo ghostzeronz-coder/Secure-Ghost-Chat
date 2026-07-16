@@ -21,6 +21,7 @@ import { GhostRevealMark } from "@/components/GhostRevealMark";
 import { GoldGradient } from "@/components/GoldGradient";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { emitFailedUnlock } from "@/lib/phantomHooks";
 import { boxShadow } from "@/lib/shadow";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -231,9 +232,11 @@ export default function LockScreen() {
         exitDecoyMode();
         setLocked(false);
       } else {
+        emitFailedUnlock("biometric");
         setBiometricError("Biometric failed — use PIN");
       }
     } catch {
+      emitFailedUnlock("biometric");
       setBiometricError("Biometric unavailable — use PIN");
     }
   };
@@ -322,6 +325,7 @@ export default function LockScreen() {
         }
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        emitFailedUnlock("pin");
         setError(true);
         shake();
         const newCount = await recordFailure();
@@ -340,6 +344,7 @@ export default function LockScreen() {
       // Intentionally count errors as failed attempts: treating a
       // checkPinWithDuress() exception as "unknown outcome" could be exploited
       // to bypass the wipe threshold by repeatedly triggering errors.
+      emitFailedUnlock("pin");
       setError(true);
       shake();
       const newCount = await recordFailure();

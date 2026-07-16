@@ -127,7 +127,7 @@ export default function SettingsScreen() {
   const { scrollRef, onScroll } = useScrollPersist<ScrollView>();
 
   const AUTO_LOCK_OPTIONS: { label: string; value: number | null }[] = [
-    { label: "30 SECONDS", value: 30 * 1000 },
+    { label: "IMMEDIATELY", value: 0 },
     { label: "1 MINUTE", value: 60 * 1000 },
     { label: "5 MINUTES", value: 5 * 60 * 1000 },
     { label: "15 MINUTES", value: 15 * 60 * 1000 },
