@@ -1808,7 +1808,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     Notifications.setBadgeCountAsync(total).catch(() => {});
   }, [state.conversations]);
 
+  // Applies going forward only — never rewrites expiresAt on messages
+  // already in the conversation, only the setting used for new sends and
+  // for messages received from here on.
   const setDisappearTimer = useCallback((conversationId: string, seconds: number | undefined) => {
+    const conv = latestStateRef.current.conversations.find((c) => c.id === conversationId);
     setState((prev) => {
       const updated = prev.conversations.map((c) =>
         c.id === conversationId ? { ...c, disappearAfterSec: seconds } : c
@@ -1816,6 +1820,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       persistConversations(updated);
       return { ...prev, conversations: updated };
     });
+    // Sync the setting to the peer so it isn't just a local, one-sided
+    // toggle. Ephemeral, same as presence: if the peer isn't connected
+    // right now it just doesn't sync this time.
+    if (conv?.isRealContact && conv.alias) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "disappear-timer", to: conv.alias, seconds: seconds ?? null }));
+      }
+    }
   }, [persistConversations]);
 
   const verifyConversation = useCallback((conversationId: string) => {
@@ -2821,7 +2834,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [persistConversations, persistOutbox, drainOutbox]);
 
   const handleIncomingWsMessage = useCallback(async (raw: string) => {
-    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string; code?: string; text?: string; online?: boolean };
+    let wsMsg: { type?: string; msgId?: number; from?: string; payload?: string; x3dhHeader?: string; alias?: string; callId?: string; callMode?: string; code?: string; text?: string; online?: boolean; seconds?: number | null };
     try {
       wsMsg = JSON.parse(raw);
     } catch {
@@ -2870,6 +2883,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 messages: [...c.messages, systemMsg],
               }
             : c
+        );
+        persistConversations(updated);
+        return { ...prev, conversations: updated };
+      });
+      return;
+    }
+
+    // ── Peer changed the disappearing-message timer for this conversation ───
+    // Applies going forward only — updates the setting used for new sends
+    // and newly-received messages, never rewrites expiresAt on messages
+    // already in the conversation.
+    if (wsMsg.type === "disappear-timer" && wsMsg.from) {
+      const peerAlias = wsMsg.from.toUpperCase();
+      const seconds = typeof wsMsg.seconds === "number" ? wsMsg.seconds : undefined;
+      setState((prev) => {
+        const existing = prev.conversations.find((c) => c.alias === peerAlias);
+        if (!existing) return prev;
+        const updated = prev.conversations.map((c) =>
+          c.id === existing.id ? { ...c, disappearAfterSec: seconds } : c
         );
         persistConversations(updated);
         return { ...prev, conversations: updated };

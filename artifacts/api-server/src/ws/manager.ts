@@ -53,7 +53,8 @@ export interface WireMessage {
     | "ghostpad-error"
     | "presence-subscribe"
     | "presence-unsubscribe"
-    | "presence";
+    | "presence"
+    | "disappear-timer";
   token?: string;
   alias?: string;
   to?: string;
@@ -72,6 +73,9 @@ export interface WireMessage {
   // Ghostpad pairing code — never persisted, only ever lives in the
   // in-memory maps below for the few minutes it takes to be redeemed.
   code?: string;
+  // Disappearing-message timeout in seconds; null means "off". Applies
+  // going forward only — never retroactively to messages already sent.
+  seconds?: number | null;
 }
 
 // Extend WebSocket with an aliveness flag used by the protocol-level heartbeat.
@@ -539,6 +543,23 @@ export function createWsServer(wss: WebSocketServer): void {
 
       if (msg.type === "ghostpad-leave") {
         endGhostpadSession(authedAlias);
+        return;
+      }
+
+      // ── Disappearing-message timer — ephemeral relay, never persisted ──────
+      // Same "less metadata-blind" tier as call signalling/presence above.
+      // Syncs the setting live between two connected peers; if the other
+      // side isn't connected right now it simply doesn't sync this time —
+      // no queueing, same as presence and Ghostpad.
+      if (msg.type === "disappear-timer") {
+        if (!msg.to) return;
+        const toAlias = normalizeAlias(msg.to);
+        const recipient = connectedClients.get(toAlias);
+        if (recipient && recipient.ws.readyState === WebSocket.OPEN) {
+          recipient.ws.send(
+            JSON.stringify({ type: "disappear-timer", from: authedAlias, seconds: msg.seconds ?? null }),
+          );
+        }
         return;
       }
 
