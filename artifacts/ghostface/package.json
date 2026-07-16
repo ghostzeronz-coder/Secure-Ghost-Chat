@@ -65,6 +65,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "dependencies": {
+    "@config-plugins/react-native-webrtc": "^13.0.0",
     "@expo-google-fonts/share-tech-mono": "^0.4.1",
     "@expo/app-integrity": "^57.0.0",
     "@noble/ciphers": "^2.1.1",

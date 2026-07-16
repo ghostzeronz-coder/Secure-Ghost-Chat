@@ -96,6 +96,7 @@
           }
         }
       ],
+      "@config-plugins/react-native-webrtc",
       "./plugins/withAdiRegistration",
       "./plugins/withVoipPushKit"
     ],
