@@ -14,15 +14,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { router, Stack, usePathname } from "expo-router";
 import { usePreventScreenCapture } from "expo-screen-capture";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, AppStateStatus, Platform, PanResponder, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { AppProvider, useApp } from "@/context/AppContext";
+import { GhostLogo } from "@/components/GhostLogo";
+import { AppProvider, getApiBase, useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { emitLockTimestamp } from "@/lib/phantomHooks";
 import { boxShadow } from "@/lib/shadow";
 import LockScreen from "@/app/lock";
 import OnboardingScreen from "@/app/onboarding";
@@ -38,6 +41,28 @@ function ScreenCaptureBlocker() {
   return null;
 }
 const blockScreenCapture = Platform.OS !== "web" && !__DEV__;
+
+// ── Privacy overlay ───────────────────────────────────────────────────────────
+// Opaque (not translucent) so it hides content in the iOS app-switcher
+// snapshot regardless of platform blur support — mounted/unmounted
+// synchronously from the same AppState handler that drives the auto-lock
+// decision below, so content never appears unblurred for a frame.
+function PrivacyOverlay() {
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        ...StyleSheet.absoluteFillObject,
+        zIndex: 99999,
+        backgroundColor: "#000000",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <GhostLogo size={96} />
+    </View>
+  );
+}
 
 // ── Incoming call overlay ─────────────────────────────────────────────────────
 function IncomingCallOverlay() {
@@ -151,10 +176,31 @@ function IncomingCallOverlay() {
 
 // ── Root navigator ────────────────────────────────────────────────────────────
 function RootNavigator() {
-  const { isOnboarded, isLocked, loaded, setLocked, autoLockTimeout, incomingCall, decoyMode } = useApp();
+  const { isOnboarded, isLocked, loaded, setLocked, autoLockTimeout, incomingCall, decoyMode, alias, deviceToken } =
+    useApp();
   const appState = useRef(AppState.currentState);
+  const backgroundedAtRef = useRef<number | null>(null);
+  const [privacyBlur, setPrivacyBlur] = useState(false);
   const inactivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pathname = usePathname();
+
+  // Registers for push once the user is actually past onboarding and
+  // unlocked — no point prompting for permission on the lock/onboarding
+  // screens. The tokens themselves aren't sent anywhere by the hook; the
+  // effect below POSTs them to the server whenever they change.
+  const { expoPushToken, voipPushToken } = usePushNotifications(loaded && isOnboarded && !isLocked);
+
+  useEffect(() => {
+    if (!alias || !deviceToken) return;
+    if (!expoPushToken && !voipPushToken) return;
+    const apiBase = getApiBase();
+    if (!apiBase) return;
+    fetch(`${apiBase}/push/${encodeURIComponent(alias)}/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${deviceToken}` },
+      body: JSON.stringify({ expoPushToken, voipPushToken }),
+    }).catch((err) => console.warn("[Push] Failed to register push tokens:", err));
+  }, [alias, deviceToken, expoPushToken, voipPushToken]);
 
   const clearInactivityTimer = useCallback(() => {
     if (inactivityTimer.current) {
@@ -168,6 +214,7 @@ function RootNavigator() {
     if (typeof autoLockTimeout !== "number" || isLocked) return;
     inactivityTimer.current = setTimeout(() => {
       setLocked(true);
+      emitLockTimestamp();
     }, autoLockTimeout);
   }, [autoLockTimeout, isLocked, clearInactivityTimer, setLocked]);
 
@@ -202,68 +249,91 @@ function RootNavigator() {
     }
   }, [pathname]);
 
+  // Privacy blur mounts the instant the app leaves "active" (covers both
+  // the app-switcher snapshot and the brief gap before a real lock
+  // decision below), and only unmounts again once that lock decision has
+  // been applied — so a still-eligible-to-lock session never shows real
+  // content for a frame on the way back to active.
   useEffect(() => {
-    if (!loaded || !isOnboarded) return;
-
     const subscription = AppState.addEventListener(
       "change",
       (nextAppState: AppStateStatus) => {
         const wasActive = appState.current === "active";
         const isBackground =
           nextAppState === "background" || nextAppState === "inactive";
+
         if (wasActive && isBackground) {
-          setLocked(true);
+          backgroundedAtRef.current = Date.now();
+          setPrivacyBlur(true);
+        } else if (!wasActive && nextAppState === "active") {
+          if (loaded && isOnboarded && !isLocked) {
+            const elapsed =
+              backgroundedAtRef.current === null ? 0 : Date.now() - backgroundedAtRef.current;
+            if (typeof autoLockTimeout === "number" && elapsed >= autoLockTimeout) {
+              setLocked(true);
+              emitLockTimestamp();
+            }
+          }
+          backgroundedAtRef.current = null;
+          setPrivacyBlur(false);
         }
+
         appState.current = nextAppState;
       }
     );
 
     return () => subscription.remove();
-  }, [loaded, isOnboarded, setLocked]);
+  }, [loaded, isOnboarded, isLocked, autoLockTimeout, setLocked]);
+
+  // Content varies by app state, but the privacy overlay below must sit
+  // above whichever branch is active — including the lock screen itself,
+  // since backgrounding while already locked should still blur it.
+  let content: React.ReactNode;
 
   if (!loaded) {
-    return <View style={{ flex: 1, backgroundColor: "#000000" }} />;
-  }
-
-  if (isLocked) {
-    return <LockScreen />;
-  }
-
-  // Decoy PIN was entered — render a self-contained, fresh-install-looking
-  // screen instead of the real tab navigator. This never mounts (tabs),
-  // messages, wallet, or vpn screens, so real conversation/wallet state
-  // can never be reached from here, even by accident.
-  if (decoyMode) {
-    return <DecoyHomeScreen />;
-  }
-
-  if (!isOnboarded) {
-    return <OnboardingScreen />;
+    content = <View style={{ flex: 1, backgroundColor: "#000000" }} />;
+  } else if (isLocked) {
+    content = <LockScreen />;
+  } else if (decoyMode) {
+    // Decoy PIN was entered — render a self-contained, fresh-install-looking
+    // screen instead of the real tab navigator. This never mounts (tabs),
+    // messages, wallet, or vpn screens, so real conversation/wallet state
+    // can never be reached from here, even by accident.
+    content = <DecoyHomeScreen />;
+  } else if (!isOnboarded) {
+    content = <OnboardingScreen />;
+  } else {
+    content = (
+      <View style={{ flex: 1 }} {...panResponder.panHandlers}>
+        <Stack screenOptions={{ headerShown: false, animation: "none" }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="chat/[id]" />
+          <Stack.Screen name="call" />
+          <Stack.Screen name="paywall" />
+          {/* Solana/USDC crypto paywall — Apple Guideline 3.1.1 forbids in-app
+              crypto payments on iOS. Stack.Protected genuinely drops this
+              screen from the navigator's route table when guard is false;
+              a bare conditional <Stack.Screen> does NOT do this — expo-router
+              silently re-appends any undeclared file route (see
+              useScreens.js:getSortedChildren "add remaining children"), so
+              the previous version of this guard never actually blocked the
+              route or the ghostface://paywall-crypto deep link. Android/web
+              keep it. */}
+          <Stack.Protected guard={Platform.OS !== "ios"}>
+            <Stack.Screen name="paywall-crypto" />
+          </Stack.Protected>
+        </Stack>
+        {/* Incoming call overlay sits on top of everything when authenticated */}
+        {incomingCall && <IncomingCallOverlay />}
+      </View>
+    );
   }
 
   return (
-    <View style={{ flex: 1 }} {...panResponder.panHandlers}>
-      <Stack screenOptions={{ headerShown: false, animation: "none" }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="chat/[id]" />
-        <Stack.Screen name="call" />
-        <Stack.Screen name="paywall" />
-        {/* Solana/USDC crypto paywall — Apple Guideline 3.1.1 forbids in-app
-            crypto payments on iOS. Stack.Protected genuinely drops this
-            screen from the navigator's route table when guard is false;
-            a bare conditional <Stack.Screen> does NOT do this — expo-router
-            silently re-appends any undeclared file route (see
-            useScreens.js:getSortedChildren "add remaining children"), so
-            the previous version of this guard never actually blocked the
-            route or the ghostface://paywall-crypto deep link. Android/web
-            keep it. */}
-        <Stack.Protected guard={Platform.OS !== "ios"}>
-          <Stack.Screen name="paywall-crypto" />
-        </Stack.Protected>
-      </Stack>
-      {/* Incoming call overlay sits on top of everything when authenticated */}
-      {incomingCall && <IncomingCallOverlay />}
-    </View>
+    <>
+      {content}
+      {privacyBlur && <PrivacyOverlay />}
+    </>
   );
 }
 

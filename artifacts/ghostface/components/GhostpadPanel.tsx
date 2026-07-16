@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -7,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -26,9 +28,9 @@ const SYNC_DEBOUNCE_MS = 250;
  * A live, two-party shared scratchpad. Text and wipe events relay directly
  * between the two paired sockets server-side and are never written to a
  * database — see artifacts/api-server/src/ws/manager.ts. Rendered both as a
- * real feature (pushed from Settings) and, in its default idle state, as the
- * decoy-PIN screen (see app/decoy-home.tsx) — an idle Ghostpad already looks
- * exactly like an empty notes app.
+ * real feature (the GHOSTPAD tab, see app/(tabs)/ghostpad.tsx) and, in its
+ * default idle state, as the decoy-PIN screen (see app/decoy-home.tsx) — an
+ * idle Ghostpad already looks exactly like an empty notes app.
  */
 export default function GhostpadScreen({
   embedded = false,
@@ -47,6 +49,7 @@ export default function GhostpadScreen({
   const [joinCode, setJoinCode] = useState("");
   const [error, setError] = useState("");
   const [text, setText] = useState("");
+  const [codeCopied, setCodeCopied] = useState(false);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentRef = useRef("");
 
@@ -96,6 +99,23 @@ export default function GhostpadScreen({
     setError("");
     setMode("creating");
     sendGhostpadSignal({ type: "ghostpad-create" });
+  };
+
+  const handleCopyCode = async () => {
+    if (!code) return;
+    await Clipboard.setStringAsync(code);
+    setCodeCopied(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setTimeout(() => setCodeCopied(false), 2000);
+  };
+
+  const handleSendCode = async () => {
+    if (!code) return;
+    try {
+      await Share.share({ message: `Join my live GHOSTPAD on GHOSTFACE — code: ${code}` });
+    } catch {
+      // user cancelled or share sheet unavailable
+    }
   };
 
   const handleJoin = () => {
@@ -245,6 +265,36 @@ export default function GhostpadScreen({
       letterSpacing: 2,
       fontWeight: "700" as const,
     },
+    shareRow: {
+      flexDirection: "row",
+      gap: 10,
+      width: "100%",
+    },
+    shareBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 11,
+      backgroundColor: colors.muted,
+      borderRadius: colors.radius,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    shareBtnActive: {
+      backgroundColor: `${colors.primary}18`,
+      borderColor: colors.primary,
+    },
+    shareBtnText: {
+      color: colors.mutedForeground,
+      fontSize: 10,
+      fontWeight: "700" as const,
+      letterSpacing: 2,
+    },
+    shareBtnTextActive: {
+      color: colors.primary,
+    },
   });
 
   return (
@@ -293,6 +343,25 @@ export default function GhostpadScreen({
             <>
               <Text style={styles.emptySub}>SHARE THIS CODE</Text>
               <Text style={styles.codeDisplay}>{code}</Text>
+              <View style={styles.shareRow}>
+                <Pressable
+                  style={[styles.shareBtn, codeCopied && styles.shareBtnActive]}
+                  onPress={handleCopyCode}
+                >
+                  <Ionicons
+                    name={codeCopied ? "checkmark" : "copy-outline"}
+                    size={14}
+                    color={codeCopied ? colors.primary : colors.mutedForeground}
+                  />
+                  <Text style={[styles.shareBtnText, codeCopied && styles.shareBtnTextActive]}>
+                    {codeCopied ? "COPIED" : "COPY"}
+                  </Text>
+                </Pressable>
+                <Pressable style={styles.shareBtn} onPress={handleSendCode}>
+                  <Ionicons name="share-outline" size={14} color={colors.mutedForeground} />
+                  <Text style={styles.shareBtnText}>SEND</Text>
+                </Pressable>
+              </View>
               <Text style={styles.emptySub}>Waiting for the other side to join…</Text>
               <ActivityIndicator color={colors.primary} />
             </>
