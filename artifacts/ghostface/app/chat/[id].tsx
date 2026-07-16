@@ -1417,6 +1417,17 @@ export default function ChatScreen() {
           >
             <Ionicons name="add" size={20} color={colors.mutedForeground} />
           </Pressable>
+          <Pressable
+            style={styles.attachBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/ghostpad");
+            }}
+            testID="ghostpad-btn"
+            accessibilityLabel="Open Ghostpad"
+          >
+            <Ionicons name="document-text-outline" size={18} color={colors.mutedForeground} />
+          </Pressable>
           <TextInput
             style={styles.input}
             value={text}

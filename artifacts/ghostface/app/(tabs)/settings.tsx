@@ -1025,29 +1025,6 @@ export default function SettingsScreen() {
           ))}
         </View>
 
-        <Text style={styles.sectionLabel}>TOOLS (BETA)</Text>
-        <View>
-          <Pressable
-            style={styles.settingRow}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/ghostpad");
-            }}
-            testID="ghostpad-row"
-          >
-            <View style={styles.settingIcon}>
-              <Ionicons name="document-text-outline" size={18} color={colors.primary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.settingLabel}>GHOSTPAD</Text>
-              <Text style={{ color: colors.mutedForeground, fontSize: 9, letterSpacing: 2, marginTop: 2 }}>
-                LIVE SHARED NOTEPAD — NEVER SAVED
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-          </Pressable>
-        </View>
-
         <View style={styles.panicSection}>
           <PanicButton onWipe={handlePanicWipe} />
         </View>
